@@ -214,3 +214,13 @@ This project is licensed under the MIT License. (Make sure you include a `LICENS
 
 ### Known Issues & Limitations:
 * Performance for streaming very large packet volumes from the router hasn't been heavily benchmarked and may require interface optimization.
+
+## Project Status Milestones
+
+| Milestone | Target Date | Description | Status |
+| :--- | :--- | :--- | :--- |
+| **Iteration 1** | TBD | Initial architecture and core framework setup | In Progress |
+| **Iteration 2** | TBD | Behavioral detection algorithms integration | Planned |
+| **Iteration 3** | TBD | Distributed node deployment and testing | Planned |
+| **Iteration 4** | TBD | Real-time alerting framework and visualizations | Planned |
+
