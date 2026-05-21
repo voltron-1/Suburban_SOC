@@ -2,12 +2,14 @@ import os
 import threading
 import requests
 import subprocess
+import logging
 from flask import Flask, request, jsonify
 
 # Import the CISO reporting pipeline (Task 4.1-4.5, Issue #51)
 from weekly_ciso_report import run_reporting_pipeline
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 NTFY_TOPIC  = os.environ.get("NTFY_TOPIC",    "uiw_lab_soc_alerts_tjlam_99")
@@ -44,10 +46,19 @@ def analyze_alert_with_ai(raw_log_data):
     try:
         response = requests.post(LLM_API_URL, json=payload, headers=headers, timeout=30)
         if response.status_code == 200:
+        feat/offline-integration-patch
             return response.json()["choices"][0]["message"]["content"]
         return "AI Analysis failed. Manual review required."
     except Exception as e:
         return f"AI Integration Error: {e}"
+    
+            return response.json()['choices'][0]['message']['content']
+        else:
+            return "AI Analysis failed. Manual review required."
+    except Exception:
+        logger.exception("AI integration failed during alert analysis.")
+        return "AI Analysis failed. Manual review required."
+main
 
 
 # =============================================================================

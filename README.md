@@ -31,9 +31,9 @@
 
 | Name | GitHub Username | Role |
 |---|---|---|
-| Tommy Lammers | [@voltron-1](https://github.com/voltron-1) | Security Analyst / Manager |
-| Sterling Garnett | [@sterlinggarnett](https://github.com/sterlinggarnett) | System Architect / Engineer / Project Lead |
-| Maria Frausto | [@megifrausto](https://github.com/megifrausto) | Design / Docs Lead / Manager |
+| Tommy Lammers | [@voltron-1](https://github.com/voltron-1) | Security Analyst / Engineer |
+| Sterling Garnett | [@sterlinggarnett](https://github.com/sterlinggarnett) | System Architect / Engineer |
+
 
 ## Course Modules
 
@@ -214,6 +214,8 @@ This project is licensed under the MIT License. (Make sure you include a `LICENS
 
 ### Known Issues & Limitations:
 * Performance for streaming very large packet volumes from the router hasn't been heavily benchmarked and may require interface optimization.
+
+feat/offline-integration-patch
 
 ## Project Status Milestones
 
