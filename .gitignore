@@ -1,0 +1,68 @@
+# ==== System & IDEs ====
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==== Virtual Environments & Caches ====
+.venv/
+venv/
+env/
+.pdf_venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ==== Raw Network & Log Data ====
+*.pcap
+*.pcapng
+*.log
+*.csv
+zeek_logs/
+filebeat_data/
+
+# Zeek runtime artifacts (generated at capture time, never commit)
+conn.log
+http.log
+dns.log
+ntp.log
+files.log
+weird.log
+reporter.log
+packet_filter.log
+loaded_scripts.log
+stderr.log
+stdout.log
+.state/
+
+# Docker named volumes
+suburban_soc_data/
+
+# ==== Secrets & Credentials ====
+.env
+.env.*
+*.pem
+*.key
+*.cert
+*.crt
+id_rsa*
+*.ovpn
+secrets/
+credentials.json
+
+# ==== Important / Raw Documents ====
+# Prevent raw working documents and reference materials from being exposed
+*.pdf
+*.docx
+*.doc
+*.xlsx
+pdf_content.txt
+
+# ==== Build / Temp Dirs ====
+/tmp/
+/temp/
+node_modules/
+.antigravitycli/
