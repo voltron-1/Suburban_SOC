@@ -46,16 +46,11 @@ def analyze_alert_with_ai(raw_log_data):
     try:
         response = requests.post(LLM_API_URL, json=payload, headers=headers, timeout=30)
         if response.status_code == 200:
-        feat/offline-integration-patch
             return response.json()["choices"][0]["message"]["content"]
         return "AI Analysis failed. Manual review required."
     except Exception as e:
-         return response.json()['choices'][0]['message']['content']
-    else:
+        app.logger.error("AI integration failed during alert analysis: %s", e)
         return "AI Analysis failed. Manual review required."
-except Exception as e:
-    app.logger.error("AI integration failed during alert analysis: %s", e)
-    return "AI Analysis failed. Manual review required."
 
 # =============================================================================
 # 2. NOTIFICATION ENGINE — ntfy push
