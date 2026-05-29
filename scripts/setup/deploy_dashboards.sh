@@ -126,7 +126,10 @@ fi
 # -----------------------------------------------------------------------------
 blue "==> [6/6] Syncing logstash.conf to Docker mount + restarting Logstash"
 if [[ -f "$LOGSTASH_SRC" ]]; then
-  mkdir -p "$(dirname "$LOGSTASH_MOUNT")"
+  # Best-effort dir create; the mount dir normally already exists. Guarded so a
+  # read-only/UNC parent (e.g. running from a \\wsl.localhost share) can't abort.
+  mount_dir="$(dirname "$LOGSTASH_MOUNT")"
+  [[ -d "$mount_dir" ]] || mkdir -p "$mount_dir" 2>/dev/null || true
   cp "$LOGSTASH_SRC" "$LOGSTASH_MOUNT"
   green "    Synced configs/logstash.conf -> scripts/setup/configs/logstash/logstash.conf"
   if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^logstash$'; then
