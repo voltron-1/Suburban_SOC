@@ -1,7 +1,8 @@
 #!/bin/bash
 # Zeek RUN command — Offline PCAP Analysis
-# Processes all *.pcap files in /storage/PCAP/ through Zeek and outputs
-# JSON logs to /storage/PCAP/zeek_logs/ for Filebeat ingestion.
+# When PCAP_FILE points to a real file, analyzes ONLY that file (the path the
+# menu passes). Otherwise falls back to processing every *.pcap in
+# /storage/PCAP/. Outputs JSON logs to /storage/PCAP/zeek_logs/ for Filebeat.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${LOG_DIR:-/storage/PCAP/zeek_logs}"
@@ -11,34 +12,55 @@ PCAP_FILE="${PCAP_FILE:-/storage/PCAP/http.pcap}"
 sudo mkdir -p /storage/PCAP/intel
 sudo cp -r "${SCRIPT_DIR}/../../configs/intel/"* /storage/PCAP/intel/ 2>/dev/null || true
 
-# Clean previous logs to prevent duplicate processing
-sudo rm -rf "${LOG_DIR:?}"/*
+sudo mkdir -p "$LOG_DIR"
 
-# Loop through all available PCAP files to ensure full dataset generation
-for pcap in /storage/PCAP/*.pcap; do
-  if [ -s "$pcap" ]; then
-    echo "[INFO] Processing $pcap..."
-    pcap_name=$(basename "$pcap" .pcap)
-
-    # Process into a temporary directory
-    sudo mkdir -p /storage/PCAP/temp_zeek
-    docker run --rm \
-      -v /storage/PCAP:/data \
-      -v /storage/PCAP/intel:/data/intel \
-      -w /data/temp_zeek \
-      zeek/zeek \
-      zeek -r "/data/$(basename "$pcap")" LogAscii::use_json=T /data/intel/config.zeek
-
-    # Move and rename logs into the main zeek_logs directory so Filebeat catches them all
-    for log in /storage/PCAP/temp_zeek/*.log; do
-      if [ -f "$log" ]; then
-        base=$(basename "$log" .log)
-        sudo mv "$log" "${LOG_DIR}/${base}_${pcap_name}.log"
-      fi
-    done
-    sudo rm -rf /storage/PCAP/temp_zeek
-    echo "[INFO] Done: $pcap_name"
+# Processes one PCAP file through Zeek and moves its JSON logs into LOG_DIR,
+# suffixed with the pcap name. Re-running a given pcap overwrites only its own
+# logs (no cross-pcap duplication), so there is no need to wipe LOG_DIR.
+# The pcap is bind-mounted read-only at a fixed path, so it can live anywhere
+# on disk -- not just under /storage/PCAP.
+process_pcap() {
+  local pcap="$1"
+  if [ ! -s "$pcap" ]; then
+    echo "[WARN] Skipping empty or missing file: $pcap"
+    return
   fi
-done
 
-echo "[INFO] All PCAPs processed. Logs in ${LOG_DIR}"
+  local pcap_name
+  pcap_name=$(basename "$pcap" .pcap)
+  echo "[INFO] Processing $pcap..."
+
+  sudo mkdir -p /storage/PCAP/temp_zeek
+  docker run --rm \
+    -v /storage/PCAP:/data \
+    -v /storage/PCAP/intel:/data/intel \
+    -v "$pcap":/input.pcap:ro \
+    -w /data/temp_zeek \
+    zeek/zeek \
+    zeek -C -r /input.pcap LogAscii::use_json=T /data/intel/config.zeek
+
+  # Move and rename logs into the main zeek_logs directory so Filebeat catches them.
+  for log in /storage/PCAP/temp_zeek/*.log; do
+    if [ -f "$log" ]; then
+      local base
+      base=$(basename "$log" .log)
+      sudo mv "$log" "${LOG_DIR}/${base}_${pcap_name}.log"
+    fi
+  done
+  sudo rm -rf /storage/PCAP/temp_zeek
+  echo "[INFO] Done: $pcap_name"
+}
+
+# Single-file mode: a specific, existing PCAP_FILE was provided (e.g. from the menu).
+if [ -n "$PCAP_FILE" ] && [ -f "$PCAP_FILE" ]; then
+  echo "[INFO] Single-file mode: $PCAP_FILE"
+  process_pcap "$PCAP_FILE"
+else
+  # Batch mode: no specific file -- process every PCAP in /storage/PCAP.
+  echo "[INFO] Batch mode: processing all PCAPs in /storage/PCAP"
+  for pcap in /storage/PCAP/*.pcap; do
+    process_pcap "$pcap"
+  done
+fi
+
+echo "[INFO] Analysis complete. Logs in ${LOG_DIR}"
