@@ -1,0 +1,38 @@
+# =============================================================================
+# SOAR Permanent Exclusion List  (CDP Proposal §12.4)
+# =============================================================================
+# Canonical, version-controlled allowlist of assets that the SOAR pipeline is
+# NEVER permitted to isolate, block, or quarantine — regardless of what any
+# alert (genuine, malformed, or spoofed) claims.
+#
+# This file is the SINGLE SOURCE OF TRUTH. All three enforcement layers read it:
+#   - scripts/setup/ai_agent/agent_app.py   (approval queue + isolate.sh)
+#   - scripts/hive-mind-broker/dispatcher.py (nft IP block)
+#   - scripts/setup/isolate.sh               (OpenWrt uci MAC block)
+#
+# Format: one entry per line. Entries may be an IPv4 address or a MAC address.
+#   - Comments start with '#'. Blank lines are ignored.
+#   - MACs are matched case-insensitively, ':' and '-' delimiters both accepted.
+#   - IPs are matched as exact strings (no CIDR yet — list each address).
+#
+# Override the path with the EXCLUSION_LIST environment variable.
+# Edit this list whenever core infrastructure changes. Treat every edit as a
+# governance change (PR + review), per the proposal.
+# =============================================================================
+
+# --- Core network infrastructure (REPLACE with your lab's real values) ---
+192.168.1.1        # OpenWrt router / default gateway — isolating this locks the SOC out
+192.168.1.2        # Secondary gateway / firewall
+192.168.1.10       # Primary DNS resolver
+192.168.1.11       # Secondary DNS resolver
+
+# --- Identity & directory services ---
+192.168.1.20       # Active Directory / domain controller
+
+# --- The SOC's own hosts (isolating these blinds the SOC) ---
+192.168.1.50       # SOC / SIEM host (Elasticsearch + Kibana + agent)
+192.168.1.51       # Hive-Mind broker host
+
+# --- Known-good MAC addresses for the above (DHCP-independent protection) ---
+# AA:BB:CC:DD:EE:01  # OpenWrt router LAN interface
+# AA:BB:CC:DD:EE:02  # SOC host NIC

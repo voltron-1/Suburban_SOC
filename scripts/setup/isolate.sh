@@ -41,6 +41,27 @@ fi
 TARGET_MAC="$(echo "$TARGET_MAC" | tr '[:lower:]' '[:upper:]' | tr '-' ':')"
 RULE_NAME="SOAR_QUARANTINE_${TARGET_MAC//:/}"
 
+# --- Exclusion list enforcement (CDP §12.4) ---
+# Refuse to quarantine any asset on the permanent exclusion list. Compared with
+# delimiters stripped + uppercased so AA:BB.. and aa-bb.. match the same entry.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+EXCLUSION_LIST="${EXCLUSION_LIST:-$SCRIPT_DIR/../../governance/exclusion_list.txt}"
+TARGET_MAC_NORM="$(echo "$TARGET_MAC" | tr -d ':-')"
+if [[ -f "$EXCLUSION_LIST" ]]; then
+  while IFS= read -r line; do
+    entry="${line%%#*}"                     # strip inline comments
+    entry="$(echo "$entry" | tr -d '[:space:]')"
+    [[ -z "$entry" ]] && continue
+    entry_norm="$(echo "$entry" | tr '[:lower:]' '[:upper:]' | tr -d ':-')"
+    if [[ "$entry_norm" == "$TARGET_MAC_NORM" ]]; then
+      echo "[REFUSED] $TARGET_MAC is on the permanent exclusion list ($EXCLUSION_LIST). Aborting." >&2
+      exit 3
+    fi
+  done < "$EXCLUSION_LIST"
+else
+  echo "[WARN] Exclusion list not found at $EXCLUSION_LIST — proceeding without infra protection." >&2
+fi
+
 echo "[*] Initiating quarantine for device: $TARGET_MAC"
 echo "[*] Connecting to OpenWrt router at $OPENWRT_HOST..."
 
