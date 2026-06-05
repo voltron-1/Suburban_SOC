@@ -54,22 +54,23 @@ This project directly covers the following course modules from CIS 3353 — Comp
 | M2 | Data Acquisition (The Mesh capture) | ✅ Complete |
 | M3 | The Processing Pipeline (Zeek & Agent) | ✅ Complete |
 | M4 | Data Visualization (ELK Integration) | ✅ Complete |
-| M5 | Advanced Features/Automation (SOAR Quarantine) | 🔄 In Progress |
-| M6 | Presentation | 🔄 In Progress |
+| M5 | Advanced Features/Automation (SOAR Quarantine) | ✅ Complete |
+| M6 | Presentation | ✅ Complete |
 
 ## Architecture
 
 ![Architecture Diagram](docs/architecture-diagram.png)
 
-The Suburban-SOC pipeline is a modular, end-to-end security monitoring system composed of the following components:
+The Suburban-SOC pipeline is a modular, end-to-end security monitoring and automated response system composed of the following components:
 
 | Component | Runtime | Port | Role |
 |---|---|---|---|
-| **OpenWrt Router** | Hardware / Physical | — | Captures all boundary network traffic for the home mesh network |
-| **Zeek** | WSL / Docker Container | File-based | Ingests raw PCAP via SSH/tcpdump and converts it into structured JSON logs |
-| **Logstash** | Docker Container | 5044 in / 9200 out | Enriches, filters, and routes JSON logs with GeoIP data to Elasticsearch |
-| **Elasticsearch** | Docker Container | 9200 | Indexes and stores all structured log data for fast querying |
-| **Kibana** | Docker Container | 5601 | Visualizes network events, security notices, and threat dashboards |
+| **OpenWrt Router** | Hardware / Physical | — | Captures all boundary network traffic; receives MAC-level quarantine rules from the SOAR layer via SSH |
+| **Zeek** | Native / WSL (`/opt/zeek/bin/zeek`) | File-based | Ingests raw PCAP via SSH/tcpdump, outputs structured JSON logs with Layer-2 MAC enrichment (`mac-logging` policy) |
+| **Logstash** | Docker Container | 5044 in / 9200 out | Enriches, filters, and routes JSON logs; applies GeoIP lookups and ECS field mapping |
+| **Elasticsearch** | Docker Container | 9200 | Indexes and stores all structured log data across three index patterns (`logstash-security-*`, `.alerts-security.alerts-*`, `soar-actions-*`) |
+| **Kibana** | Docker Container | 5601 | Visualizes network events and threat dashboards; hosts the Watcher rule (`soar_quarantine_alert`) that triggers the SOAR loop |
+| **SOC AI Agent** | Docker Container (Flask) | 5000 | Receives Kibana Watcher webhooks; runs LLM triage (MITRE ATT&CK mapping), manages a human-approval queue, and executes `isolate.sh` to quarantine devices; sends ntfy + Discord notifications |
 
 > For a full breakdown see the [Architecture Wiki page](../../wiki/Architecture).
 
@@ -205,7 +206,9 @@ Before you begin, ensure you have the following:
 
 ### 3. Usage:
 1.  **Architecture Flow:**
-    `Raw PCAP ➔ Zeek (JSON logs) ➔ Filebeat ➔ Logstash ➔ Elasticsearch ➔ Kibana`
+    **Detection:** `OpenWrt (SSH/tcpdump) ➔ Zeek (JSON + MAC enrichment) ➔ Filebeat ➔ Logstash ➔ Elasticsearch ➔ Kibana`  
+    **Response:** `Kibana Watcher ➔ SOC AI Agent (LLM triage + approval queue) ➔ isolate.sh ➔ OpenWrt (MAC DROP rule)`  
+    **Alerts:** `SOC AI Agent ➔ ntfy (mobile push) + Discord (SOC channel)`
 2.  **Running the Pipeline:**
     Execute the relevant bash scripts in `/scripts/setup/` to begin streaming raw PCAP data over SSH.
 3.  **Viewing Reports:**
@@ -230,11 +233,16 @@ This project is licensed under the MIT License. (Make sure you include a `LICENS
 * This tool was developed as a group project for the Computer Systems Security course.
 
 ### Future Enhancements:
-* Integrate threat intelligence feeds directly into Zeek.
-* Implement dynamic rollback of automated quarantine rules after 24 hours.
+* Implement an SSL/TLS inspection proxy (e.g., mitmproxy) to eliminate the HTTPS blind spot.
+* Integrate live threat intelligence feeds (malicious IP/hash lists) directly into Zeek.
+* Add 24-hour TTL auto-rollback for `SOAR_QUARANTINE_<MAC>` firewall rules.
+* Stress-benchmark the OpenWrt → Zeek → Logstash pipeline under sustained high-volume traffic.
+* Scale Elasticsearch to a multi-node cluster to achieve `green` index health and fault tolerance.
 
 ### Known Issues & Limitations:
-* Performance for streaming very large packet volumes from the router hasn't been heavily benchmarked and may require interface optimization.
+* Elasticsearch runs as a single node — index health is permanently `yellow` (replica shards unassigned). Acceptable for a lab environment; not production-ready.
+* The pipeline cannot inspect the payload of HTTPS traffic without an active SSL/TLS decryption proxy.
+* OpenWrt gateway streaming throughput has not been stress-tested; performance under extreme load is unknown.
 
 
 

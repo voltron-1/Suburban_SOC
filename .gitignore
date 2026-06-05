@@ -66,3 +66,9 @@ pdf_content.txt
 /temp/
 node_modules/
 .antigravitycli/
+
+# ==== Secrets / TLS material / SOAR runtime state (CDP §6, §12.3) ====
+.env
+scripts/setup/.env
+scripts/setup/certs/
+**/approval_queue.jsonl

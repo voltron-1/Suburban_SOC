@@ -1,17 +1,39 @@
 version: '3.8'
 
+# =============================================================================
+# Transport security is ON (CDP §6). Before the first `docker compose up`:
+#   1. ./generate_certs.sh           # mints internal CA + node certs into ./certs
+#   2. cp .env.example .env          # then set a strong ELASTIC_PASSWORD
+# ELASTICSEARCH now requires authentication and serves HTTPS; the transport
+# layer uses verification_mode=certificate (mTLS) so only CA-signed peers join.
+# =============================================================================
+
 services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.3.2
     container_name: elasticsearch
     environment:
       - discovery.type=single-node
-      - xpack.security.enabled=false
+      # --- Security: ON (replaces xpack.security.enabled=false) ---
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD must be set in .env}
+      # --- HTTP TLS ---
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=/usr/share/elasticsearch/config/certs/es/es.key
+      - xpack.security.http.ssl.certificate=/usr/share/elasticsearch/config/certs/es/es.crt
+      - xpack.security.http.ssl.certificate_authorities=/usr/share/elasticsearch/config/certs/ca/ca.crt
+      # --- Transport TLS / mTLS ---
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.key=/usr/share/elasticsearch/config/certs/es/es.key
+      - xpack.security.transport.ssl.certificate=/usr/share/elasticsearch/config/certs/es/es.crt
+      - xpack.security.transport.ssl.certificate_authorities=/usr/share/elasticsearch/config/certs/ca/ca.crt
       - "ES_JAVA_OPTS=-Xms2g -Xmx2g" # Fixes the stack trace crash
     ports:
       - 9200:9200
     volumes:
       - suburban_soc_data:/usr/share/elasticsearch/data
+      - ./certs:/usr/share/elasticsearch/config/certs:ro
     networks:
       - soc-mesh-net
 
@@ -19,9 +41,14 @@ services:
     image: docker.elastic.co/kibana/kibana:9.3.2
     container_name: kibana
     environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_HOSTS=https://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD:?KIBANA_PASSWORD must be set in .env}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=/usr/share/kibana/config/certs/ca/ca.crt
     ports:
       - 5601:5601
+    volumes:
+      - ./certs:/usr/share/kibana/config/certs:ro
     depends_on:
       - elasticsearch
     networks:
@@ -34,18 +61,29 @@ services:
       - 5044:5044
     environment:
       - LS_JAVA_OPTS=-Xms512m -Xmx512m
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD:?ELASTIC_PASSWORD must be set in .env}
     volumes:
       - ./configs/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - ./certs:/usr/share/logstash/config/certs:ro
     networks:
       - soc-mesh-net
     depends_on:
       - elasticsearch
   ai-agent:
-    build: 
+    build:
       context: ./ai_agent
     container_name: soc_ai_agent
     ports:
       - "5000:5000"
+    environment:
+      # CDP §4 / §12.3 / §12.4 — safe defaults; override in .env as needed.
+      - LLM_API_URL=${LLM_API_URL:-http://host.docker.internal:11434/v1/chat/completions}
+      - LLM_MODEL=${LLM_MODEL:-llama3.1}
+      - LLM_ALLOW_HOSTED=${LLM_ALLOW_HOSTED:-false}
+      - AUTONOMOUS_ISOLATION=${AUTONOMOUS_ISOLATION:-false}
+      - EXCLUSION_LIST=/governance/exclusion_list.txt
+    volumes:
+      - ../../governance:/governance:ro
     networks:
       - soc-mesh-net # Make sure this matches the network name your ELK stack uses
     restart: unless-stopped
