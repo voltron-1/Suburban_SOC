@@ -7,6 +7,7 @@ import threading
 import requests
 import subprocess
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from flask import Flask, request, jsonify
 
@@ -26,6 +27,9 @@ LLM_API_URL        = os.environ.get("LLM_API_URL",        "http://localhost:1143
 LLM_MODEL          = os.environ.get("LLM_MODEL",          "llama3.1")
 LLM_ALLOW_HOSTED   = os.environ.get("LLM_ALLOW_HOSTED",   "false").lower() == "true"
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+# Elasticsearch endpoint for the SOAR feedback loop (Executive Dashboard metrics).
+# Defaults to the Docker-network service name used by docker-compose.yml.
+ES_HOST            = os.environ.get("ES_HOST",            "http://elasticsearch:9200")
 
 # CDP §12.3: autonomous containment is Deferred Scope. The agent DRAFTS a
 # response; a human executes it. Set AUTONOMOUS_ISOLATION=true only to restore
