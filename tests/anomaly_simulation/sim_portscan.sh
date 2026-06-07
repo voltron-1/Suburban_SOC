@@ -21,8 +21,11 @@ fi
 echo "[*] Port scan sim: TCP SYN scan of $TARGET_HOST, ports 1-1024"
 echo "[*] Expected Zeek detection: notice.log → Scan::Port_Scan"
 
-# -sS SYN scan, -T4 aggressive timing, -Pn skip host-discovery (so Zeek sees the
-# full attack pattern even against unresponsive hosts), -n no DNS resolution.
-nmap -sS -T4 -Pn -n -p 1-1024 "$TARGET_HOST" >/dev/null
+# -sT TCP connect scan (no root needed; a half-open -sS scan requires
+# CAP_NET_RAW). Zeek's new_connection fires per probed port either way, so the
+# scan-detection policy still flags it. -T4 aggressive timing, -Pn skip
+# host-discovery (so the full sweep runs even against unresponsive hosts),
+# -n no DNS resolution.
+nmap -sT -T4 -Pn -n -p 1-1024 "$TARGET_HOST" >/dev/null
 
 echo "[+] Scan complete. Allow ~30s for Zeek + Logstash to index."
