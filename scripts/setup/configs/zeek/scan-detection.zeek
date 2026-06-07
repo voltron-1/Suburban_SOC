@@ -29,14 +29,20 @@ export {
 
     ## Sliding window over which distinct ports are counted per source.
     option port_scan_interval: interval = 5 min;
+
+    ## Minimum gap between repeat notices for the same source. Short enough that
+    ## re-running the validation suite re-fires, long enough that a single nmap
+    ## sweep (which finishes in seconds) yields exactly one notice.
+    option port_scan_resuppress: interval = 1 min;
 }
 
 # Distinct destination ports seen per source, expiring on inactivity.
 global ports_per_src: table[addr] of set[port]
     &create_expire = port_scan_interval;
 
-# Sources already alerted on, so we emit one notice per scan, not per port.
-global already_flagged: set[addr] &create_expire = port_scan_interval;
+# Sources alerted on recently, so a single sweep emits one notice, not one per
+# port — but the suppression lifts after port_scan_resuppress so re-tests fire.
+global already_flagged: set[addr] &create_expire = port_scan_resuppress;
 
 # new_connection fires on the initial SYN, so every probed port is counted
 # regardless of whether the port is open, closed, or filtered.
@@ -55,6 +61,9 @@ event new_connection(c: connection)
     if ( |ports_per_src[src]| >= port_scan_threshold )
         {
         add already_flagged[src];
+        # Reset the port set so the next sweep is counted as a fresh episode
+        # once suppression lifts, rather than re-firing on a single connection.
+        delete ports_per_src[src];
         NOTICE([$note = Scan::Port_Scan,
                 $conn = c,
                 $src = src,
