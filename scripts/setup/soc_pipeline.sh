@@ -67,7 +67,7 @@ configure_router_ip() {
     # Attempt to automatically detect the default gateway IP using the routing table
     local sensed_ip
     sensed_ip=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
-    local default_ip="${sensed_ip:-10.18.81.1}" # Fallback to 10.18.81.1 if detection fails
+    local default_ip="${sensed_ip:-192.168.1.233}" # Fallback to 192.168.1.233 if detection fails
     
     info "Attempting to auto-detect router IP (Default Gateway)..."
     warn "If you are on WSL, the detected IP might be a virtual gateway."
@@ -88,7 +88,7 @@ configure_router_ip() {
             ROUTER_IP="$user_ip"
             break
         else
-            fail "Invalid input. Please enter a valid IP address (e.g., 10.18.81.1) or press Enter to accept the default."
+            fail "Invalid input. Please enter a valid IP address (e.g., 192.168.1.233) or press Enter to accept the default."
         fi
     done
     
@@ -100,7 +100,7 @@ configure_router_ip() {
 # Collects and exports Elasticsearch credentials for API health checks
 configure_elk_auth() {
     print_section "ELK Stack Authentication"
-    info "Elasticsearch 8.x requires credentials for API checks."
+    info "Elasticsearch 9.x requires credentials for API checks."
     
     echo -ne "${YELLOW}  Enter Elasticsearch username [Press Enter for 'elastic']: ${NC}"
     read -r user_input
@@ -136,15 +136,76 @@ setup_ssh_keys() {
 
     info "Copying public key to ${ROUTER_IP}."
     warn "You will be prompted for the router's password ONE LAST TIME."
-    # Copy the public key to the remote router's authorized_keys file
-    ssh-copy-id -i "${key_path}.pub" "${ROUTER_USER}@${ROUTER_IP}"
-    
-    # Verify the connection works without a password using BatchMode
-    if ssh -o ConnectTimeout=5 -o BatchMode=yes "${ROUTER_USER}@${ROUTER_IP}" exit &>/dev/null; then
-        pass "Passwordless SSH successfully configured!"
+
+    # Primary path: ssh-copy-id works for standard OpenSSH servers.
+    # OpenWRT typically runs dropbear, where ssh-copy-id may be missing or
+    # may write to a location dropbear doesn't read, so we don't treat a
+    # failure here as fatal -- the fallback below handles those cases.
+    if command -v ssh-copy-id &>/dev/null; then
+        ssh-copy-id -i "${key_path}.pub" "${ROUTER_USER}@${ROUTER_IP}" \
+            || warn "ssh-copy-id did not complete cleanly; will try OpenWRT fallback."
     else
-        fail "Failed to configure passwordless SSH. Please check your network or password."
+        warn "ssh-copy-id not available; using OpenWRT-aware fallback."
     fi
+
+    # Verify the connection works without a password using BatchMode
+    if _verify_passwordless_ssh; then
+        pass "Passwordless SSH successfully configured!"
+        return 0
+    fi
+
+    # Fallback: manually install the key for both OpenSSH (~/.ssh/authorized_keys)
+    # and dropbear/OpenWRT (/etc/dropbear/authorized_keys) layouts in one session.
+    warn "Standard key copy not yet working. Trying OpenWRT/dropbear-aware install..."
+    warn "You may be prompted for the router's password once more."
+    _install_key_openwrt "${key_path}.pub"
+
+    # Final verification
+    if _verify_passwordless_ssh; then
+        pass "Passwordless SSH successfully configured (OpenWRT fallback)!"
+    else
+        fail "Failed to configure passwordless SSH to ${ROUTER_IP}."
+        info "Troubleshoot with: ssh -v ${ROUTER_USER}@${ROUTER_IP}"
+        info "On OpenWRT, confirm dropbear allows key auth and check /etc/dropbear/authorized_keys."
+        return 1
+    fi
+}
+
+# Returns 0 if we can SSH to the router without a password prompt.
+_verify_passwordless_ssh() {
+    ssh -o ConnectTimeout=5 -o BatchMode=yes \
+        "${ROUTER_USER}@${ROUTER_IP}" exit &>/dev/null
+}
+
+# Installs a public key on the router covering both OpenSSH and dropbear
+# (OpenWRT) authorized_keys locations. Reads the key from the given .pub file
+# via stdin so a single password-authenticated session does all the work.
+# $1 = path to the public key file
+_install_key_openwrt() {
+    local pubkey_file="$1"
+
+    # The remote command reads the key from stdin (fed by the .pub file).
+    # ssh reads the password from /dev/tty, not stdin, so redirecting stdin
+    # here does not interfere with the interactive password prompt.
+    ssh -o ConnectTimeout=10 "${ROUTER_USER}@${ROUTER_IP}" '
+        key="$(cat)"
+        umask 077
+        # Candidate locations: OpenSSH home dir and OpenWRT dropbear dir.
+        for dir in "$HOME/.ssh" /etc/dropbear; do
+            # Only touch /etc/dropbear if it actually exists (OpenWRT).
+            if [ "$dir" = /etc/dropbear ] && [ ! -d /etc/dropbear ]; then
+                continue
+            fi
+            mkdir -p "$dir" 2>/dev/null
+            akf="$dir/authorized_keys"
+            # Append only if the key is not already present (idempotent).
+            if ! grep -qxF "$key" "$akf" 2>/dev/null; then
+                echo "$key" >> "$akf"
+            fi
+            chmod 700 "$dir" 2>/dev/null
+            chmod 600 "$akf" 2>/dev/null
+        done
+    ' < "$pubkey_file"
 }
 
 # =============================================================================
@@ -172,7 +233,7 @@ run_prereq_checks() {
     fi
 
     # Check if we can SSH into the router without being prompted for a password
-    if ssh -o ConnectTimeout=5 -o BatchMode=yes "${ROUTER_USER}@${ROUTER_IP}" exit &>/dev/null; then
+    if _verify_passwordless_ssh; then
         pass "SSH to router (${ROUTER_IP}) is reachable and authenticated"
     else
         warn "SSH to router (${ROUTER_IP}) requires a password or is unreachable."
@@ -347,7 +408,7 @@ run_sop_002() {
         [[ "$choice" =~ ^[Yy]$ ]] || return
     fi
 
-    info "Installing Filebeat 8.x via Elastic APT repository"
+    info "Installing Filebeat 9.x via Elastic APT repository"
     warn "Requires sudo"
     confirm || return
 

@@ -36,6 +36,15 @@ services:
       - ./certs:/usr/share/elasticsearch/config/certs:ro
     networks:
       - soc-mesh-net
+    # Healthcheck lets dependents wait until ES actually serves requests,
+    # not just until the container starts -- avoids Logstash's startup-race
+    # "Connection refused" WARN against elasticsearch:9200.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 60s
 
   kibana:
     image: docker.elastic.co/kibana/kibana:9.3.2
@@ -50,7 +59,8 @@ services:
     volumes:
       - ./certs:/usr/share/kibana/config/certs:ro
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
     networks:
       - soc-mesh-net
 
@@ -68,7 +78,8 @@ services:
     networks:
       - soc-mesh-net
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
   ai-agent:
     build:
       context: ./ai_agent

@@ -52,15 +52,22 @@ Write-Step "[2/6] Validating Kibana at $KibanaUrl"
 try { Invoke-RestMethod -Uri "$KibanaUrl/api/status" -TimeoutSec 10 | Out-Null; Write-Ok "Kibana is up." }
 catch { Write-Host "ERROR: Kibana not reachable at $KibanaUrl/api/status." -ForegroundColor Red; exit 1 }
 
-# 2. Data view ----------------------------------------------------------------
-Write-Step "[3/6] Ensuring 'logstash-pattern' data view exists"
-try {
-    $body = '{"attributes":{"title":"logstash-*","timeFieldName":"@timestamp"}}'
-    Invoke-RestMethod -Method Post `
-        -Uri "$KibanaUrl/api/saved_objects/index-pattern/logstash-pattern?overwrite=true" `
-        -Headers @{ "kbn-xsrf" = "true" } -ContentType "application/json" -Body $body | Out-Null
-    Write-Ok "logstash-pattern ready."
-} catch { Write-Warn2 "WARN: data view create failed (may already exist): $($_.Exception.Message)" }
+# 2. Data views ---------------------------------------------------------------
+# Use the Data Views API (NOT the low-level saved-objects API) so each view is
+# created complete (with field caps). A field-less index-pattern makes
+# aggregation-based viz throw "cannot read properties of undefined", which trips
+# Kibana's error boundary and blanks every panel on the dashboard.
+Write-Step "[3/6] Ensuring data views exist (logstash-pattern, soar-actions-pattern)"
+function New-SocDataView($id, $title, $allowNoIndex) {
+    $body = "{`"override`":true,`"data_view`":{`"id`":`"$id`",`"name`":`"$title`",`"title`":`"$title`",`"timeFieldName`":`"@timestamp`",`"allowNoIndex`":$allowNoIndex}}"
+    try {
+        Invoke-RestMethod -Method Post -Uri "$KibanaUrl/api/data_views/data_view" `
+            -Headers @{ "kbn-xsrf" = "true" } -ContentType "application/json" -Body $body | Out-Null
+        Write-Ok "$id ready."
+    } catch { Write-Warn2 "WARN: $id create failed: $($_.Exception.Message)" }
+}
+New-SocDataView "logstash-pattern" "logstash-*" "false"
+New-SocDataView "soar-actions-pattern" "soar-actions-*" "true"
 
 # 3. Import dashboards --------------------------------------------------------
 Write-Step "[4/6] Importing dashboard bundles"

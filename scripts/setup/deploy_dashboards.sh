@@ -66,16 +66,21 @@ green "    Kibana is up."
 # -----------------------------------------------------------------------------
 # 2. Provision the logstash-* data view (id: logstash-pattern)
 # -----------------------------------------------------------------------------
-blue "==> [3/6] Ensuring 'logstash-pattern' data view exists"
-http_code=$(curl -s -o /dev/null -w '%{http_code}' \
-  -X POST "${KIBANA_URL}/api/saved_objects/index-pattern/logstash-pattern?overwrite=true" \
-  -H 'kbn-xsrf: true' -H 'Content-Type: application/json' \
-  -d '{"attributes":{"title":"logstash-*","timeFieldName":"@timestamp"}}' || true)
-if [[ "$http_code" =~ ^20 ]]; then
-  green "    logstash-pattern ready (HTTP ${http_code})."
-else
-  red "    WARN: data view create returned HTTP ${http_code} (may already exist / differ)."
-fi
+blue "==> [3/6] Ensuring data views exist (logstash-pattern, soar-actions-pattern)"
+# Use the Data Views API (NOT the low-level saved-objects API) so the data view
+# is created complete — with field caps. A field-less index-pattern object makes
+# aggregation-based visualizations throw "cannot read properties of undefined"
+# and one throwing panel trips Kibana's error boundary, blanking the whole board.
+create_data_view() {  # $1=id  $2=title  $3=allowNoIndex(true/false)
+  curl -s -o /dev/null -w '%{http_code}' \
+    -X POST "${KIBANA_URL}/api/data_views/data_view" \
+    -H 'kbn-xsrf: true' -H 'Content-Type: application/json' \
+    -d "{\"override\":true,\"data_view\":{\"id\":\"$1\",\"name\":\"$2\",\"title\":\"$2\",\"timeFieldName\":\"@timestamp\",\"allowNoIndex\":$3}}" || true
+}
+code=$(create_data_view "logstash-pattern" "logstash-*" "false")
+[[ "$code" =~ ^20 ]] && green "    logstash-pattern ready (HTTP ${code})." || red "    WARN: logstash-pattern -> HTTP ${code}"
+code=$(create_data_view "soar-actions-pattern" "soar-actions-*" "true")
+[[ "$code" =~ ^20 ]] && green "    soar-actions-pattern ready (HTTP ${code})." || red "    WARN: soar-actions-pattern -> HTTP ${code}"
 
 # -----------------------------------------------------------------------------
 # 3. Import all dashboard bundles
