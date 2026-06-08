@@ -19,6 +19,7 @@ sudo tcpdump -i eth0 -s 0 -U -w - | \
   sudo docker run -i --rm \
     -v "${LOG_DIR}:/data/zeek_logs" \
     -v /storage/PCAP/intel:/data/intel \
+    -v "${SCRIPT_DIR}/configs/zeek:/data/policy:ro" \
     -w /data/zeek_logs \
     zeek/zeek \
-    zeek -C -r - LogAscii::use_json=T /data/intel/config.zeek
+    zeek -C -r - LogAscii::use_json=T /data/intel/config.zeek /data/policy/scan-detection.zeek
