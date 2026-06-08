@@ -23,4 +23,4 @@ ssh "${ROUTER_USER}@${ROUTER_IP}" "tcpdump -i bat0 -s 0 -U -w -" | \
     -v /storage/PCAP/intel:/data/intel \
     -w /data/zeek_logs \
     zeek/zeek \
-    zeek -r - LogAscii::use_json=T /data/intel/config.zeek
+    zeek -C -r - LogAscii::use_json=T /data/intel/config.zeek

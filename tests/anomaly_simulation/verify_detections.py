@@ -54,7 +54,7 @@ def build_checks(lookback_min: int) -> list[Check]:
             # same signal Zeek's own detect-bruteforcing policy uses.
             name="SSH brute force  (5+ zeek.ssh sessions from one source)",
             min_hits=5,
-            agg_field="id.orig_h.keyword",
+            agg_field="source.ip",
             query={
                 "bool": {
                     "must": [{"match": {"event.dataset": "zeek.ssh"}}],
