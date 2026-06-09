@@ -59,6 +59,8 @@ This project directly covers the following course modules from CIS 3353 — Comp
 | M7 | Platform Security Hardening (TLS + RBAC, HMAC-authenticated SOAR webhook, secrets management) | ✅ Complete |
 | M8 | Pipeline Data Quality & Reliability (ECS index templates, single-node `green` health, legacy reindex) | ✅ Complete |
 | M9 | Multi-Tenancy Foundation (`tenant.id` edge-stamp, per-tenant indices/roles) | 🚧 In progress |
+| M10 | Detection Framework Mapping (MITRE ATT&CK + NIST CSF enrichment; 10 Sigma rules operationalized) | ✅ Complete |
+| M11 | SOAR Response Model (human-in-the-loop draft-for-approval; opt-in autonomy; exclusion list) | ✅ Complete |
 
 ### Platform Hardening & Maturity (post-MVP)
 
@@ -72,12 +74,28 @@ Phase 0 ("secure the platform & lay the tenancy foundation") status:
 | WS0.2 | Authenticate & harden the SOAR response webhook (HMAC, fail-closed) | ✅ Complete |
 | WS0.4 | Secrets management (`.env`, no hardcoded defaults) | ✅ Complete |
 | — | Data-plane quality: ECS index templates, Logstash CA repair, reindex helper | ✅ Complete (PR #111) |
+| — | Detection frameworks: MITRE ATT&CK + NIST CSF enrichment, 10 Sigma rules | ✅ Complete (PR #112) |
 | WS0.3 | Multi-tenancy foundation (`tenant.id` edge-stamp, per-tenant indices/roles/response) | 🚧 In progress |
 | WS0.5 | Data lifecycle & retention (ILM, per-tenant purge) | 📋 Planned |
 
-The response plane also adopted a **CDP §12.3 human-approval model**: autonomous
-isolation is deferred — the AI agent *drafts* a containment action to an approval
-queue with an asset exclusion list, rather than auto-executing.
+### Recent Enhancements
+
+- **Detection framework enrichment (PR #112).** `configs/logstash.conf` classifies
+  detections into ECS `threat.technique.*` / `threat.tactic.*` and `nist.function`:
+  all **10 Sigma rules** (`rules/sigma/`) plus the Zeek network detections (port
+  scan `T1046`, SSH brute force `T1110`) — 12 techniques total. This powers the
+  Executive dashboard's MITRE ATT&CK heatmap and NIST CSF donut. A stdlib test
+  (`tests/pipeline/test_framework_enrichment.py`) keeps the rules and pipeline in sync.
+- **SOAR response model (PR #113).** The AI agent now follows a human-in-the-loop
+  posture (CDP §12.3/§12.4): the §12.4 **exclusion list** is checked first
+  (protected infrastructure is never isolated *or* drafted); **autonomous
+  containment is OFF by default** — a critical alert is *drafted* to an approval
+  queue and a human executes it via `POST /approve`; auto-execution happens only
+  when an operator opts in with `AUTONOMOUS_ISOLATION=true`. (This commit also
+  repaired a non-functional merge of the agent module.)
+- **Pipeline data quality (PR #111).** Composable ECS index templates pin field
+  types (fixing silent aggregation failures), the Logstash CA-read issue is fixed,
+  user-data indices are `green`, and `reindex-existing.sh` migrates legacy indices.
 
 ## Architecture
 
@@ -92,7 +110,7 @@ The Suburban-SOC pipeline is a modular, end-to-end security monitoring and autom
 | **Logstash** | Docker Container | 5044 in / 9200 out | Enriches, filters, and routes JSON logs; applies GeoIP lookups and ECS field mapping |
 | **Elasticsearch** | Docker Container | 9200 | Indexes and stores all structured log data across three index patterns (`logstash-security-*`, `.alerts-security.alerts-*`, `soar-actions-*`) |
 | **Kibana** | Docker Container | 5601 | Visualizes network events and threat dashboards; hosts the Watcher rule (`soar_quarantine_alert`) that triggers the SOAR loop |
-| **SOC AI Agent** | Docker Container (Flask) | 5000 | Receives Kibana Watcher webhooks; runs LLM triage (MITRE ATT&CK mapping), manages a human-approval queue, and executes `isolate.sh` to quarantine devices; sends ntfy + Discord notifications |
+| **SOC AI Agent** | Docker Container (Flask) | 5000 | Receives Kibana Watcher webhooks; runs LLM triage (MITRE ATT&CK mapping), then *drafts* containment to a human-approval queue executed via `POST /approve` (auto-isolation only with `AUTONOMOUS_ISOLATION=true`; protected assets excluded); sends ntfy + Discord notifications |
 | **Hive-Mind Broker** | Python (FastAPI) | 8000 | Optional mesh dispatcher: receives an HMAC-signed block request and pushes firewall DROP rules to the OpenWrt mesh routers in `inventory.yaml` |
 
 > For a full breakdown see the [Architecture Wiki page](../../wiki/Architecture).
