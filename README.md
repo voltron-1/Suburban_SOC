@@ -60,7 +60,7 @@ M1–M6 are the completed MVP; M7–M10 follow the four phases of the
 | M4 | Data Visualization (ELK Integration) | ✅ Complete |
 | M5 | Advanced Features / Automation | ✅ Complete |
 | M6 | Presentation | ✅ Complete |
-| M7 | Platform Security & Multi-Tenancy Foundation (Phase 0) | 🚧 In progress — 5/8 issues |
+| M7 | Platform Security & Multi-Tenancy Foundation (Phase 0) | 🚧 In progress — 6/8 issues |
 | M8 | Detection Plane — NIST CSF Coverage & ATT&CK Depth (Phase 1) | 📋 Planned |
 | M9 | Operational Maturity (SOC-CMM Level 3) (Phase 2) | 📋 Planned |
 | M10 | SOC 2 Type II Technical Control Readiness (Phase 3) | 📋 Planned |
@@ -77,7 +77,7 @@ no customer deploy ships before it closes.
 | WS0.3 | Multi-tenancy foundation (`tenant.id`, per-tenant indices/roles/response) | ✅ Complete (PR #117) |
 | WS0.4 | Secrets management (`.env`, no hardcoded defaults) | ✅ Complete |
 | WS0.5 | Data lifecycle & retention (ILM, per-tenant purge) | 📋 Planned |
-| WS0.6 | Consolidate the duplicate Logstash config | 📋 Planned |
+| WS0.6 | Consolidate the duplicate Logstash config | ✅ Complete |
 
 ### Recent Enhancements
 
