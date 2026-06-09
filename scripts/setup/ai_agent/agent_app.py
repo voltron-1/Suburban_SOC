@@ -1,5 +1,8 @@
 import os
 import re
+import json
+import time
+import uuid
 import hmac
 import hashlib
 import ipaddress
@@ -274,6 +277,71 @@ def _append_pending_action(action: dict) -> None:
 
 
 def _read_queue():
+    """Read every action from the append-only approval queue (oldest first).
+
+    A missing queue file simply means nothing has been drafted yet.
+    """
+    actions = []
+    try:
+        with open(APPROVAL_QUEUE, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    actions.append(json.loads(line))
+                except json.JSONDecodeError:
+                    app.logger.warning("Skipping malformed approval-queue line.")
+    except FileNotFoundError:
+        pass
+    return actions
+
+
+# =============================================================================
+# 3c. ISOLATION EXECUTION — only ever reached after a guard (flag or approval)
+# =============================================================================
+def _execute_isolation(mac: str, ip: str = ""):
+    """Run isolate.sh for a format-validated MAC. Returns (ok: bool, detail: str).
+
+    isolate.sh is MAC-only, so without a valid MAC we never invoke the
+    subprocess. The exclusion list is re-checked here (defence in depth, CDP
+    §12.4) so neither the autonomous path nor a human approval can ever quarantine
+    protected infrastructure.
+    """
+    if not is_valid_mac(mac):
+        return False, f"no valid MAC to isolate (got {mac!r}); manual action required"
+    excluded = is_excluded(mac=mac, ip=ip)
+    if excluded:
+        return False, f"{excluded} is on the permanent exclusion list — refused"
+    try:
+        result = subprocess.run(["sudo", ISOLATE_SCRIPT, mac], check=False)
+    except Exception as exc:  # noqa: BLE001 - never let response handling crash
+        app.logger.error("isolate.sh invocation failed: %s", exc)
+        return False, f"isolate.sh error: {exc}"
+    ok = result.returncode == 0
+    return ok, ("isolated" if ok else f"isolate.sh exited {result.returncode}")
+
+
+# =============================================================================
+# 3.5 SOAR FEEDBACK LOOP — index response actions back to Elasticsearch
+# =============================================================================
+def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity):
+    """Index a SOAR response action to Elasticsearch for the Executive dashboard.
+
+    Writes to a daily soar-actions-YYYY.MM.dd index. Failures are logged but never
+    raised — dashboard telemetry must not break alert handling. `response.automated`
+    is True only for actually-executed actions, not drafted/review items.
+    """
+    doc = {
+        "@timestamp":         datetime.now(timezone.utc).isoformat(),
+        "action.type":        action_type,
+        "source.ip":          target_ip,
+        "source.mac":         target_mac or "N/A",
+        "ai.summary":         ai_summary,
+        "event.severity":     severity,
+        "response.automated": action_type not in ("analyst_review", "drafted"),
+    }
+    index = "soar-actions-" + datetime.now(timezone.utc).strftime("%Y.%m.%d")
     try:
         requests.post(
             f"{ES_HOST}/{index}/_doc",
@@ -314,100 +382,85 @@ def handle_kibana_webhook():
     # Step 1: AI triage
     ai_summary = analyze_alert_with_ai(raw_details)
 
-    # Step 2: Automated response
-    if severity == "critical" and valid_mac:
-        # Quarantine by MAC address (persists across IP/DHCP changes). Only a
-        # format-validated MAC ever reaches the subprocess. Wrapped so a failed
-        # isolate.sh invocation (e.g. missing ssh/sudo, unreachable router) is
-        # logged rather than crashing the handler into a 500.
-        try:
-            subprocess.run(["sudo", ISOLATE_SCRIPT, valid_mac], check=False)
-        except Exception as exc:  # noqa: BLE001 - never let response handling crash
-            app.logger.error("isolate.sh invocation failed: %s", exc)
-        target_ip = safe_ip
-
-        # ntfy mobile push
-        alert_body = (
-            f"NODE ISOLATED\nIP: {target_ip} | MAC: {valid_mac}\n\n"
-            f"AI Analysis:\n{ai_summary}"
-        )
-        return jsonify({"status": "Alert Processed", "ai_analysis": ai_summary}), 200
-
-    # --- Critical path ---
-    # §12.4: if the target is protected infrastructure, never even draft a block.
+    # Step 2 — §12.4: never act on protected infrastructure, not even to draft.
+    # Checked first so neither the autonomous path nor a draft can target it.
     excluded = is_excluded(ip=target_ip, mac=target_mac)
     if excluded:
-        app.logger.warning("Critical alert targets excluded asset %s — no action drafted.", excluded)
+        app.logger.warning("Alert targets excluded asset %s — no action taken.", excluded)
         send_soc_alert(
-            title="CRITICAL: Alert on PROTECTED asset — no action",
+            title=f"{severity.upper()}: Alert on PROTECTED asset — no action",
             message=(
-                f"Alert targets {excluded}, which is on the permanent exclusion list.\n"
-                f"NO isolation drafted. Investigate manually.\n\nAI Analysis:\n{ai_summary}"
+                f"Alert targets {excluded}, on the permanent exclusion list.\n"
+                f"No isolation taken or drafted. Investigate manually.\n\n"
+                f"AI Analysis:\n{ai_summary}"
             ),
             priority=5,
             tags="shield,warning,robot",
         )
+        log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity)
+        return jsonify({
+            "status": "no_action_protected_asset",
+            "asset": excluded,
+            "ai_analysis": ai_summary,
+        }), 200
 
-        # Discord SOC channel notification
-        send_discord_alert(
-            device_ip=target_ip,
-            device_mac=valid_mac,
-            ai_summary=ai_summary,
+    # Step 3 — §12.3: autonomous containment is OFF by default (it is destructive
+    # and irreversible without a human). We auto-execute ONLY when an operator has
+    # explicitly opted in (AUTONOMOUS_ISOLATION=true) AND the alert is critical
+    # with a format-validated MAC. Every other case is drafted for human approval.
+    if AUTONOMOUS_ISOLATION and severity == "critical" and valid_mac:
+        ok, detail = _execute_isolation(valid_mac, safe_ip)
+        send_soc_alert(
+            title="CRITICAL: Autonomous Isolation" if ok else "CRITICAL: Auto-isolation FAILED",
+            message=(
+                f"{'NODE ISOLATED' if ok else 'ISOLATION FAILED'}\n"
+                f"IP: {safe_ip} | MAC: {valid_mac}\nDetail: {detail}\n\n"
+                f"AI Analysis:\n{ai_summary}"
+            ),
+            priority=5,
+            tags="skull,lock,robot" if ok else "warning,lock,robot",
         )
-        return jsonify({"status": "Auto-isolated", "detail": detail, "ai_analysis": ai_summary}), 200
+        send_discord_alert(device_ip=safe_ip, device_mac=valid_mac, ai_summary=ai_summary)
+        log_soar_action(
+            "quarantine_mac" if ok else "analyst_review",
+            safe_ip, valid_mac, ai_summary, severity,
+        )
+        return jsonify({
+            "status": "auto_isolated" if ok else "isolation_failed",
+            "detail": detail,
+            "ai_analysis": ai_summary,
+        }), (200 if ok else 200)
 
-    # Default: DRAFT the action and queue it for human approval.
+    # Step 4 — default: DRAFT the action and queue it for a human-of-record, who
+    # executes it via POST /approve. Medium alerts and critical alerts without a
+    # valid MAC also land here (review-only).
     action = {
-        "id":        uuid.uuid4().hex[:12],
-        "ts":        time.time(),
-        "status":    "pending",
-        "severity":  severity,
-        "target_ip": target_ip,
-        "target_mac": target_mac,
+        "id":         uuid.uuid4().hex[:12],
+        "ts":         time.time(),
+        "status":     "pending",
+        "severity":   severity,
+        "target_ip":  safe_ip,
+        "target_mac": valid_mac,
         "ai_summary": ai_summary,
-        "recommended_action": "isolate (MAC)" if target_mac else "isolate (IP)",
+        "recommended_action": "isolate (MAC)" if valid_mac else "review (no valid MAC)",
     }
     _append_pending_action(action)
-
-        # SOAR feedback loop — record the automated quarantine for the dashboard
-        log_soar_action(
-            action_type="quarantine_mac",
-            target_ip=target_ip,
-            target_mac=valid_mac,
-            ai_summary=ai_summary,
-            severity=severity,
-        )
-    else:
-        # Either a medium alert, or a critical one we cannot auto-contain because
-        # no valid MAC was supplied (isolate.sh is MAC-only — we never feed it an
-        # IP). Both escalate to a human instead of taking an OS action.
-        if severity == "critical":
-            title = "CRITICAL: Manual Isolation Required (no valid MAC)"
-            priority = 5
-            note = "Auto-isolation skipped — supply a valid source_mac to quarantine."
-        else:
-            title = "MEDIUM: Analyst Review Requested"
-            priority = 3
-            note = "Review required for isolation."
-        alert_body = (
-            f"Suspicious Activity from {safe_ip}\n\n"
-            f"AI Analysis:\n{ai_summary}\n\n{note}"
-        )
-        send_soc_alert(
-            title=title,
-            message=alert_body,
-            priority=priority,
-            tags="warning,mag,robot",
-        )
-
-        # SOAR feedback loop — record the manual-review path (not automated)
-        log_soar_action(
-            action_type="analyst_review",
-            target_ip=safe_ip,
-            target_mac=valid_mac,
-            ai_summary=ai_summary,
-            severity=severity,
-        )
+    send_soc_alert(
+        title=f"{severity.upper()}: Response DRAFTED — approval required",
+        message=(
+            f"Drafted: {action['recommended_action']} for {safe_ip or valid_mac or 'unknown'}.\n"
+            f"Approve via POST /approve (id={action['id']}).\n\n"
+            f"AI Analysis:\n{ai_summary}"
+        ),
+        priority=5 if severity == "critical" else 3,
+        tags="memo,hourglass,robot",
+    )
+    log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity)
+    return jsonify({
+        "status": "drafted",
+        "action_id": action["id"],
+        "ai_analysis": ai_summary,
+    }), 200
 
 
 # =============================================================================
