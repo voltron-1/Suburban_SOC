@@ -137,4 +137,9 @@ done
 
 echo "============================================================"
 echo "Done. migrated_ok=$OK  skipped=$SKIP"
-[[ $REPLACE -eq 0 ]] && echo "Originals kept. Verify the *-ecs indices, then re-run with --replace to swap."
+if [[ $REPLACE -eq 0 ]]; then
+  echo "Originals kept. Verify the *-ecs indices, then re-run with --replace to swap."
+fi
+# Exit non-zero only if something was actually skipped (so automation can detect
+# unmigrated indices); a fully-successful run exits 0.
+[[ $SKIP -eq 0 ]] && exit 0 || exit 2
