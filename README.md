@@ -32,8 +32,8 @@
 
 | Name | GitHub Username | Role |
 |---|---|---|
-| Tommy Lammers | [@voltron-1](https://github.com/voltron-1) | Security Analyst / Engineer |
-| Sterling Garnett | [@sterlinggarnett](https://github.com/sterlinggarnett) | System Architect / Engineer |
+| Tommy Lammers | [@voltron-1](https://github.com/voltron-1) | System Architect / Engineer |
+| Sterling Garnett | [@sterlinggarnett](https://github.com/sterlinggarnett) | Security Analyst / Engineer |
 
 
 ## Course Modules
