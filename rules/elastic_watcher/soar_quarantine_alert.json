@@ -1,4 +1,10 @@
 {
+  "_comment": "soar_quarantine_alert v2 — fires on three distinct detection paths",
+  "_comment_paths": [
+    "1. zeek.conn: threat.indicator.domain hit (IOC C2 comms)",
+    "2. zeek.notice: Scan::Port_Scan notice fired by Zeek's scan detection policy",
+    "3. zeek.ssh: 5+ failed auth attempts from the same source IP in the last 1 min"
+  ],
   "trigger": {
     "schedule": {
       "interval": "1m"
@@ -9,15 +15,54 @@
       "request": {
         "indices": ["logstash-security-*"],
         "body": {
+          "size": 1,
+          "_source": ["source.ip", "source.mac", "event.dataset", "note", "threat.indicator.domain"],
           "query": {
             "bool": {
-              "must": [
-                { "match": { "event.dataset": "zeek.conn" } },
-                { "exists": { "field": "threat.indicator.domain" } }
+              "filter": [
+                {
+                  "range": {
+                    "@timestamp": { "gte": "now-1m" }
+                  }
+                }
               ],
+              "should": [
+                {
+                  "bool": {
+                    "must": [
+                      { "term": { "event.dataset": "zeek.conn" } },
+                      { "exists": { "field": "threat.indicator.domain" } }
+                    ]
+                  }
+                },
+                {
+                  "bool": {
+                    "must": [
+                      { "term": { "event.dataset": "zeek.notice" } },
+                      { "term": { "note": "Scan::Port_Scan" } }
+                    ]
+                  }
+                }
+              ],
+              "minimum_should_match": 1
+            }
+          },
+          "aggs": {
+            "ssh_brute_force_candidates": {
               "filter": {
-                "range": {
-                  "@timestamp": { "gte": "now-1m" }
+                "bool": {
+                  "must": [
+                    { "term": { "event.dataset": "zeek.ssh" } },
+                    { "term": { "auth_success": "false" } }
+                  ],
+                  "filter": [
+                    { "range": { "@timestamp": { "gte": "now-1m" } } }
+                  ]
+                }
+              },
+              "aggs": {
+                "by_source_ip": {
+                  "terms": { "field": "source.ip", "min_doc_count": 5, "size": 5 }
                 }
               }
             }
@@ -27,22 +72,29 @@
     }
   },
   "condition": {
-    "compare": {
-      "ctx.payload.hits.total": { "gt": 0 }
+    "script": {
+      "lang": "painless",
+      "source": "return ctx.payload.hits.total.value > 0 || ctx.payload.aggregations.ssh_brute_force_candidates.by_source_ip.buckets.size() > 0;"
+    }
+  },
+  "transform": {
+    "script": {
+      "lang": "painless",
+      "source": "// Prefer the top document hit (IOC or port-scan path); fall back to the top SSH brute-force IP if hits are zero. def ip = 'unknown'; def mac = ''; def dataset = 'unknown'; if (ctx.payload.hits.total.value > 0) { def src = ctx.payload.hits.hits[0]._source; if (src.containsKey('source')) { if (src.source.containsKey('ip'))  { ip  = src.source.ip; } if (src.source.containsKey('mac')) { mac = src.source.mac; } } if (src.containsKey('event') && src.event.containsKey('dataset')) { dataset = src.event.dataset; } } else { def buckets = ctx.payload.aggregations.ssh_brute_force_candidates.by_source_ip.buckets; if (buckets.size() > 0) { ip = buckets[0].key; dataset = 'zeek.ssh (brute-force)'; } } ctx.payload.soar_ip = ip; ctx.payload.soar_mac = mac; ctx.payload.soar_dataset = dataset; return ctx.payload;"
     }
   },
   "actions": {
     "webhook_to_soar_agent": {
       "webhook": {
         "scheme": "http",
-        "host": "127.0.0.1",
+        "host": "soc_ai_agent",
         "port": 5000,
         "method": "post",
         "path": "/alert",
         "headers": {
           "Content-Type": "application/json"
         },
-        "body": "{\"severity\": \"critical\", \"source_ip\": \"{{ctx.payload.hits.hits.0._source.source.ip}}\", \"source_mac\": \"{{ctx.payload.hits.hits.0._source.source.mac}}\", \"raw_log\": {{ctx.payload.hits.hits.0._source}}}"
+        "body": "{\"severity\": \"critical\", \"source_ip\": \"{{ctx.payload.soar_ip}}\", \"source_mac\": \"{{ctx.payload.soar_mac}}\", \"detection_source\": \"{{ctx.payload.soar_dataset}}\", \"raw_log\": {{ctx.payload.hits.hits.0._source}}}"
       }
     }
   }
