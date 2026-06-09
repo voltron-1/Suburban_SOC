@@ -1,0 +1,29 @@
+{
+  "index_patterns": ["soar-actions-*"],
+  "priority": 200,
+  "_meta": {
+    "description": "Suburban-SOC SOAR response actions (written by agent_app.log_soar_action). Pins the dashboard fields so the automated-vs-manual / action-type / per-tenant aggregations are reliable. The agent posts dotted JSON keys (action.type, response.automated, ...) which ES expands into these objects.",
+    "managed_by": "configs/elasticsearch/apply-templates.sh"
+  },
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "5s"
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "tenant":   { "properties": { "id": { "type": "keyword" } } },
+        "action":   { "properties": { "type": { "type": "keyword" } } },
+        "response": { "properties": { "automated": { "type": "boolean" } } },
+        "event":    { "properties": { "severity": { "type": "keyword" } } },
+        "source":   { "properties": {
+          "ip":  { "type": "keyword" },
+          "mac": { "type": "keyword" }
+        }},
+        "ai": { "properties": { "summary": { "type": "text" } } }
+      }
+    }
+  }
+}
