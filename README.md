@@ -58,7 +58,7 @@ This project directly covers the following course modules from CIS 3353 — Comp
 | M6 | Presentation | ✅ Complete |
 | M7 | Platform Security Hardening (TLS + RBAC, HMAC-authenticated SOAR webhook, secrets management) | ✅ Complete |
 | M8 | Pipeline Data Quality & Reliability (ECS index templates, single-node `green` health, legacy reindex) | ✅ Complete |
-| M9 | Multi-Tenancy Foundation (`tenant.id` edge-stamp, per-tenant indices/roles) | 🚧 In progress |
+| M9 | Multi-Tenancy Foundation (`tenant.id` edge-stamp, per-tenant indices/roles, tenant-scoped response) | ✅ Complete |
 | M10 | Detection Framework Mapping (MITRE ATT&CK + NIST CSF enrichment; 10 Sigma rules operationalized) | ✅ Complete |
 | M11 | SOAR Response Model (human-in-the-loop draft-for-approval; opt-in autonomy; exclusion list) | ✅ Complete |
 
@@ -75,7 +75,7 @@ Phase 0 ("secure the platform & lay the tenancy foundation") status:
 | WS0.4 | Secrets management (`.env`, no hardcoded defaults) | ✅ Complete |
 | — | Data-plane quality: ECS index templates, Logstash CA repair, reindex helper | ✅ Complete (PR #111) |
 | — | Detection frameworks: MITRE ATT&CK + NIST CSF enrichment, 10 Sigma rules | ✅ Complete (PR #112) |
-| WS0.3 | Multi-tenancy foundation (`tenant.id` edge-stamp, per-tenant indices/roles/response) | 🚧 In progress |
+| WS0.3 | Multi-tenancy foundation (`tenant.id` edge-stamp, per-tenant indices/roles/response) | ✅ Complete (PR #117) |
 | WS0.5 | Data lifecycle & retention (ILM, per-tenant purge) | 📋 Planned |
 
 ### Recent Enhancements
@@ -96,6 +96,10 @@ Phase 0 ("secure the platform & lay the tenancy foundation") status:
 - **Pipeline data quality (PR #111).** Composable ECS index templates pin field
   types (fixing silent aggregation failures), the Logstash CA-read issue is fixed,
   user-data indices are `green`, and `reindex-existing.sh` migrates legacy indices.
+- **Multi-tenancy (PR #117).** Every event is edge-stamped with `tenant.id`; storage
+  routes to per-tenant `logstash-security-<tenant>-*` indices with least-privilege ES
+  roles (`provision_tenant.sh`); the agent and broker scope every response — isolation
+  routing and notifications — to the alerting tenant's routers/topics, never broadcast.
 
 ## Architecture
 
