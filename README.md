@@ -48,37 +48,41 @@ This project directly covers the following course modules from CIS 3353 — Comp
 
 ## Project Status
 
+Milestones mirror the [GitHub Milestones](https://github.com/sterlinggarnett/Suburban_SOC/milestones).
+M1–M6 are the completed MVP; M7–M10 follow the four phases of the
+[SOC Maturity Roadmap](docs/SOC-maturity-roadmap.md).
+
 | Milestone | Title | Status |
 |---|---|---|
 | M1 | Topology | ✅ Complete |
-| M2 | Data Acquisition (The Mesh capture) | ✅ Complete |
+| M2 | Data Acquisition (The Mesh Capture) | ✅ Complete |
 | M3 | The Processing Pipeline (Zeek & Agent) | ✅ Complete |
 | M4 | Data Visualization (ELK Integration) | ✅ Complete |
-| M5 | Advanced Features/Automation (SOAR Quarantine) | ✅ Complete |
+| M5 | Advanced Features / Automation | ✅ Complete |
 | M6 | Presentation | ✅ Complete |
-| M7 | Platform Security Hardening (TLS + RBAC, HMAC-authenticated SOAR webhook, secrets management) | ✅ Complete |
-| M8 | Pipeline Data Quality & Reliability (ECS index templates, single-node `green` health, legacy reindex) | ✅ Complete |
-| M9 | Multi-Tenancy Foundation (`tenant.id` edge-stamp, per-tenant indices/roles, tenant-scoped response) | ✅ Complete |
-| M10 | Detection Framework Mapping (MITRE ATT&CK + NIST CSF enrichment; 10 Sigma rules operationalized) | ✅ Complete |
-| M11 | SOAR Response Model (human-in-the-loop draft-for-approval; opt-in autonomy; exclusion list) | ✅ Complete |
+| M7 | Platform Security & Multi-Tenancy Foundation (Phase 0) | 🚧 In progress — 5/8 issues |
+| M8 | Detection Plane — NIST CSF Coverage & ATT&CK Depth (Phase 1) | 📋 Planned |
+| M9 | Operational Maturity (SOC-CMM Level 3) (Phase 2) | 📋 Planned |
+| M10 | SOC 2 Type II Technical Control Readiness (Phase 3) | 📋 Planned |
 
-### Platform Hardening & Maturity (post-MVP)
+### M7 — Phase 0 workstream breakdown
 
-Beyond the core course milestones, the project is being matured toward a production
-managed-SOC posture per the [SOC Maturity Roadmap](docs/SOC-maturity-roadmap.md).
-Phase 0 ("secure the platform & lay the tenancy foundation") status:
+Phase 0 ("secure the platform & lay the tenancy foundation") is the current focus —
+no customer deploy ships before it closes.
 
 | Workstream | Title | Status |
 |---|---|---|
-| WS0.1 | Authenticate & encrypt the Elastic stack (TLS + RBAC, least-priv service accounts) | ✅ Complete |
+| WS0.1 | Authenticate & encrypt the Elastic stack (TLS + RBAC, least-priv accounts) | ✅ Complete |
 | WS0.2 | Authenticate & harden the SOAR response webhook (HMAC, fail-closed) | ✅ Complete |
+| WS0.3 | Multi-tenancy foundation (`tenant.id`, per-tenant indices/roles/response) | ✅ Complete (PR #117) |
 | WS0.4 | Secrets management (`.env`, no hardcoded defaults) | ✅ Complete |
-| — | Data-plane quality: ECS index templates, Logstash CA repair, reindex helper | ✅ Complete (PR #111) |
-| — | Detection frameworks: MITRE ATT&CK + NIST CSF enrichment, 10 Sigma rules | ✅ Complete (PR #112) |
-| WS0.3 | Multi-tenancy foundation (`tenant.id` edge-stamp, per-tenant indices/roles/response) | ✅ Complete (PR #117) |
 | WS0.5 | Data lifecycle & retention (ILM, per-tenant purge) | 📋 Planned |
+| WS0.6 | Consolidate the duplicate Logstash config | 📋 Planned |
 
 ### Recent Enhancements
+
+Individual improvements merged toward the in-progress Phase 0 (M7) and detection
+plane (M8) — these are work items within those milestones, not milestone completions:
 
 - **Detection framework enrichment (PR #112).** `configs/logstash.conf` classifies
   detections into ECS `threat.technique.*` / `threat.tactic.*` and `nist.function`:
