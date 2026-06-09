@@ -27,6 +27,14 @@ winlogbeat.event_logs:
 # Tag so Logstash routes these through the endpoint_logs branch.
 tags: ["endpoint_logs", "winlogbeat"]
 
+# Tenant attribution stamped at the edge (WS0.3). Set TENANT_ID per deployment
+# (lowercase slug); every event carries [tenant][id] for per-tenant routing,
+# access isolation, and response scoping. Defaults to "unassigned".
+fields_under_root: true
+fields:
+  tenant:
+    id: "${TENANT_ID:unassigned}"
+
 # Ship to the SOC Logstash beats input. Override host via env if needed.
 output.logstash:
   hosts: ["${LOGSTASH_HOST:localhost:5044}"]

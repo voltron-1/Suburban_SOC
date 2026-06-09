@@ -6,6 +6,7 @@ import json
 import time
 import uuid
 import os
+import re
 import threading
 
 from inventory import Inventory
@@ -27,6 +28,15 @@ AUTONOMOUS_BLOCK_ENABLED = os.getenv("AUTONOMOUS_BLOCK_ENABLED", "false").lower(
 
 APPROVAL_QUEUE = os.getenv("APPROVAL_QUEUE", "approval_queue.jsonl")
 _queue_lock = threading.Lock()
+
+# Tenant slug (WS0.3) — same grammar as agent_app/logstash/provision_tenant.sh.
+_TENANT_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,38}$")
+
+
+def safe_tenant(value):
+    """Return a validated lowercase tenant slug, or 'unassigned' if invalid."""
+    v = str(value or "").strip().lower()
+    return v if _TENANT_RE.match(v) else "unassigned"
 
 
 def _append_action(action: dict) -> None:
@@ -85,20 +95,30 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
         return {"status": "success",
                 "message": f"IP {attacker_ip} is on the exclusion list — no block drafted."}
 
-    routers = inv.get_routers()
+    # WS0.3: scope the block to the alert's tenant — only that tenant's routers
+    # are ever touched; the broker never broadcasts across tenants. An unknown
+    # tenant (or one with no routers) is a no-op, not a fall-back-to-all.
+    tenant = safe_tenant(payload.get("tenant_id"))
+    routers = inv.get_routers_for_tenant(tenant)
+    if not routers:
+        print(f"[!] No routers for tenant '{tenant}' — refusing to act on {attacker_ip}.")
+        return {"status": "success",
+                "message": f"No routers configured for tenant '{tenant}' — nothing to block."}
 
     if AUTONOMOUS_BLOCK_ENABLED:
         # Legacy, out-of-scope behaviour, retained only behind an explicit flag.
         background_tasks.add_task(dispatch_block_to_all, routers, attacker_ip)
-        print(f"[*] Auto-block dispatched for {attacker_ip} (flag enabled).")
+        print(f"[*] Auto-block dispatched for {attacker_ip} on tenant '{tenant}' (flag enabled).")
         return {"status": "success",
-                "message": f"IP {attacker_ip} dispatched for block across {len(routers)} routers."}
+                "message": f"IP {attacker_ip} dispatched for block across {len(routers)} "
+                           f"router(s) for tenant '{tenant}'."}
 
     # Default: §12.3 — draft the block and queue it for human approval.
     action = {
         "id": uuid.uuid4().hex[:12],
         "ts": time.time(),
         "status": "pending",
+        "tenant": tenant,
         "attacker_ip": attacker_ip,
         "router_count": len(routers),
     }
@@ -139,12 +159,21 @@ async def approve(request: Request):
                         "approver": approver, "result": "exclusion list"})
         raise HTTPException(status_code=422, detail=f"{attacker_ip} is excluded")
 
-    routers = inv.get_routers()
+    # WS0.3: dispatch only to the drafted action's tenant routers — never all.
+    tenant = safe_tenant(action.get("tenant"))
+    routers = inv.get_routers_for_tenant(tenant)
+    if not routers:
+        _append_action({"id": action_id, "ts": time.time(), "status": "denied",
+                        "approver": approver, "result": f"no routers for tenant {tenant}"})
+        raise HTTPException(status_code=422, detail=f"no routers for tenant '{tenant}'")
+
     count = await dispatch_block_to_all(routers, attacker_ip)
     _append_action({"id": action_id, "ts": time.time(), "status": "approved",
-                    "approver": approver, "result": f"{count}/{len(routers)} routers"})
+                    "approver": approver, "tenant": tenant,
+                    "result": f"{count}/{len(routers)} routers"})
     return {"status": "executed", "approver": approver,
-            "message": f"IP {attacker_ip} blocked on {count}/{len(routers)} routers."}
+            "message": f"IP {attacker_ip} blocked on {count}/{len(routers)} "
+                       f"router(s) for tenant '{tenant}'."}
 
 
 if __name__ == "__main__":

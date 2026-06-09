@@ -22,8 +22,19 @@ class Inventory:
     def get_routers(self):
         return self.routers
 
+    def get_routers_for_tenant(self, tenant):
+        """Return only the routers belonging to *tenant* (WS0.3).
+
+        Tenant isolation: a block must never reach another tenant's router. An
+        unknown tenant — or routers with no `tenant` field — yields an empty list,
+        so the caller dispatches to nothing rather than broadcasting.
+        """
+        if not tenant:
+            return []
+        return [r for r in self.routers if r.get("tenant") == tenant]
+
 # Quick test if run directly
 if __name__ == "__main__":
     inv = Inventory()
     for r in inv.get_routers():
-        print(f"Router ID: {r['id']}, IP: {r['ip_address']}")
+        print(f"Router ID: {r['id']}, Tenant: {r.get('tenant')}, IP: {r['ip_address']}")
