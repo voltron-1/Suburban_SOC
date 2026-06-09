@@ -57,6 +57,25 @@ This project directly covers the following course modules from CIS 3353 — Comp
 | M5 | Advanced Features/Automation (SOAR Quarantine) | ✅ Complete |
 | M6 | Presentation | ✅ Complete |
 
+### Platform Hardening & Maturity (post-MVP)
+
+Beyond the core course milestones, the project is being matured toward a production
+managed-SOC posture per the [SOC Maturity Roadmap](docs/SOC-maturity-roadmap.md).
+Phase 0 ("secure the platform & lay the tenancy foundation") status:
+
+| Workstream | Title | Status |
+|---|---|---|
+| WS0.1 | Authenticate & encrypt the Elastic stack (TLS + RBAC, least-priv service accounts) | ✅ Complete |
+| WS0.2 | Authenticate & harden the SOAR response webhook (HMAC, fail-closed) | ✅ Complete |
+| WS0.4 | Secrets management (`.env`, no hardcoded defaults) | ✅ Complete |
+| — | Data-plane quality: ECS index templates, Logstash CA repair, reindex helper | ✅ Complete (PR #111) |
+| WS0.3 | Multi-tenancy foundation (`tenant.id` edge-stamp, per-tenant indices/roles/response) | 🚧 In progress |
+| WS0.5 | Data lifecycle & retention (ILM, per-tenant purge) | 📋 Planned |
+
+The response plane also adopted a **CDP §12.3 human-approval model**: autonomous
+isolation is deferred — the AI agent *drafts* a containment action to an approval
+queue with an asset exclusion list, rather than auto-executing.
+
 ## Architecture
 
 ![Architecture Diagram](docs/architecture-diagram.png)
@@ -159,6 +178,8 @@ This project encompasses the design, development, and testing of an advanced **n
 ├── LICENSE                     # MIT License
 ├── validate_soc.sh             # SOC pipeline validation script
 ├── /configs                    # Pipeline and agent configurations
+│   ├── /elasticsearch          # ECS index templates + apply/reindex helper scripts
+│   ├── /endpoint               # Endpoint agents (Winlogbeat, Filebeat) + tenant edge-stamp
 │   ├── /firewall               # OpenWrt firewall rules (placeholder)
 │   ├── /intel                  # Zeek threat intelligence feed (intel.dat, config.zeek)
 │   ├── /network                # Filebeat configuration (filebeat.yml)
@@ -196,8 +217,8 @@ Before you begin, ensure you have the following:
 ### 2. Installation Steps:
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/tjlam/Suburban-SOC.git
-    cd Suburban-SOC
+    git clone https://github.com/sterlinggarnett/Suburban_SOC.git
+    cd Suburban_SOC
     ```
 2.  **Configure Agents:**
     Review and modify `/configs/filebeat.yml` and `/configs/logstash.conf` to match your environment.
@@ -245,10 +266,10 @@ This project is licensed under the MIT License. (Make sure you include a `LICENS
 * Integrate live threat intelligence feeds (malicious IP/hash lists) directly into Zeek.
 * Add 24-hour TTL auto-rollback for `SOAR_QUARANTINE_<MAC>` firewall rules.
 * Stress-benchmark the OpenWrt → Zeek → Logstash pipeline under sustained high-volume traffic.
-* Scale Elasticsearch to a multi-node cluster to achieve `green` index health and fault tolerance.
+* Scale Elasticsearch to a multi-node cluster for replica-backed fault tolerance (single-node `green` health is already achieved via `number_of_replicas: 0` in the index templates).
 
 ### Known Issues & Limitations:
-* Elasticsearch runs as a single node — index health is permanently `yellow` (replica shards unassigned). Acceptable for a lab environment; not production-ready.
+* Elasticsearch runs as a single node. User-data indices (`logstash-security-*`, `soar-actions-*`) are `green` via the index templates' `number_of_replicas: 0`; some Elastic-managed system indices remain `yellow` (replicas unassigned on one node). Single-node has no replica fault tolerance — not yet production-ready.
 * The pipeline cannot inspect the payload of HTTPS traffic without an active SSL/TLS decryption proxy.
 * OpenWrt gateway streaming throughput has not been stress-tested; performance under extreme load is unknown.
 
