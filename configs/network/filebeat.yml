@@ -14,6 +14,16 @@ filebeat.inputs:
           overwrite_keys: true
           add_error_key: true
 
+# ============================== Tenant attribution ===========================
+# Edge-stamping (WS0.3): each deployment sets TENANT_ID so every shipped event
+# carries [tenant][id]. Storage routing, ES role isolation, and tenant-scoped
+# response all key on this. Use a lowercase slug (e.g. "home-smith"); defaults
+# to "unassigned" so events are never dropped, just clearly unattributed.
+fields_under_root: true
+fields:
+  tenant:
+    id: "${TENANT_ID:unassigned}"
+
 # ============================== Logstash Output ===============================
 output.logstash:
   # LOGSTASH_HOST env var allows team members to change target without editing this file.
