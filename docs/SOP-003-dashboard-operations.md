@@ -29,8 +29,10 @@ Executive dashboard's SOAR panels additionally use **`soar-actions-pattern`**
 
 - ELK 9.3.2 stack running (`scripts/setup/docker-compose.yml`): Elasticsearch `:9200`,
   Kibana `:5601`, Logstash `:5044`.
-- The enriched `configs/logstash.conf` is the **source of truth**; the deploy script
-  syncs it to the Docker mount (`scripts/setup/configs/logstash/logstash.conf`).
+- The enriched `configs/logstash.conf` is the **single source of truth**; it is
+  bind-mounted directly into the Logstash container by `docker-compose.yml`
+  (`../../configs/logstash.conf`), so the deploy script only restarts Logstash to
+  reload it — there is no copy/sync step.
 - For endpoint data (Dashboard 3): a Winlogbeat (`configs/endpoint/winlogbeat.yml`)
   and/or Filebeat (`configs/endpoint/filebeat_endpoint.yml`) agent shipping to `:5044`.
 - For TLS panels (Dashboard 2): `@load base/protocols/ssl` in `configs/zeek/local.zeek`

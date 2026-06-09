@@ -18,7 +18,7 @@ Your document proposes four dashboard layers. Here is where the current Suburban
 | **4. Data Quality & Ingestion** | ❌ **Nothing exists** | Need pipeline health metrics, agent heartbeat tracking, parsing error panels |
 
 > [!IMPORTANT]
-> **Key constraint:** Your ELK stack runs `xpack.security.enabled=false` (per [docker-compose.yml](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/scripts/setup/docker-compose.yml)), so Kibana Alerting rules and some Watcher features may require enabling at least `xpack.security.enabled=true` with basic auth for the MTTD pipeline to query `.alerts-security.alerts-*` indices. The plan accounts for this.
+> **Update (WS0.1):** The ELK stack now runs `xpack.security.enabled=true` with TLS (see [docker-compose.yml](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/scripts/setup/docker-compose.yml)). Kibana Alerting rules and Watcher features that query `.alerts-security.alerts-*` now have the security feature they require; API calls must authenticate (basic auth as `elastic`, or a scoped service account).
 
 > [!WARNING]
 > **SOAR feedback loop gap:** Currently, quarantine actions and AI triage results from [agent_app.py](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/scripts/setup/ai_agent/agent_app.py) are sent to ntfy and Discord but are **never written back to Elasticsearch**. This means your dashboards can't show "how many devices were quarantined this week" or "what did the AI recommend." The plan includes a fix — the AI Agent will POST SOAR action results back to a `soar-actions-*` index so the Executive Dashboard can track automated response metrics.

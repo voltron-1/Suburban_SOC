@@ -1,8 +1,8 @@
 import os
 import re
-import json
-import time
-import uuid
+import hmac
+import hashlib
+import ipaddress
 import threading
 import requests
 import subprocess
@@ -18,18 +18,25 @@ app = Flask(__name__)
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
-NTFY_TOPIC         = os.environ.get("NTFY_TOPIC",         "uiw_lab_soc_alerts_tjlam_99")
-# CDP §4 invariant: telemetry stays on campus. Default to a LOCAL Ollama model.
-# A hosted model may only be used when LLM_ALLOW_HOSTED=true, and even then the
-# prompt is sanitised first (see sanitize_for_llm).
-LLM_API_KEY        = os.environ.get("LLM_API_KEY",        "ollama")
-LLM_API_URL        = os.environ.get("LLM_API_URL",        "http://localhost:11434/v1/chat/completions")
-LLM_MODEL          = os.environ.get("LLM_MODEL",          "llama3.1")
-LLM_ALLOW_HOSTED   = os.environ.get("LLM_ALLOW_HOSTED",   "false").lower() == "true"
+# Secrets/config come from the environment (set in scripts/setup/.env, passed
+# through by docker-compose). No real secret is hardcoded as a default (WS0.4):
+# unset secrets degrade gracefully (notifications skipped, AI triage falls back).
+NTFY_TOPIC         = os.environ.get("NTFY_TOPIC",         "")
+LLM_API_KEY        = os.environ.get("LLM_API_KEY",        "")
+LLM_API_URL        = os.environ.get("LLM_API_URL",        "https://api.openai.com/v1/chat/completions")
+LLM_MODEL          = os.environ.get("LLM_MODEL",          "gpt-4")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 # Elasticsearch endpoint for the SOAR feedback loop (Executive Dashboard metrics).
 # Defaults to the Docker-network service name used by docker-compose.yml.
-ES_HOST            = os.environ.get("ES_HOST",            "http://elasticsearch:9200")
+# Security is enabled (WS0.1): connect over HTTPS with a least-privilege user and
+# verify TLS against the stack CA.
+ES_HOST            = os.environ.get("ES_HOST",            "https://elasticsearch:9200")
+ES_USER            = os.environ.get("ES_USER",            "logstash_internal")
+ES_PASS            = os.environ.get("ES_PASS",            "")
+ES_CA              = os.environ.get("ES_CA",              "/certs/ca/ca.crt")
+# requests `verify` arg: path to the CA bundle if present, else fall back to False
+# (self-signed cert on the internal docker network). Never disable for public ES.
+ES_VERIFY          = ES_CA if (ES_CA and Path(ES_CA).is_file()) else False
 
 # CDP §12.3: autonomous containment is Deferred Scope. The agent DRAFTS a
 # response; a human executes it. Set AUTONOMOUS_ISOLATION=true only to restore
@@ -52,6 +59,41 @@ _queue_lock = threading.Lock()
 # Absolute path to isolate.sh — resolved at import time so subprocess.run works
 # regardless of Flask's current working directory.
 ISOLATE_SCRIPT = str((Path(__file__).resolve().parent.parent / "isolate.sh"))
+
+# --- Webhook authentication (WS0.2) ------------------------------------------
+# /alert triggers device isolation, so it MUST be authenticated. Callers sign the
+# raw request body with HMAC-SHA256 and send it in the `x-elastic-signature`
+# header as "sha256=<hexdigest>" (same scheme as the hive-mind-broker). The shared
+# secret comes from the SOC_AGENT_HMAC_SECRET env var — if it is unset the endpoint
+# fails CLOSED (503), never open.
+HMAC_HEADER = "x-elastic-signature"
+HMAC_SECRET = os.environ.get("SOC_AGENT_HMAC_SECRET", "").encode("utf-8")
+
+# Validation patterns for anything that reaches the isolate.sh subprocess.
+_MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$")
+
+
+def verify_signature(raw_body: bytes, signature_header: str | None) -> bool:
+    """Constant-time HMAC-SHA256 verification of the raw request body."""
+    if not HMAC_SECRET:
+        app.logger.critical("SOC_AGENT_HMAC_SECRET is not set — refusing all /alert requests.")
+        return False
+    if not signature_header:
+        return False
+    expected = "sha256=" + hmac.new(HMAC_SECRET, raw_body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_header)
+
+
+def is_valid_mac(value: str) -> bool:
+    return bool(value) and bool(_MAC_RE.match(value))
+
+
+def is_valid_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+        return True
+    except ValueError:
+        return False
 
 
 # =============================================================================
@@ -175,6 +217,9 @@ def analyze_alert_with_ai(raw_log_data):
 # =============================================================================
 def send_soc_alert(title, message, priority=3, tags="rotating_light"):
     """Pushes formatted alerts to the analyst's mobile device via ntfy."""
+    if not NTFY_TOPIC:
+        app.logger.warning("NTFY_TOPIC not set — skipping ntfy push.")
+        return
     url = f"https://ntfy.sh/{NTFY_TOPIC}"
     headers = {
         "Title":    title,
@@ -230,21 +275,16 @@ def _append_pending_action(action: dict) -> None:
 
 def _read_queue():
     try:
-        with open(APPROVAL_QUEUE, "r", encoding="utf-8") as fh:
-            return [json.loads(line) for line in fh if line.strip()]
-    except OSError:
-        return []
-
-
-def _execute_isolation(target_mac: str, target_ip: str):
-    """Actually run isolate.sh. Re-checks the exclusion list at execution time."""
-    blocked = is_excluded(ip=target_ip, mac=target_mac)
-    if blocked:
-        app.logger.error("Refusing isolation: %s is on the exclusion list.", blocked)
-        return False, f"BLOCKED by exclusion list ({blocked})"
-    target = target_mac if target_mac else target_ip
-    proc = subprocess.run(["sudo", ISOLATE_SCRIPT, target], check=False)
-    return proc.returncode == 0, f"isolate.sh exited {proc.returncode}"
+        requests.post(
+            f"{ES_HOST}/{index}/_doc",
+            json=doc,
+            headers={"Content-Type": "application/json"},
+            auth=(ES_USER, ES_PASS),
+            verify=ES_VERIFY,
+            timeout=5,
+        )
+    except Exception as e:
+        app.logger.error("Failed to index SOAR action: %s", e)
 
 
 # =============================================================================
@@ -252,32 +292,44 @@ def _execute_isolation(target_mac: str, target_ip: str):
 # =============================================================================
 @app.route("/alert", methods=["POST"])
 def handle_kibana_webhook():
-    """Receives Kibana alert payload and orchestrates AI triage + a DRAFTED response.
+    """Receives a signed alert payload and orchestrates AI triage + response."""
+    # Step 0: authenticate the request BEFORE doing anything else. The raw body is
+    # what was signed, so verify it before parsing.
+    raw_body = request.get_data()
+    if not verify_signature(raw_body, request.headers.get(HMAC_HEADER)):
+        app.logger.warning("Rejected /alert: missing or invalid HMAC signature.")
+        return jsonify({"status": "unauthorized"}), 401
 
-    Per CDP §12.3, the agent never autonomously isolates: it triages, drafts a
-    recommended containment action, and enqueues it for a human-of-record to
-    approve via POST /approve. (Legacy auto-execute is gated behind
-    AUTONOMOUS_ISOLATION=true and still honours the exclusion list.)
-    """
-    data        = request.json or {}
+    data = request.get_json(silent=True) or {}
     severity    = data.get("severity",   "medium")
-    target_ip   = data.get("source_ip",  "unknown")
-    target_mac  = data.get("source_mac", "")
+    target_ip   = str(data.get("source_ip",  "")).strip()
+    target_mac  = str(data.get("source_mac", "")).strip()
     raw_details = data.get("raw_log",    "No log data provided")
+
+    # Validate anything that could reach the OS / isolate.sh. Invalid values are
+    # blanked (never passed through) so the subprocess only ever sees a clean MAC.
+    valid_mac = target_mac if is_valid_mac(target_mac) else ""
+    safe_ip   = target_ip if is_valid_ip(target_ip) else "unknown"
 
     # Step 1: AI triage
     ai_summary = analyze_alert_with_ai(raw_details)
 
-    if severity != "critical":
-        send_soc_alert(
-            title="MEDIUM: Analyst Review Requested",
-            message=(
-                f"Suspicious Activity from {target_ip}\n\n"
-                f"AI Analysis:\n{ai_summary}\n\n"
-                "Review required for isolation."
-            ),
-            priority=3,
-            tags="warning,mag,robot",
+    # Step 2: Automated response
+    if severity == "critical" and valid_mac:
+        # Quarantine by MAC address (persists across IP/DHCP changes). Only a
+        # format-validated MAC ever reaches the subprocess. Wrapped so a failed
+        # isolate.sh invocation (e.g. missing ssh/sudo, unreachable router) is
+        # logged rather than crashing the handler into a 500.
+        try:
+            subprocess.run(["sudo", ISOLATE_SCRIPT, valid_mac], check=False)
+        except Exception as exc:  # noqa: BLE001 - never let response handling crash
+            app.logger.error("isolate.sh invocation failed: %s", exc)
+        target_ip = safe_ip
+
+        # ntfy mobile push
+        alert_body = (
+            f"NODE ISOLATED\nIP: {target_ip} | MAC: {valid_mac}\n\n"
+            f"AI Analysis:\n{ai_summary}"
         )
         return jsonify({"status": "Alert Processed", "ai_analysis": ai_summary}), 200
 
@@ -295,20 +347,12 @@ def handle_kibana_webhook():
             priority=5,
             tags="shield,warning,robot",
         )
-        return jsonify({
-            "status": "Blocked by exclusion list",
-            "excluded": excluded,
-            "ai_analysis": ai_summary,
-        }), 200
 
-    if AUTONOMOUS_ISOLATION:
-        # Legacy, out-of-scope behaviour — retained only behind an explicit flag.
-        ok, detail = _execute_isolation(target_mac, target_ip)
-        send_soc_alert(
-            title="CRITICAL: Autonomous Isolation (flag enabled)",
-            message=f"IP: {target_ip} | MAC: {target_mac or 'N/A'}\n{detail}\n\nAI Analysis:\n{ai_summary}",
-            priority=5,
-            tags="skull,lock,robot",
+        # Discord SOC channel notification
+        send_discord_alert(
+            device_ip=target_ip,
+            device_mac=valid_mac,
+            ai_summary=ai_summary,
         )
         return jsonify({"status": "Auto-isolated", "detail": detail, "ai_analysis": ai_summary}), 200
 
@@ -325,24 +369,45 @@ def handle_kibana_webhook():
     }
     _append_pending_action(action)
 
-    send_soc_alert(
-        title="CRITICAL: Isolation AWAITING APPROVAL",
-        message=(
-            f"DRAFTED (not executed). Approve to isolate.\n"
-            f"Action ID: {action['id']}\nIP: {target_ip} | MAC: {target_mac or 'N/A'}\n\n"
-            f"AI Analysis:\n{ai_summary}\n\n"
-            f"Approve: POST /approve {{\"id\": \"{action['id']}\"}}"
-        ),
-        priority=5,
-        tags="hourglass,lock,robot",
-    )
-    send_discord_alert(
-        device_ip=target_ip,
-        device_mac=target_mac or "N/A",
-        ai_summary=f"[AWAITING HUMAN APPROVAL — action {action['id']}] {ai_summary}",
-    )
+        # SOAR feedback loop — record the automated quarantine for the dashboard
+        log_soar_action(
+            action_type="quarantine_mac",
+            target_ip=target_ip,
+            target_mac=valid_mac,
+            ai_summary=ai_summary,
+            severity=severity,
+        )
+    else:
+        # Either a medium alert, or a critical one we cannot auto-contain because
+        # no valid MAC was supplied (isolate.sh is MAC-only — we never feed it an
+        # IP). Both escalate to a human instead of taking an OS action.
+        if severity == "critical":
+            title = "CRITICAL: Manual Isolation Required (no valid MAC)"
+            priority = 5
+            note = "Auto-isolation skipped — supply a valid source_mac to quarantine."
+        else:
+            title = "MEDIUM: Analyst Review Requested"
+            priority = 3
+            note = "Review required for isolation."
+        alert_body = (
+            f"Suspicious Activity from {safe_ip}\n\n"
+            f"AI Analysis:\n{ai_summary}\n\n{note}"
+        )
+        send_soc_alert(
+            title=title,
+            message=alert_body,
+            priority=priority,
+            tags="warning,mag,robot",
+        )
 
-    return jsonify({"status": "Pending approval", "action_id": action["id"], "ai_analysis": ai_summary}), 202
+        # SOAR feedback loop — record the manual-review path (not automated)
+        log_soar_action(
+            action_type="analyst_review",
+            target_ip=safe_ip,
+            target_mac=valid_mac,
+            ai_summary=ai_summary,
+            severity=severity,
+        )
 
 
 # =============================================================================

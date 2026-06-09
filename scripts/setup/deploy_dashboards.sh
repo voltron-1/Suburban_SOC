@@ -4,21 +4,24 @@
 #
 # Imports the executive / network / endpoint / data-quality dashboards plus the
 # SOC navigation hub into Kibana, provisions the logstash-* data view, installs
-# the Elastic Watchers, and syncs the enriched logstash.conf into the Docker
-# mount before restarting Logstash.
+# the Elastic Watchers, and restarts Logstash to reload the bind-mounted
+# configs/logstash.conf (the single source of truth — no copy/sync step).
 #
 # Usage:
 #   ./scripts/setup/deploy_dashboards.sh
 #
 # Env overrides:
-#   ES_URL       (default http://localhost:9200)
+#   ES_URL       (default https://localhost:9200 — security is always on)
 #   KIBANA_URL   (default http://localhost:5601)
-#   ES_USER / ES_PASS   (only if xpack.security is enabled)
+#   ES_USER      (default elastic)
+#   ES_PASS      (default $ELASTIC_PASSWORD from scripts/setup/.env)
+#   ES_CA        (path to ca.crt; if unset, falls back to -k against localhost)
 # =============================================================================
 set -euo pipefail
 
-ES_URL="${ES_URL:-http://localhost:9200}"
-KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+green() { printf '\033[32m%s\033[0m\n' "$*"; }
+blue()  { printf '\033[34m%s\033[0m\n' "$*"; }
 
 # Resolve repo root from this script's location (scripts/setup/ -> repo root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,13 +29,36 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 SERVER_DIR="$REPO_ROOT/configs/server"
 WATCHER_DIR="$REPO_ROOT/rules/elastic_watcher"
 LOGSTASH_SRC="$REPO_ROOT/configs/logstash.conf"
-LOGSTASH_MOUNT="$REPO_ROOT/scripts/setup/configs/logstash/logstash.conf"
 
-# Optional basic-auth (only used if ES_USER is set)
-CURL_AUTH=()
-if [[ -n "${ES_USER:-}" ]]; then
-  CURL_AUTH=(-u "${ES_USER}:${ES_PASS:-}")
+# Load stack secrets from scripts/setup/.env if present (so ES_PASS need not be
+# exported by hand). Never commit .env.
+if [[ -f "$SCRIPT_DIR/.env" ]]; then
+  set -a; . "$SCRIPT_DIR/.env"; set +a
 fi
+
+# Security is always on (WS0.1): ES is HTTPS + authenticated.
+ES_URL="${ES_URL:-https://localhost:9200}"
+KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+ES_USER="${ES_USER:-elastic}"
+ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
+
+if [[ -z "$ES_PASS" ]]; then
+  red "ERROR: ES_PASS (or ELASTIC_PASSWORD in scripts/setup/.env) is required — the stack is secured."
+  exit 1
+fi
+
+# Basic-auth applied to every ES + Kibana API call.
+AUTH=(-u "${ES_USER}:${ES_PASS}")
+
+# TLS to Elasticsearch: use the CA when provided, else fall back to -k for a
+# local self-signed cert (acceptable only against localhost).
+if [[ -n "${ES_CA:-}" && -f "${ES_CA}" ]]; then
+  TLS=(--cacert "${ES_CA}")
+else
+  TLS=(-k)
+fi
+# Combined options for Elasticsearch calls (auth + TLS).
+ES_CURL=("${AUTH[@]}" "${TLS[@]}")
 
 DASHBOARDS=(
   "executive_dashboard.ndjson"
@@ -42,23 +68,19 @@ DASHBOARDS=(
   "soc_navigation_hub.ndjson"
 )
 
-red()   { printf '\033[31m%s\033[0m\n' "$*"; }
-green() { printf '\033[32m%s\033[0m\n' "$*"; }
-blue()  { printf '\033[34m%s\033[0m\n' "$*"; }
-
 # -----------------------------------------------------------------------------
 # 1. Pre-flight — Elasticsearch + Kibana reachable
 # -----------------------------------------------------------------------------
 blue "==> [1/6] Validating Elasticsearch at ${ES_URL}"
-if ! curl -fsS "${CURL_AUTH[@]}" "${ES_URL}" >/dev/null 2>&1; then
-  red "ERROR: Elasticsearch not reachable at ${ES_URL}. Is the stack up (docker compose up -d)?"
+if ! curl -fsS "${ES_CURL[@]}" "${ES_URL}" >/dev/null 2>&1; then
+  red "ERROR: Elasticsearch not reachable/authenticated at ${ES_URL}. Is the stack up (docker compose up -d) and ES_PASS correct?"
   exit 1
 fi
-green "    Elasticsearch is up."
+green "    Elasticsearch is up (authenticated)."
 
 blue "==> [2/6] Validating Kibana at ${KIBANA_URL}"
-if ! curl -fsS "${KIBANA_URL}/api/status" >/dev/null 2>&1; then
-  red "ERROR: Kibana not reachable at ${KIBANA_URL}/api/status. Give it a minute to start."
+if ! curl -fsS "${AUTH[@]}" "${KIBANA_URL}/api/status" >/dev/null 2>&1; then
+  red "ERROR: Kibana not reachable at ${KIBANA_URL}/api/status. Give it a minute to start (and check ES_PASS)."
   exit 1
 fi
 green "    Kibana is up."
@@ -72,7 +94,7 @@ blue "==> [3/6] Ensuring data views exist (logstash-pattern, soar-actions-patter
 # aggregation-based visualizations throw "cannot read properties of undefined"
 # and one throwing panel trips Kibana's error boundary, blanking the whole board.
 create_data_view() {  # $1=id  $2=title  $3=allowNoIndex(true/false)
-  curl -s -o /dev/null -w '%{http_code}' \
+  curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" \
     -X POST "${KIBANA_URL}/api/data_views/data_view" \
     -H 'kbn-xsrf: true' -H 'Content-Type: application/json' \
     -d "{\"override\":true,\"data_view\":{\"id\":\"$1\",\"name\":\"$2\",\"title\":\"$2\",\"timeFieldName\":\"@timestamp\",\"allowNoIndex\":$3}}" || true
@@ -93,7 +115,7 @@ for f in "${DASHBOARDS[@]}"; do
     red "    SKIP (missing): ${f}"
     continue
   fi
-  resp=$(curl -s -X POST "${KIBANA_URL}/api/saved_objects/_import?overwrite=true" \
+  resp=$(curl -s "${AUTH[@]}" -X POST "${KIBANA_URL}/api/saved_objects/_import?overwrite=true" \
     -H 'kbn-xsrf: true' --form file=@"${path}" || true)
   if echo "$resp" | grep -q '"success":true'; then
     green "    Imported ${f}"
@@ -112,7 +134,7 @@ if [[ -d "$WATCHER_DIR" ]]; then
   for w in "$WATCHER_DIR"/*.json; do
     [[ -e "$w" ]] || continue
     wid="$(basename "$w" .json)"
-    code=$(curl -s -o /dev/null -w '%{http_code}' "${CURL_AUTH[@]}" \
+    code=$(curl -s -o /dev/null -w '%{http_code}' "${ES_CURL[@]}" \
       -X PUT "${ES_URL}/_watcher/watch/${wid}" \
       -H 'Content-Type: application/json' --data-binary @"$w" || true)
     if [[ "$code" =~ ^20 ]]; then
@@ -127,23 +149,20 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 5. Sync enriched logstash.conf to the Docker mount + restart Logstash
+# 5. Restart Logstash to apply the pipeline config
 # -----------------------------------------------------------------------------
-blue "==> [6/6] Syncing logstash.conf to Docker mount + restarting Logstash"
+# configs/logstash.conf is the single source of truth and is bind-mounted into
+# the container directly by docker-compose.yml (../../configs/logstash.conf), so
+# there is no copy/sync step — we only need to restart Logstash to reload it.
+blue "==> [6/6] Restarting Logstash to apply configs/logstash.conf"
 if [[ -f "$LOGSTASH_SRC" ]]; then
-  # Best-effort dir create; the mount dir normally already exists. Guarded so a
-  # read-only/UNC parent (e.g. running from a \\wsl.localhost share) can't abort.
-  mount_dir="$(dirname "$LOGSTASH_MOUNT")"
-  [[ -d "$mount_dir" ]] || mkdir -p "$mount_dir" 2>/dev/null || true
-  cp "$LOGSTASH_SRC" "$LOGSTASH_MOUNT"
-  green "    Synced configs/logstash.conf -> scripts/setup/configs/logstash/logstash.conf"
   if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^logstash$'; then
     docker restart logstash >/dev/null && green "    Restarted Logstash container."
   else
     red "    NOTE: Logstash container not running — restart it manually to apply config."
   fi
 else
-  red "    WARN: ${LOGSTASH_SRC} not found — skipped sync."
+  red "    WARN: ${LOGSTASH_SRC} not found — pipeline config is missing."
 fi
 
 # -----------------------------------------------------------------------------

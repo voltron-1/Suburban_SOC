@@ -78,15 +78,25 @@ def build_checks(lookback_min: int) -> list[Check]:
 
 
 def main() -> int:
-    es_url = os.environ.get("ES_URL", "http://localhost:9200")
+    # Security is enabled (WS0.1): default to HTTPS + auth. ES_PASS falls back to
+    # ELASTIC_PASSWORD so `source ../../scripts/setup/.env` just works. ES_CA points
+    # at an exported ca.crt for strict TLS; without it we skip cert verification
+    # (acceptable only against a local self-signed node).
+    es_url = os.environ.get("ES_URL", "https://localhost:9200")
     index = os.environ.get("ES_INDEX", "logstash-security-*")
     lookback = int(os.environ.get("LOOKBACK_MIN", "10"))
-    user = os.environ.get("ES_USER") or None
-    password = os.environ.get("ES_PASS") or None
+    user = os.environ.get("ES_USER", "elastic") or None
+    password = os.environ.get("ES_PASS") or os.environ.get("ELASTIC_PASSWORD") or None
+    ca = os.environ.get("ES_CA") or None
 
     kwargs: dict[str, Any] = {"hosts": [es_url]}
     if user and password:
         kwargs["basic_auth"] = (user, password)
+    if es_url.startswith("https"):
+        if ca:
+            kwargs["ca_certs"] = ca
+        else:
+            kwargs["verify_certs"] = False
 
     es = Elasticsearch(**kwargs)
 

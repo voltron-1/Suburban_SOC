@@ -38,7 +38,9 @@ Because we are using the native Logstash `geoip` plugin, it is built to handle R
 ### Fix 1: Empty Logstash Config (Path Mismatch)
 **Issue:** The `docker-compose.yml` volume mount referenced `./configs/logstash/logstash.conf` but the file was missing from that path, causing Logstash to start with no pipeline and silently discard all data.
 **Fix:** Created `scripts/setup/configs/logstash/logstash.conf` — a full copy of the validated pipeline config. The Docker-mounted path now resolves correctly.
+**Superseded (WS0.6):** The duplicate copy was removed. `docker-compose.yml` now bind-mounts the repo-root `configs/logstash.conf` directly (`../../configs/logstash.conf`), making it the single source of truth and eliminating the copy/sync step that risked the two files drifting apart.
 
 ### Fix 2: Auth Fields Removed from Output Block
 **Issue:** The root `configs/logstash.conf` had `user` and `password` fields in the Elasticsearch output block. With `xpack.security.enabled=false` in `docker-compose.yml`, Logstash throws an authentication error at startup.
 **Fix:** Removed `user` and `password` from the output block. Security is handled at the network layer (Docker internal network `setup_soc-mesh-net`), not at the application level.
+**Superseded (WS0.1):** Network-layer-only isolation was insufficient for a product. `xpack.security` + TLS is now enabled, and the output block authenticates over HTTPS as the least-privilege `logstash_internal` user via env vars (`${LOGSTASH_ES_USER}`/`${LOGSTASH_ES_PASS}`) — never the `elastic` superuser, never hardcoded.

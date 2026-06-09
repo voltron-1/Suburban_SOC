@@ -80,7 +80,9 @@ All knobs in `.env`. Defaults are lab-safe (localhost / RFC1918):
 | `TARGET_HOST` | `127.0.0.1` | Box the sims point at (must be your lab) |
 | `BRUTE_USER` | `bogususer` | Throwaway SSH user for brute attempts |
 | `MALWARE_SAMPLE_URL` | EICAR test ZIP | Benign signature file inside a ZIP |
-| `ES_URL` | `http://localhost:9200` | Elasticsearch read endpoint |
+| `ES_URL` | `https://localhost:9200` | Elasticsearch read endpoint (security is on — HTTPS) |
+| `ES_USER` / `ES_PASS` | `elastic` / `$ELASTIC_PASSWORD` | ES credentials; `source scripts/setup/.env` to populate |
+| `ES_CA` | _(unset)_ | Path to exported `ca.crt` for strict TLS; unset = skip cert verify (local only) |
 | `ES_INDEX` | `logstash-security-*` | Index pattern to query |
 | `LOOKBACK_MIN` | `10` | Verifier search window |
 | `OPENWRT_HOST` | `192.168.1.1` | Router for quarantine check |
