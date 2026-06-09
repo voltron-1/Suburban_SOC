@@ -200,8 +200,16 @@ Before you begin, ensure you have the following:
     ```
 2.  **Configure Agents:**
     Review and modify `/configs/filebeat.yml` and `/configs/logstash.conf` to match your environment.
-3.  **Deploy Containers:**
-    Ensure Elasticsearch, Logstash, Kibana, and Zeek containers are online and correctly networked.
+3.  **Configure Secrets:**
+    The stack runs with security + TLS enabled. Copy the env template and set strong values:
+    ```bash
+    cp scripts/setup/.env.example scripts/setup/.env
+    # edit .env: set ELASTIC_PASSWORD, KIBANA_PASSWORD, LOGSTASH_PASSWORD, KIBANA_ENCRYPTION_KEY (32+ chars)
+    ```
+4.  **Deploy Containers:**
+    From `scripts/setup/`, run `docker compose up -d`. A one-shot `setup` service generates
+    the TLS CA/certs and provisions service accounts; then Elasticsearch (`https://localhost:9200`),
+    Logstash, Kibana (`http://localhost:5601`, login as `elastic`), and the AI agent come up.
 
 ### 3. Usage:
 1.  **Architecture Flow:**

@@ -12,14 +12,19 @@ app = FastAPI(title="Hive-Mind Broker")
 # Load the router inventory on startup
 inv = Inventory("inventory.yaml")
 
-# The secret used for HMAC validation. In production, load from environment variable.
-HMAC_SECRET = os.getenv("HIVE_MIND_SECRET", "default_dev_secret").encode('utf-8')
+# The secret used for HMAC validation. Loaded from the environment with NO
+# insecure default (WS0.4) — if unset, the endpoint fails closed (503).
+HMAC_SECRET = os.getenv("HIVE_MIND_SECRET", "").encode("utf-8")
 
 @app.post("/webhook/alert")
 async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     """
     Receives webhook payloads from Kibana when a critical alert fires.
     """
+    # Fail closed if no secret is configured — never accept unauthenticated blocks.
+    if not HMAC_SECRET:
+        raise HTTPException(status_code=503, detail="Broker secret not configured")
+
     # Verify HMAC signature
     signature_header = request.headers.get("x-elastic-signature")
     if not signature_header:

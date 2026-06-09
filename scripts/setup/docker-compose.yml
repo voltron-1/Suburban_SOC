@@ -1,68 +1,202 @@
-version: '3.8'
+# =============================================================================
+# Suburban-SOC — secured ELK + AI-agent stack (WS0.1)
+#
+# Security model:
+#   * xpack.security ENABLED with TLS on the Elasticsearch HTTP + transport layers.
+#   * A one-shot `setup` service generates a CA + node cert into the `certs` volume,
+#     sets the kibana_system password, and provisions a least-privilege
+#     `logstash_internal` user (role: logstash_writer) — Logstash never uses the
+#     `elastic` superuser.
+#   * All secrets come from scripts/setup/.env (see .env.example). Nothing is
+#     hardcoded; passwords are required (the setup container refuses to run without
+#     them).
+#
+# First run:
+#   cp .env.example .env   # then edit and set strong passwords + a 32-char key
+#   docker compose up -d
+# =============================================================================
 
 services:
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.3.2
-    container_name: elasticsearch
-    environment:
-      - discovery.type=single-node
-      - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms2g -Xmx2g" # Fixes the stack trace crash
-    ports:
-      - 9200:9200
+  # --- One-shot: generate certs, set passwords, provision least-priv users -----
+  setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
+    container_name: soc_setup
     volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+    user: "0"
+    networks:
+      - soc-mesh-net
+    command: >
+      bash -c '
+        if [ x${ELASTIC_PASSWORD} == x ]; then echo "ERROR: set ELASTIC_PASSWORD in .env"; exit 1; fi;
+        if [ x${KIBANA_PASSWORD} == x ]; then echo "ERROR: set KIBANA_PASSWORD in .env"; exit 1; fi;
+        if [ x${LOGSTASH_PASSWORD} == x ]; then echo "ERROR: set LOGSTASH_PASSWORD in .env"; exit 1; fi;
+        if [ ! -f config/certs/ca.zip ]; then
+          echo "Creating CA";
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+          unzip config/certs/ca.zip -d config/certs;
+        fi;
+        if [ ! -f config/certs/certs.zip ]; then
+          echo "Creating node certs";
+          printf "instances:\n  - name: elasticsearch\n    dns:\n      - elasticsearch\n      - localhost\n    ip:\n      - 127.0.0.1\n" > config/certs/instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/certs.zip -d config/certs;
+        fi;
+        echo "Setting file permissions";
+        chown -R root:root config/certs;
+        find . -type d -exec chmod 750 \{\} \;;
+        find . -type f -exec chmod 640 \{\} \;;
+        echo "Waiting for Elasticsearch";
+        until curl -s --cacert config/certs/ca/ca.crt https://elasticsearch:9200 | grep -q "missing authentication credentials"; do sleep 5; done;
+        echo "Setting kibana_system password";
+        until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 5; done;
+        echo "Provisioning least-privilege logstash_writer role";
+        curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/role/logstash_writer -d "{\"cluster\":[\"monitor\",\"manage_index_templates\",\"manage_ilm\"],\"indices\":[{\"names\":[\"logstash-*\",\"soar-actions-*\"],\"privileges\":[\"create_index\",\"create\",\"write\",\"manage\"]}]}" > /dev/null;
+        echo "Provisioning logstash_internal user";
+        curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/logstash_internal -d "{\"password\":\"${LOGSTASH_PASSWORD}\",\"roles\":[\"logstash_writer\"],\"full_name\":\"Logstash writer (Suburban-SOC)\"}" > /dev/null;
+        echo "Setup complete.";
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/elasticsearch/elasticsearch.crt ]"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
+    container_name: elasticsearch
+    depends_on:
+      setup:
+        condition: service_healthy
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=${CLUSTER_NAME:-suburban-soc}
+      - discovery.type=single-node
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.http.ssl.key=certs/elasticsearch/elasticsearch.key
+      - xpack.security.http.ssl.certificate=certs/elasticsearch/elasticsearch.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.key=certs/elasticsearch/elasticsearch.key
+      - xpack.security.transport.ssl.certificate=certs/elasticsearch/elasticsearch.crt
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.license.self_generated.type=${LICENSE:-basic}
+      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
+    ports:
+      - ${ES_PORT:-9200}:9200
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
       - suburban_soc_data:/usr/share/elasticsearch/data
     networks:
       - soc-mesh-net
-    # Healthcheck lets dependents wait until ES actually serves requests,
-    # not just until the container starts -- avoids Logstash's startup-race
-    # "Connection refused" WARN against elasticsearch:9200.
+    # Healthcheck now expects an authenticated-required response over HTTPS, proving
+    # security is actually on (a 200 here would mean anonymous access — a failure).
     healthcheck:
-      test: ["CMD-SHELL", "curl -s -f http://localhost:9200/_cluster/health || exit 1"]
+      test:
+        ["CMD-SHELL",
+         "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'"]
       interval: 10s
       timeout: 10s
       retries: 12
       start_period: 60s
 
   kibana:
-    image: docker.elastic.co/kibana/kibana:9.3.2
+    image: docker.elastic.co/kibana/kibana:${STACK_VERSION:-9.3.2}
     container_name: kibana
-    environment:
-      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-    ports:
-      - 5601:5601
     depends_on:
       elasticsearch:
         condition: service_healthy
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=https://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=${KIBANA_PASSWORD}
+      - ELASTICSEARCH_SSL_CERTIFICATEAUTHORITIES=config/certs/ca/ca.crt
+      # Encryption keys for saved objects / reporting (set in .env)
+      - XPACK_SECURITY_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+      - XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+      - XPACK_REPORTING_ENCRYPTIONKEY=${KIBANA_ENCRYPTION_KEY}
+    ports:
+      - ${KIBANA_PORT:-5601}:5601
+    volumes:
+      - certs:/usr/share/kibana/config/certs
+    networks:
+      - soc-mesh-net
+    healthcheck:
+      test:
+        ["CMD-SHELL",
+         "curl -s -I http://localhost:5601 | grep -q 'HTTP/1.1 302 Found'"]
+      interval: 10s
+      timeout: 10s
+      retries: 24
+      start_period: 60s
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-9.3.2}
+    container_name: logstash
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+      # Least-privilege ES credentials consumed by configs/logstash.conf output.
+      - LOGSTASH_ES_USER=logstash_internal
+      - LOGSTASH_ES_PASS=${LOGSTASH_PASSWORD}
+      - ELASTIC_HOSTS=https://elasticsearch:9200
+      # Secret for signing the SOAR /alert webhook to the AI agent (WS0.2).
+      - SOC_AGENT_HMAC_SECRET=${SOC_AGENT_HMAC_SECRET}
+    ports:
+      - 5044:5044
+    volumes:
+      - certs:/usr/share/logstash/config/certs
+      # Single source of truth: the repo-root pipeline config is mounted directly
+      # (path is relative to this compose file at scripts/setup/). No copy/sync step.
+      - ../../configs/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
     networks:
       - soc-mesh-net
 
-  logstash:
-    image: docker.elastic.co/logstash/logstash:9.3.2
-    container_name: logstash
-    ports:
-      - 5044:5044
-    environment:
-      - LS_JAVA_OPTS=-Xms512m -Xmx512m
-    volumes:
-      - ./configs/logstash/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
-    networks:
-      - soc-mesh-net
+  ai-agent:
+    build:
+      context: ./ai_agent
+    container_name: soc_ai_agent
     depends_on:
       elasticsearch:
         condition: service_healthy
-  ai-agent:
-    build: 
-      context: ./ai_agent
-    container_name: soc_ai_agent
+    environment:
+      # SOAR feedback loop writes to ES over HTTPS, authenticated. Reuses the
+      # least-privilege logstash_internal writer (WS3.2 will split per-component
+      # accounts). The CA is mounted read-only from the shared certs volume.
+      - ES_HOST=https://elasticsearch:9200
+      - ES_USER=logstash_internal
+      - ES_PASS=${LOGSTASH_PASSWORD}
+      - ES_CA=/certs/ca/ca.crt
+      # Shared secret for HMAC-signed /alert requests (WS0.2). Required — the
+      # endpoint fails closed (503/401) if unset or the signature is wrong.
+      - SOC_AGENT_HMAC_SECRET=${SOC_AGENT_HMAC_SECRET}
+      # Notification / LLM secrets (WS0.4) — sourced from .env, no code defaults.
+      # Unset values degrade gracefully (push/triage skipped).
+      - NTFY_TOPIC=${NTFY_TOPIC:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_API_URL=${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
     ports:
-      - "5000:5000"
+      # Bound to localhost only — the agent is NOT reachable from the LAN. /alert
+      # additionally requires a valid HMAC signature.
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - certs:/certs:ro
     networks:
-      - soc-mesh-net # Make sure this matches the network name your ELK stack uses
+      - soc-mesh-net
     restart: unless-stopped
+
 networks:
   soc-mesh-net:
     driver: bridge
 
 volumes:
+  certs:
   suburban_soc_data:

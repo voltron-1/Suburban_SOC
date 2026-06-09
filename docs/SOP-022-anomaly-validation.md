@@ -38,10 +38,10 @@ Run `tests/anomaly_simulation/preflight.sh` to validate all items below in one s
 | `curl` installed | `command -v curl` | `sudo apt install curl` |
 | Python 3.10+ | `python3 --version` | use system pkg manager |
 | `elasticsearch` python pkg | `python3 -c "import elasticsearch"` | `pip install -r tests/anomaly_simulation/requirements.txt` |
-| Elasticsearch reachable | `curl http://localhost:9200` | `docker compose up -d` |
+| Elasticsearch reachable | `curl -k -u "elastic:$ELASTIC_PASSWORD" https://localhost:9200` | `docker compose up -d` |
 | `logstash-security-*` index has data | check Kibana Discover | run a capture script per SOP-001 |
 | AI Agent listening on :5000 | `curl http://localhost:5000/weekly-report/status` | start per step 4 below |
-| Kibana Watcher `soar_quarantine_alert` installed | `curl -u USER:PASS http://localhost:9200/_watcher/watch/soar_quarantine_alert` | step 5 below |
+| Kibana Watcher `soar_quarantine_alert` installed | `curl -k -u "elastic:$ELASTIC_PASSWORD" https://localhost:9200/_watcher/watch/soar_quarantine_alert` | step 5 below |
 | OpenWrt SSH reachable | `ssh -i ~/.ssh/id_ed25519_hivemind root@192.168.1.1 'echo ok'` | check key + router |
 | `DISCORD_WEBHOOK_URL` set (optional) | `echo $DISCORD_WEBHOOK_URL` | export from `.env` if you want Discord embeds |
 

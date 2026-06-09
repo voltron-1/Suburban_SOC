@@ -23,8 +23,8 @@ Before executing any procedure, verify the following:
 | SSH access to router | `ssh root@10.18.81.1` — should drop into OpenWrt shell |
 | `/storage/PCAP/zeek_logs/` exists | `ls /storage/PCAP/zeek_logs/` |
 | Filebeat service running | `sudo systemctl status filebeat` |
-| Logstash & Elasticsearch up | `curl http://localhost:9200` — should return cluster info |
-| Kibana reachable | Open `http://localhost:5601` in browser |
+| Logstash & Elasticsearch up | `curl -k -u "elastic:$ELASTIC_PASSWORD" https://localhost:9200` — returns cluster info (security on) |
+| Kibana reachable | Open `http://localhost:5601` (login as `elastic`) |
 
 ---
 
@@ -243,8 +243,8 @@ Follow this order when starting the full pipeline from scratch:
 |---|---|---|
 | 1 | Start Docker | Launch Docker Desktop or `sudo service docker start` |
 | 2 | Start ELK stack | `docker compose up -d` (if using compose) |
-| 3 | Verify Elasticsearch | `curl http://localhost:9200` |
-| 4 | Verify Kibana | Open `http://localhost:5601` |
+| 3 | Verify Elasticsearch | `curl -k -u "elastic:$ELASTIC_PASSWORD" https://localhost:9200` |
+| 4 | Verify Kibana | Open `http://localhost:5601` (login as `elastic`) |
 | 5 | Start Filebeat | `sudo systemctl start filebeat` |
 | 6 | Begin traffic capture | Run appropriate SOP-001 script |
 | 7 | Confirm logs flowing | Check `/storage/PCAP/zeek_logs/` for new `.log` files |

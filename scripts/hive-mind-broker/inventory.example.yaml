@@ -1,0 +1,17 @@
+# Hive-Mind Mesh Router Inventory — TEMPLATE.
+# Copy to inventory.yaml and fill in your routers. inventory.yaml is gitignored.
+#
+# IMPORTANT: do NOT store plain-text secrets here. Reference strictly-scoped
+# Ed25519 SSH keys by path; keep the private keys out of the repo. For production,
+# back this with HashiCorp Vault or SOPS.
+
+routers:
+  - id: "primary-node-home"
+    ip_address: "192.168.1.1"
+    username: "root"
+    ssh_key_path: "~/.ssh/id_ed25519_hivemind"
+
+  - id: "secondary-node-neighbor"
+    ip_address: "10.0.0.1"
+    username: "root"
+    ssh_key_path: "~/.ssh/id_ed25519_hivemind"

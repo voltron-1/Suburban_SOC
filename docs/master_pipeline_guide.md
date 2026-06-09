@@ -12,7 +12,23 @@ This document contains every bash command needed to deploy and test the Suburban
 | ELK Stack | 9.3.2 (elasticsearch / kibana / logstash / filebeat) |
 | Zeek Install Path | `/opt/zeek/bin/zeek` |
 | Docker Network | `setup_soc-mesh-net` (Docker prepends folder name) |
-| Config Source of Truth | `scripts/setup/configs/logstash/logstash.conf` |
+| Config Source of Truth | `configs/logstash.conf` (bind-mounted directly into the container) |
+
+---
+
+> [!IMPORTANT]
+> **Security is enabled (WS0.1).** Elasticsearch now runs with `xpack.security.enabled=true`
+> and TLS, so it is reachable at **`https://localhost:9200`** and **requires authentication**.
+> Before `docker compose up -d`, copy `scripts/setup/.env.example` → `scripts/setup/.env`
+> and set strong `ELASTIC_PASSWORD`, `KIBANA_PASSWORD`, `LOGSTASH_PASSWORD`, and a
+> 32+ char `KIBANA_ENCRYPTION_KEY`. Kibana (`http://localhost:5601`) now requires login
+> as `elastic`.
+>
+> Any `curl http://localhost:9200/...` example below must be run as:
+> ```bash
+> curl -k -u "elastic:$ELASTIC_PASSWORD" https://localhost:9200/...
+> ```
+> (`-k` trusts the local self-signed CA; use `--cacert` with the exported `ca.crt` for strict verification.)
 
 ---
 
@@ -145,16 +161,13 @@ ls scripts/setup/ai_agent/Dockerfile
 ls scripts/setup/ai_agent/agent_app.py
 ls scripts/setup/ai_agent/requirements.txt
 
-# Check the logstash config — MOST important file
-ls scripts/setup/configs/logstash/logstash.conf
+# Check the logstash config — MOST important file.
+# It is the single source of truth and is bind-mounted directly into the
+# container by docker-compose.yml (../../configs/logstash.conf). No copy needed.
+ls configs/logstash.conf
 
 # Verify logstash.conf is NOT empty
-cat scripts/setup/configs/logstash/logstash.conf
-
-# If logstash.conf is missing, create it from the root copy
-mkdir -p scripts/setup/configs/logstash
-cp configs/logstash.conf scripts/setup/configs/logstash/logstash.conf
-wc -l scripts/setup/configs/logstash/logstash.conf
+wc -l configs/logstash.conf
 ```
 
 > [!CAUTION]
@@ -210,7 +223,7 @@ docker logs logstash --tail 20
 **Expected:** The line `Pipeline started successfully` appears.
 
 > [!WARNING]
-> If you see errors about an empty config, ensure the file exists at `scripts/setup/configs/logstash/logstash.conf` and restart: `docker restart logstash`
+> If you see errors about an empty config, ensure `configs/logstash.conf` exists and is non-empty (it is bind-mounted directly into the container), then restart: `docker restart logstash`
 
 ### Step 6: Send Initial Test Event
 
@@ -251,7 +264,10 @@ curl -s http://localhost:9200/_cat/indices?v | grep logstash
 **Expected:** One row: `logstash-YYYY.MM.DD` with health `yellow`, `docs.count: 1`, size ~14kb.
 
 > [!WARNING]
-> If nothing appears: `docker logs logstash --tail 30`. A common cause is `user`/`password` fields in `logstash.conf` when `xpack.security.enabled=false` — remove auth fields from the output block.
+> If nothing appears: `docker logs logstash --tail 30`. With security enabled (WS0.1), the
+> usual cause is bad ES credentials — confirm `LOGSTASH_PASSWORD` in `.env` matches the
+> `logstash_internal` user the `setup` container created, and that Logstash can read the
+> mounted CA at `/usr/share/logstash/config/certs/ca/ca.crt`.
 
 ---
 
@@ -421,11 +437,11 @@ ip addr show eth0 | grep 'inet '
 | Error / Symptom | Root Cause | Fix |
 |---|---|---|
 | `InvalidFrameProtocolException` beats protocol: 34 | Raw JSON sent to port 5044 via `nc` or `curl` | Port 5044 is Beats protocol only. Use Filebeat container. |
-| `logstash.conf` is empty after stack restart | Config file not mounted — path mismatch | Ensure file exists at `scripts/setup/configs/logstash/logstash.conf` |
+| `logstash.conf` is empty after stack restart | Config file not mounted — path mismatch | Ensure `configs/logstash.conf` exists and is non-empty (bind-mounted via `../../configs/logstash.conf`) |
 | `network soc-mesh-net not found` | Stack not running — network only exists when containers are up | Run `docker compose up -d` before using `--network` |
 | `Log input is deprecated` error in Filebeat | Using `type: log` removed in Filebeat 9.x | Change to `type: filestream` |
 | `count: 1` after Filebeat run | Filebeat container was backgrounded and suspended | Run Filebeat in foreground — do not append `&` |
-| Authentication error in Logstash output | `user`/`password` in `logstash.conf` when security is disabled | Remove `user` and `password` from elasticsearch output block |
+| Authentication error in Logstash output | Wrong/missing ES credentials (security is ON) | Ensure `LOGSTASH_PASSWORD` in `.env` matches the `logstash_internal` user and the CA is mounted |
 | Kibana `localhost:5601` not loading on Windows | WSL2 networking | Get WSL IP: `ip addr show eth0 \| grep inet` |
 | No results in Kibana Discover | Time range too narrow for log timestamps | Expand to `Last 24 hours` |
 | `zeek: command not found` | Zeek not added to PATH | `echo 'export PATH=$PATH:/opt/zeek/bin' >> ~/.bashrc && source ~/.bashrc` |
@@ -435,7 +451,7 @@ ip addr show eth0 | grep 'inet '
 ## Key Rules
 
 - Always run `docker compose` from `scripts/setup/` — not from the repo root
-- `scripts/setup/configs/logstash/logstash.conf` is the **only source of truth** for the pipeline config — never edit inside a running container
+- `configs/logstash.conf` is the **only source of truth** for the pipeline config (bind-mounted directly into the container) — never edit inside a running container, and never reintroduce a second copy under `scripts/setup/`
 - Port 5044 uses Beats protocol — always use Filebeat, never `nc` or `curl`
 - Docker network name is `setup_soc-mesh-net` (Docker prepends the folder name `setup`)
 - Elasticsearch data persists in the `suburban_soc_data` Docker volume across restarts

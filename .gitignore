@@ -44,6 +44,8 @@ suburban_soc_data/
 # ==== Secrets & Credentials ====
 .env
 .env.*
+# ...but DO track the template (no real secrets in it)
+!.env.example
 *.pem
 *.key
 *.cert
@@ -52,6 +54,8 @@ id_rsa*
 *.ovpn
 secrets/
 credentials.json
+# Broker router inventory — keep the template, not the real one.
+scripts/hive-mind-broker/inventory.yaml
 
 # ==== Important / Raw Documents ====
 # Prevent raw working documents and reference materials from being exposed
