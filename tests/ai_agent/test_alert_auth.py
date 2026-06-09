@@ -154,6 +154,54 @@ class AlertResponseTests(unittest.TestCase):
         self.mock_run.assert_called_once()         # the human approval executes it
         self.assertIn(GOOD_MAC, self.mock_run.call_args[0][0])
 
+    # --- WS0.3 tenant-scoped isolation routing -------------------------------
+    def test_named_tenant_router_used_on_autonomous(self):
+        # The tenant's router is resolved and passed to isolate.sh.
+        with mock.patch.object(agent_app, "AUTONOMOUS_ISOLATION", True), \
+             mock.patch.dict(os.environ, {"ROUTER_HOST_HOME_SMITH": "192.168.9.1"}):
+            r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
+                            "source_mac": GOOD_MAC, "tenant_id": "home-smith"})
+        self.assertEqual(r.get_json()["status"], "auto_isolated")
+        self.mock_run.assert_called_once()
+        passed = self.mock_run.call_args[0][0]
+        self.assertIn(GOOD_MAC, passed)
+        self.assertIn("192.168.9.1", passed)       # tenant's router, not a default
+
+    def test_named_tenant_without_router_refuses(self):
+        # A named tenant with no ROUTER_HOST_* must never isolate on a default
+        # or another tenant's router — even with autonomy enabled.
+        with mock.patch.object(agent_app, "AUTONOMOUS_ISOLATION", True), \
+             mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ROUTER_HOST_NEIGHBOR_JONES", None)
+            r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
+                            "source_mac": GOOD_MAC, "tenant_id": "neighbor-jones"})
+        self.assertEqual(r.get_json()["status"], "isolation_failed")
+        self.mock_run.assert_not_called()
+
+
+class TenantResolverTests(unittest.TestCase):
+    """WS0.3 helper unit tests (no Flask client)."""
+
+    def test_safe_tenant(self):
+        self.assertEqual(agent_app.safe_tenant("Home-Smith"), "home-smith")
+        self.assertEqual(agent_app.safe_tenant("bad slug!"), "unassigned")
+        self.assertEqual(agent_app.safe_tenant(None), "unassigned")
+
+    def test_resolve_router_named_requires_host(self):
+        with mock.patch.dict(os.environ, {"ROUTER_HOST_HOME_SMITH": "10.0.0.9"}):
+            self.assertEqual(agent_app.resolve_router("home-smith")["host"], "10.0.0.9")
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("ROUTER_HOST_NOBODY", None)
+            self.assertIsNone(agent_app.resolve_router("nobody"))
+
+    def test_resolve_router_unassigned_uses_global(self):
+        with mock.patch.dict(os.environ, {"OPENWRT_HOST": "192.168.1.1"}):
+            self.assertEqual(agent_app.resolve_router("unassigned")["host"], "192.168.1.1")
+
+    def test_notify_resolution_prefers_tenant_then_global(self):
+        with mock.patch.dict(os.environ, {"NTFY_TOPIC_HOME_SMITH": "tenant-topic"}):
+            self.assertEqual(agent_app.ntfy_topic_for("home-smith"), "tenant-topic")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

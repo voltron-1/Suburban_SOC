@@ -4,14 +4,20 @@
 # IMPORTANT: do NOT store plain-text secrets here. Reference strictly-scoped
 # Ed25519 SSH keys by path; keep the private keys out of the repo. For production,
 # back this with HashiCorp Vault or SOPS.
+#
+# WS0.3 — every router MUST declare a `tenant` (lowercase slug). A block is only
+# ever dispatched to routers whose tenant matches the alert; the broker never
+# broadcasts across tenants. Routers with no matching tenant are skipped.
 
 routers:
   - id: "primary-node-home"
+    tenant: "home-smith"
     ip_address: "192.168.1.1"
     username: "root"
     ssh_key_path: "~/.ssh/id_ed25519_hivemind"
 
   - id: "secondary-node-neighbor"
+    tenant: "neighbor-jones"
     ip_address: "10.0.0.1"
     username: "root"
     ssh_key_path: "~/.ssh/id_ed25519_hivemind"

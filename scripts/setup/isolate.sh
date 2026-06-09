@@ -4,8 +4,8 @@
 # Phase C: OpenWrt uci MAC-based device isolation
 #
 # Usage:
-#   ./isolate.sh <MAC_ADDRESS>
-#   Example: ./isolate.sh AA:BB:CC:DD:EE:FF
+#   ./isolate.sh <MAC_ADDRESS> [ROUTER_HOST] [ROUTER_USER] [SSH_KEY]
+#   Example: ./isolate.sh AA:BB:CC:DD:EE:FF 192.168.1.1 root /keys/id_ed25519
 #
 # This script connects to the OpenWrt router via SSH and injects a
 # permanent firewall DROP rule targeting the specified MAC address.
@@ -19,10 +19,14 @@
 
 set -euo pipefail
 
+# WS0.3 tenant-scoped isolation: optional positional args 2-4 (router host/user/
+# key) override the env, which falls back to the built-in defaults. agent_app.py
+# passes the resolved tenant's router this way (positional args survive `sudo`,
+# which strips the environment); an empty arg is treated as unset.
 TARGET_MAC="${1:-}"
-OPENWRT_HOST="${OPENWRT_HOST:-192.168.1.1}"
-OPENWRT_USER="${OPENWRT_USER:-root}"
-SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_ed25519_hivemind}"
+OPENWRT_HOST="${2:-${OPENWRT_HOST:-192.168.1.1}}"
+OPENWRT_USER="${3:-${OPENWRT_USER:-root}}"
+SSH_KEY="${4:-${SSH_KEY:-$HOME/.ssh/id_ed25519_hivemind}}"
 
 # --- Validate input ---
 if [[ -z "$TARGET_MAC" ]]; then

@@ -99,6 +99,64 @@ def is_valid_ip(value: str) -> bool:
         return False
 
 
+# --- WS0.3: per-tenant response & notification resolution --------------------
+_TENANT_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,38}$")
+
+
+def safe_tenant(value) -> str:
+    """Return a validated lowercase tenant slug, or 'unassigned' if invalid."""
+    v = str(value or "").strip().lower()
+    return v if _TENANT_RE.match(v) else "unassigned"
+
+
+def _tenant_env_suffix(tenant: str) -> str:
+    """home-smith -> HOME_SMITH (env-var suffix)."""
+    return tenant.upper().replace("-", "_")
+
+
+def resolve_router(tenant: str):
+    """Resolve a tenant's OpenWrt router SSH target from env (WS0.3).
+
+    A named tenant MUST have ROUTER_HOST_<TENANT>; if absent, returns None so the
+    caller refuses to isolate (never on a default or another tenant's router). The
+    'unassigned' tenant falls back to the global OPENWRT_* env (an empty host lets
+    isolate.sh apply its built-in default). Returns {host,user,key} or None.
+    """
+    if tenant == "unassigned":
+        return {
+            "host": os.environ.get("OPENWRT_HOST", ""),
+            "user": os.environ.get("OPENWRT_USER", ""),
+            "key":  os.environ.get("SSH_KEY", ""),
+        }
+    suffix = _tenant_env_suffix(tenant)
+    host = os.environ.get(f"ROUTER_HOST_{suffix}", "")
+    if not host:
+        return None
+    return {
+        "host": host,
+        "user": os.environ.get(f"ROUTER_USER_{suffix}", "root"),
+        "key":  os.environ.get(f"ROUTER_KEY_{suffix}", ""),
+    }
+
+
+def ntfy_topic_for(tenant: str) -> str:
+    """Per-tenant ntfy topic (NTFY_TOPIC_<TENANT>), else the global NTFY_TOPIC."""
+    if tenant != "unassigned":
+        topic = os.environ.get(f"NTFY_TOPIC_{_tenant_env_suffix(tenant)}")
+        if topic:
+            return topic
+    return NTFY_TOPIC
+
+
+def discord_webhook_for(tenant: str) -> str:
+    """Per-tenant Discord webhook, else the global DISCORD_WEBHOOK_URL."""
+    if tenant != "unassigned":
+        url = os.environ.get(f"DISCORD_WEBHOOK_URL_{_tenant_env_suffix(tenant)}")
+        if url:
+            return url
+    return DISCORD_WEBHOOK_URL
+
+
 # =============================================================================
 # 0a. EXCLUSION LIST — never isolate core infrastructure  (CDP §12.4)
 # =============================================================================
@@ -218,12 +276,13 @@ def analyze_alert_with_ai(raw_log_data):
 # =============================================================================
 # 2. NOTIFICATION ENGINE — ntfy push
 # =============================================================================
-def send_soc_alert(title, message, priority=3, tags="rotating_light"):
-    """Pushes formatted alerts to the analyst's mobile device via ntfy."""
-    if not NTFY_TOPIC:
-        app.logger.warning("NTFY_TOPIC not set — skipping ntfy push.")
+def send_soc_alert(title, message, priority=3, tags="rotating_light", tenant="unassigned"):
+    """Push formatted alerts to the analyst via ntfy, on the tenant's topic (WS0.3)."""
+    topic = ntfy_topic_for(tenant)
+    if not topic:
+        app.logger.warning("No ntfy topic for tenant '%s' — skipping ntfy push.", tenant)
         return
-    url = f"https://ntfy.sh/{NTFY_TOPIC}"
+    url = f"https://ntfy.sh/{topic}"
     headers = {
         "Title":    title,
         "Priority": str(priority),
@@ -238,13 +297,14 @@ def send_soc_alert(title, message, priority=3, tags="rotating_light"):
 # =============================================================================
 # 3. DISCORD NOTIFICATION — SOC channel alert
 # =============================================================================
-def send_discord_alert(device_ip: str, device_mac: str, ai_summary: str):
+def send_discord_alert(device_ip: str, device_mac: str, ai_summary: str, tenant: str = "unassigned"):
     """
-    Posts a rich quarantine notification to the SOC Discord channel.
-    Requires DISCORD_WEBHOOK_URL environment variable to be set.
+    Posts a rich quarantine notification to the SOC Discord channel, on the
+    tenant's webhook (WS0.3), falling back to the global DISCORD_WEBHOOK_URL.
     """
-    if not DISCORD_WEBHOOK_URL:
-        app.logger.warning("DISCORD_WEBHOOK_URL not set — skipping Discord notification.")
+    webhook = discord_webhook_for(tenant)
+    if not webhook:
+        app.logger.warning("No Discord webhook for tenant '%s' — skipping notification.", tenant)
         return
 
     payload = {
@@ -261,7 +321,7 @@ def send_discord_alert(device_ip: str, device_mac: str, ai_summary: str):
         }]
     }
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+        requests.post(webhook, json=payload, timeout=10)
     except Exception as e:
         app.logger.error("Discord notification failed: %s", e)
 
@@ -300,21 +360,32 @@ def _read_queue():
 # =============================================================================
 # 3c. ISOLATION EXECUTION — only ever reached after a guard (flag or approval)
 # =============================================================================
-def _execute_isolation(mac: str, ip: str = ""):
+def _execute_isolation(mac: str, ip: str = "", tenant: str = "unassigned"):
     """Run isolate.sh for a format-validated MAC. Returns (ok: bool, detail: str).
 
-    isolate.sh is MAC-only, so without a valid MAC we never invoke the
-    subprocess. The exclusion list is re-checked here (defence in depth, CDP
-    §12.4) so neither the autonomous path nor a human approval can ever quarantine
-    protected infrastructure.
+    isolate.sh is MAC-only, so without a valid MAC we never invoke the subprocess.
+    The exclusion list is re-checked here (defence in depth, CDP §12.4) so neither
+    the autonomous path nor a human approval can ever quarantine protected infra.
+
+    WS0.3: the tenant's router is resolved and passed to isolate.sh as positional
+    args (they survive `sudo`, which strips env). A NAMED tenant with no configured
+    router is refused — we never isolate on a default or another tenant's router.
     """
     if not is_valid_mac(mac):
         return False, f"no valid MAC to isolate (got {mac!r}); manual action required"
     excluded = is_excluded(mac=mac, ip=ip)
     if excluded:
         return False, f"{excluded} is on the permanent exclusion list — refused"
+    router = resolve_router(tenant)
+    if router is None:
+        return False, (f"no router configured for tenant '{tenant}' "
+                       f"(set ROUTER_HOST_{_tenant_env_suffix(tenant)}); manual isolation required")
     try:
-        result = subprocess.run(["sudo", ISOLATE_SCRIPT, mac], check=False)
+        result = subprocess.run(
+            ["sudo", ISOLATE_SCRIPT, mac,
+             router.get("host", ""), router.get("user", ""), router.get("key", "")],
+            check=False,
+        )
     except Exception as exc:  # noqa: BLE001 - never let response handling crash
         app.logger.error("isolate.sh invocation failed: %s", exc)
         return False, f"isolate.sh error: {exc}"
@@ -325,15 +396,17 @@ def _execute_isolation(mac: str, ip: str = ""):
 # =============================================================================
 # 3.5 SOAR FEEDBACK LOOP — index response actions back to Elasticsearch
 # =============================================================================
-def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity):
+def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity, tenant="unassigned"):
     """Index a SOAR response action to Elasticsearch for the Executive dashboard.
 
-    Writes to a daily soar-actions-YYYY.MM.dd index. Failures are logged but never
-    raised — dashboard telemetry must not break alert handling. `response.automated`
-    is True only for actually-executed actions, not drafted/review items.
+    Writes to a per-tenant daily soar-actions-<tenant>-YYYY.MM.dd index (WS0.3),
+    matching the soar-actions-* data view and the per-tenant role grant. Failures
+    are logged but never raised — dashboard telemetry must not break alert
+    handling. `response.automated` is True only for actually-executed actions.
     """
     doc = {
         "@timestamp":         datetime.now(timezone.utc).isoformat(),
+        "tenant.id":          tenant,
         "action.type":        action_type,
         "source.ip":          target_ip,
         "source.mac":         target_mac or "N/A",
@@ -341,7 +414,7 @@ def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity):
         "event.severity":     severity,
         "response.automated": action_type not in ("analyst_review", "drafted"),
     }
-    index = "soar-actions-" + datetime.now(timezone.utc).strftime("%Y.%m.%d")
+    index = f"soar-actions-{tenant}-" + datetime.now(timezone.utc).strftime("%Y.%m.%d")
     try:
         requests.post(
             f"{ES_HOST}/{index}/_doc",
@@ -378,6 +451,7 @@ def handle_kibana_webhook():
     # blanked (never passed through) so the subprocess only ever sees a clean MAC.
     valid_mac = target_mac if is_valid_mac(target_mac) else ""
     safe_ip   = target_ip if is_valid_ip(target_ip) else "unknown"
+    tenant    = safe_tenant(data.get("tenant_id"))  # WS0.3: scopes response + notify
 
     # Step 1: AI triage
     ai_summary = analyze_alert_with_ai(raw_details)
@@ -396,8 +470,9 @@ def handle_kibana_webhook():
             ),
             priority=5,
             tags="shield,warning,robot",
+            tenant=tenant,
         )
-        log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity)
+        log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity, tenant=tenant)
         return jsonify({
             "status": "no_action_protected_asset",
             "asset": excluded,
@@ -409,7 +484,7 @@ def handle_kibana_webhook():
     # explicitly opted in (AUTONOMOUS_ISOLATION=true) AND the alert is critical
     # with a format-validated MAC. Every other case is drafted for human approval.
     if AUTONOMOUS_ISOLATION and severity == "critical" and valid_mac:
-        ok, detail = _execute_isolation(valid_mac, safe_ip)
+        ok, detail = _execute_isolation(valid_mac, safe_ip, tenant)
         send_soc_alert(
             title="CRITICAL: Autonomous Isolation" if ok else "CRITICAL: Auto-isolation FAILED",
             message=(
@@ -419,11 +494,12 @@ def handle_kibana_webhook():
             ),
             priority=5,
             tags="skull,lock,robot" if ok else "warning,lock,robot",
+            tenant=tenant,
         )
-        send_discord_alert(device_ip=safe_ip, device_mac=valid_mac, ai_summary=ai_summary)
+        send_discord_alert(device_ip=safe_ip, device_mac=valid_mac, ai_summary=ai_summary, tenant=tenant)
         log_soar_action(
             "quarantine_mac" if ok else "analyst_review",
-            safe_ip, valid_mac, ai_summary, severity,
+            safe_ip, valid_mac, ai_summary, severity, tenant=tenant,
         )
         return jsonify({
             "status": "auto_isolated" if ok else "isolation_failed",
@@ -439,6 +515,7 @@ def handle_kibana_webhook():
         "ts":         time.time(),
         "status":     "pending",
         "severity":   severity,
+        "tenant":     tenant,
         "target_ip":  safe_ip,
         "target_mac": valid_mac,
         "ai_summary": ai_summary,
@@ -454,8 +531,9 @@ def handle_kibana_webhook():
         ),
         priority=5 if severity == "critical" else 3,
         tags="memo,hourglass,robot",
+        tenant=tenant,
     )
-    log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity)
+    log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity, tenant=tenant)
     return jsonify({
         "status": "drafted",
         "action_id": action["id"],
@@ -490,7 +568,13 @@ def approve_action():
     if not action:
         return jsonify({"error": f"no pending action {action_id}"}), 404
 
-    ok, detail = _execute_isolation(action.get("target_mac", ""), action.get("target_ip", ""))
+    action_tenant = safe_tenant(action.get("tenant"))
+    ok, detail = _execute_isolation(
+        action.get("target_mac", ""), action.get("target_ip", ""), action_tenant)
+    log_soar_action(
+        "quarantine_mac" if ok else "analyst_review",
+        action.get("target_ip", "unknown"), action.get("target_mac", ""),
+        action.get("ai_summary", ""), action.get("severity", "medium"), tenant=action_tenant)
     _append_pending_action({
         "id": action_id,
         "ts": time.time(),
