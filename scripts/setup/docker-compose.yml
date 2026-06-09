@@ -54,6 +54,12 @@ services:
         chown -R root:root config/certs;
         find . -type d -exec chmod 750 \{\} \;;
         find . -type f -exec chmod 640 \{\} \;;
+        # Logstash runs as the non-root `logstash` user (uid 1000) and must read the
+        # CA to verify the ES TLS cert. ca.crt is a PUBLIC certificate, so make the
+        # certs path traversable and ca.crt world-readable. The private ca.key and
+        # node key stay 640 root:root.
+        chmod 755 config/certs config/certs/ca;
+        chmod 644 config/certs/ca/ca.crt;
         echo "Waiting for Elasticsearch";
         until curl -s --cacert config/certs/ca/ca.crt https://elasticsearch:9200 | grep -q "missing authentication credentials"; do sleep 5; done;
         echo "Setting kibana_system password";

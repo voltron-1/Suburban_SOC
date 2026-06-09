@@ -1,0 +1,106 @@
+{
+  "index_patterns": ["logstash-security-*"],
+  "priority": 200,
+  "_meta": {
+    "description": "Suburban-SOC unified security index. Pins ECS fields to keyword/ip/date so cross-index aggregations and dashboards are consistent (fixes the dynamic text+keyword drift that silently failed shard aggregations). WS0.3: tenant.id is a first-class keyword.",
+    "managed_by": "configs/elasticsearch/apply-templates.sh"
+  },
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "5s",
+      "index.mapping.ignore_malformed": true
+    },
+    "mappings": {
+      "dynamic_templates": [
+        {
+          "strings_as_keyword": {
+            "match_mapping_type": "string",
+            "mapping": { "type": "keyword", "ignore_above": 1024 }
+          }
+        }
+      ],
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "message":    { "type": "text" },
+        "tags":       { "type": "keyword" },
+
+        "tenant": { "properties": {
+          "id": { "type": "keyword" }
+        }},
+
+        "event": { "properties": {
+          "dataset":  { "type": "keyword" },
+          "category": { "type": "keyword" },
+          "kind":     { "type": "keyword" },
+          "action":   { "type": "keyword" },
+          "type":     { "type": "keyword" },
+          "outcome":  { "type": "keyword" },
+          "module":   { "type": "keyword" },
+          "severity": { "type": "keyword" },
+          "created":  { "type": "date" }
+        }},
+
+        "agent": { "properties": {
+          "type":     { "type": "keyword" },
+          "name":     { "type": "keyword" },
+          "hostname": { "type": "keyword" },
+          "id":       { "type": "keyword" },
+          "version":  { "type": "keyword" }
+        }},
+
+        "host": { "properties": {
+          "name":     { "type": "keyword" },
+          "hostname": { "type": "keyword" },
+          "ip":       { "type": "ip" },
+          "os": { "properties": {
+            "name":    { "type": "keyword" },
+            "version": { "type": "keyword" }
+          }}
+        }},
+
+        "source": { "properties": {
+          "ip":   { "type": "ip" },
+          "port": { "type": "long" },
+          "mac":  { "type": "keyword" },
+          "geo":  { "properties": {
+            "location":     { "type": "geo_point" },
+            "country_name": { "type": "keyword" }
+          }}
+        }},
+
+        "destination": { "properties": {
+          "ip":   { "type": "ip" },
+          "port": { "type": "long" }
+        }},
+
+        "network": { "properties": {
+          "protocol":  { "type": "keyword" },
+          "transport": { "type": "keyword" }
+        }},
+
+        "user": { "properties": {
+          "name": { "type": "keyword" }
+        }},
+
+        "url": { "properties": {
+          "domain":   { "type": "keyword" },
+          "original": { "type": "keyword" }
+        }},
+
+        "related": { "properties": {
+          "ip":    { "type": "ip" },
+          "hosts": { "type": "keyword" },
+          "user":  { "type": "keyword" }
+        }},
+
+        "log": { "properties": {
+          "file": { "properties": {
+            "path": { "type": "keyword" }
+          }}
+        }}
+      }
+    }
+  }
+}
