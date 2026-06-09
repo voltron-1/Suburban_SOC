@@ -56,6 +56,9 @@ This project directly covers the following course modules from CIS 3353 — Comp
 | M4 | Data Visualization (ELK Integration) | ✅ Complete |
 | M5 | Advanced Features/Automation (SOAR Quarantine) | ✅ Complete |
 | M6 | Presentation | ✅ Complete |
+| M7 | Platform Security Hardening (TLS + RBAC, HMAC-authenticated SOAR webhook, secrets management) | ✅ Complete |
+| M8 | Pipeline Data Quality & Reliability (ECS index templates, single-node `green` health, legacy reindex) | ✅ Complete |
+| M9 | Multi-Tenancy Foundation (`tenant.id` edge-stamp, per-tenant indices/roles) | 🚧 In progress |
 
 ### Platform Hardening & Maturity (post-MVP)
 
@@ -90,6 +93,7 @@ The Suburban-SOC pipeline is a modular, end-to-end security monitoring and autom
 | **Elasticsearch** | Docker Container | 9200 | Indexes and stores all structured log data across three index patterns (`logstash-security-*`, `.alerts-security.alerts-*`, `soar-actions-*`) |
 | **Kibana** | Docker Container | 5601 | Visualizes network events and threat dashboards; hosts the Watcher rule (`soar_quarantine_alert`) that triggers the SOAR loop |
 | **SOC AI Agent** | Docker Container (Flask) | 5000 | Receives Kibana Watcher webhooks; runs LLM triage (MITRE ATT&CK mapping), manages a human-approval queue, and executes `isolate.sh` to quarantine devices; sends ntfy + Discord notifications |
+| **Hive-Mind Broker** | Python (FastAPI) | 8000 | Optional mesh dispatcher: receives an HMAC-signed block request and pushes firewall DROP rules to the OpenWrt mesh routers in `inventory.yaml` |
 
 > For a full breakdown see the [Architecture Wiki page](../../wiki/Architecture).
 
