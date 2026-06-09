@@ -17,11 +17,13 @@
 # =============================================================================
 
 # =============================================================================
-# Transport security is ON (CDP §6). Before the first `docker compose up`:
-#   1. ./generate_certs.sh           # mints internal CA + node certs into ./certs
-#   2. cp .env.example .env          # then set a strong ELASTIC_PASSWORD
-# ELASTICSEARCH now requires authentication and serves HTTPS; the transport
-# layer uses verification_mode=certificate (mTLS) so only CA-signed peers join.
+# Transport security is ON (CDP §6): Elasticsearch requires authentication, serves
+# HTTPS, and the transport layer uses verification_mode=certificate (mTLS) so only
+# CA-signed peers join. The one-shot `setup` service auto-generates the CA + node
+# certs into the shared `certs` volume on first run — no manual cert step is needed
+# and all services (ES, Kibana, Logstash, agent) read that same volume. (The
+# standalone generate_certs.sh is an unused alternative; the setup service is the
+# single source of truth for certs.)
 # =============================================================================
 
 services:
@@ -104,7 +106,6 @@ services:
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - suburban_soc_data:/usr/share/elasticsearch/data
-      - ./certs:/usr/share/elasticsearch/config/certs:ro
     networks:
       - soc-mesh-net
     # Healthcheck now expects an authenticated-required response over HTTPS, proving
