@@ -1,0 +1,28 @@
+{
+  "policy": {
+    "_meta": {
+      "description": "Suburban-SOC SOAR response-action lifecycle (WS0.5). Low-volume but evidentiary: every automated/analyst quarantine decision. RETENTION = 365 days from rollover so the response-evidence window outlives the raw telemetry (30d). hot -> delete(365d, snapshot-gated). See docs/SOP-004-data-retention.md.",
+      "retention_days": 365,
+      "managed_by": "configs/elasticsearch/apply-lifecycle.sh"
+    },
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "set_priority": { "priority": 100 },
+          "rollover": {
+            "max_primary_shard_size": "5gb",
+            "max_age": "30d"
+          }
+        }
+      },
+      "delete": {
+        "min_age": "365d",
+        "actions": {
+          "wait_for_snapshot": { "policy": "suburban-soc-daily-snapshots" },
+          "delete": {}
+        }
+      }
+    }
+  }
+}

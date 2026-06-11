@@ -1,8 +1,9 @@
 {
   "index_patterns": ["logstash-security-*"],
   "priority": 200,
+  "data_stream": {},
   "_meta": {
-    "description": "Suburban-SOC unified security index. Pins ECS fields to keyword/ip/date so cross-index aggregations and dashboards are consistent (fixes the dynamic text+keyword drift that silently failed shard aggregations). WS0.3: tenant.id is a first-class keyword.",
+    "description": "Suburban-SOC unified security index. Pins ECS fields to keyword/ip/date so cross-index aggregations and dashboards are consistent (fixes the dynamic text+keyword drift that silently failed shard aggregations). WS0.3: tenant.id is a first-class keyword. WS0.5: backed by a per-tenant data stream (logstash-security-<tenant>) under ILM policy logstash-security-ilm.",
     "managed_by": "configs/elasticsearch/apply-templates.sh"
   },
   "template": {
@@ -10,7 +11,8 @@
       "number_of_shards": 1,
       "number_of_replicas": 0,
       "refresh_interval": "5s",
-      "index.mapping.ignore_malformed": true
+      "index.mapping.ignore_malformed": true,
+      "index.lifecycle.name": "logstash-security-ilm"
     },
     "mappings": {
       "dynamic_templates": [

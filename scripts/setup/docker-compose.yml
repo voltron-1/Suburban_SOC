@@ -33,6 +33,9 @@ services:
     container_name: soc_setup
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
+      # WS0.5: setup (root) also owns the snapshots volume so it can hand the fs
+      # repo path to the elasticsearch process (uid 1000) — see chown below.
+      - suburban_soc_snapshots:/usr/share/elasticsearch/snapshots
     user: "0"
     networks:
       - soc-mesh-net
@@ -62,6 +65,13 @@ services:
         # node key stay 640 root:root.
         chmod 755 config/certs config/certs/ca;
         chmod 644 config/certs/ca/ca.crt;
+        # WS0.5: the snapshots named volume mounts as root:root, but the ES process
+        # runs as uid 1000 and must create the fs snapshot repo dir under here.
+        # Hand it ownership so PUT _snapshot/<repo> can create its blob store.
+        echo "Preparing snapshot repository path (WS0.5)";
+        mkdir -p /usr/share/elasticsearch/snapshots;
+        chown 1000:0 /usr/share/elasticsearch/snapshots;
+        chmod 770 /usr/share/elasticsearch/snapshots;
         echo "Waiting for Elasticsearch";
         until curl -s --cacert config/certs/ca/ca.crt https://elasticsearch:9200 | grep -q "missing authentication credentials"; do sleep 5; done;
         echo "Setting kibana_system password";
@@ -100,12 +110,17 @@ services:
       - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
       - xpack.security.transport.ssl.verification_mode=certificate
       - xpack.license.self_generated.type=${LICENSE:-basic}
+      # WS0.5: register the filesystem snapshot repository path. The fs repo
+      # `suburban-soc-snapshots` (location "suburban-soc") lives under here, and the
+      # SLM policy snapshots into it so ILM's wait_for_snapshot can gate deletes.
+      - path.repo=/usr/share/elasticsearch/snapshots
       - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
     ports:
       - ${ES_PORT:-9200}:9200
     volumes:
       - certs:/usr/share/elasticsearch/config/certs
       - suburban_soc_data:/usr/share/elasticsearch/data
+      - suburban_soc_snapshots:/usr/share/elasticsearch/snapshots
     networks:
       - soc-mesh-net
     # Healthcheck now expects an authenticated-required response over HTTPS, proving
@@ -216,3 +231,5 @@ networks:
 volumes:
   certs:
   suburban_soc_data:
+  # WS0.5: persistent store for the fs snapshot repository (snapshot-before-delete).
+  suburban_soc_snapshots:

@@ -1,15 +1,17 @@
 {
   "index_patterns": ["soar-actions-*"],
   "priority": 200,
+  "data_stream": {},
   "_meta": {
-    "description": "Suburban-SOC SOAR response actions (written by agent_app.log_soar_action). Pins the dashboard fields so the automated-vs-manual / action-type / per-tenant aggregations are reliable. The agent posts dotted JSON keys (action.type, response.automated, ...) which ES expands into these objects.",
+    "description": "Suburban-SOC SOAR response actions (written by agent_app.log_soar_action). Pins the dashboard fields so the automated-vs-manual / action-type / per-tenant aggregations are reliable. The agent posts dotted JSON keys (action.type, response.automated, ...) which ES expands into these objects. WS0.5: backed by a per-tenant data stream (soar-actions-<tenant>) under ILM policy soar-actions-ilm (365d evidence window).",
     "managed_by": "configs/elasticsearch/apply-templates.sh"
   },
   "template": {
     "settings": {
       "number_of_shards": 1,
       "number_of_replicas": 0,
-      "refresh_interval": "5s"
+      "refresh_interval": "5s",
+      "index.lifecycle.name": "soar-actions-ilm"
     },
     "mappings": {
       "properties": {

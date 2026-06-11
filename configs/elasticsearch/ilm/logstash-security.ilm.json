@@ -1,0 +1,36 @@
+{
+  "policy": {
+    "_meta": {
+      "description": "Suburban-SOC security telemetry lifecycle (WS0.5). High-volume Zeek/endpoint events. RETENTION = 30 days from rollover. hot -> warm(2d) -> delete(30d, snapshot-gated). Tune the delete min_age to change the evidence window; keep it aligned with the documented stance in docs/SOP-004-data-retention.md.",
+      "retention_days": 30,
+      "managed_by": "configs/elasticsearch/apply-lifecycle.sh"
+    },
+    "phases": {
+      "hot": {
+        "min_age": "0ms",
+        "actions": {
+          "set_priority": { "priority": 100 },
+          "rollover": {
+            "max_primary_shard_size": "10gb",
+            "max_age": "1d"
+          }
+        }
+      },
+      "warm": {
+        "min_age": "2d",
+        "actions": {
+          "set_priority": { "priority": 50 },
+          "forcemerge": { "max_num_segments": 1 },
+          "readonly": {}
+        }
+      },
+      "delete": {
+        "min_age": "30d",
+        "actions": {
+          "wait_for_snapshot": { "policy": "suburban-soc-daily-snapshots" },
+          "delete": {}
+        }
+      }
+    }
+  }
+}

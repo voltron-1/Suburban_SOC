@@ -399,10 +399,11 @@ def _execute_isolation(mac: str, ip: str = "", tenant: str = "unassigned"):
 def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity, tenant="unassigned"):
     """Index a SOAR response action to Elasticsearch for the Executive dashboard.
 
-    Writes to a per-tenant daily soar-actions-<tenant>-YYYY.MM.dd index (WS0.3),
-    matching the soar-actions-* data view and the per-tenant role grant. Failures
-    are logged but never raised — dashboard telemetry must not break alert
-    handling. `response.automated` is True only for actually-executed actions.
+    Writes to a per-tenant soar-actions-<tenant> data stream (WS0.3 + WS0.5),
+    matching the soar-actions-* data view and the per-tenant role grant. Retention
+    is enforced by the soar-actions-ilm policy (365d evidence window). Failures are
+    logged but never raised — dashboard telemetry must not break alert handling.
+    `response.automated` is True only for actually-executed actions.
     """
     doc = {
         "@timestamp":         datetime.now(timezone.utc).isoformat(),
@@ -414,12 +415,16 @@ def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity, te
         "event.severity":     severity,
         "response.automated": action_type not in ("analyst_review", "drafted"),
     }
-    index = f"soar-actions-{tenant}-" + datetime.now(timezone.utc).strftime("%Y.%m.%d")
+    # WS0.5: target the per-tenant data stream (no date suffix — ILM rollover owns
+    # time). Data streams only accept op_type=create, so use the _bulk create form;
+    # ES auto-creates the stream from the soar-actions-* data_stream template.
+    data_stream = f"soar-actions-{tenant}"
+    ndjson = '{"create":{}}\n' + json.dumps(doc) + "\n"
     try:
         requests.post(
-            f"{ES_HOST}/{index}/_doc",
-            json=doc,
-            headers={"Content-Type": "application/json"},
+            f"{ES_HOST}/{data_stream}/_bulk",
+            data=ndjson,
+            headers={"Content-Type": "application/x-ndjson"},
             auth=(ES_USER, ES_PASS),
             verify=ES_VERIFY,
             timeout=5,
