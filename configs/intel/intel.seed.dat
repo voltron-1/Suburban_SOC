@@ -1,0 +1,13 @@
+#fields	indicator	indicator_type	meta.source	meta.desc
+# =============================================================================
+# Suburban-SOC curated intel SEED (WS1.3).
+#
+# Always merged into the live intel.dat by refresh_intel.sh, so the feed is never
+# empty even if every external fetch fails, and the deterministic TEST indicators
+# below are always present for the WS1.1 detection->response simulation.
+#
+# The TEST indicators use RFC-5737 TEST-NET / RFC-6761 .invalid space, so they can
+# never match real internet traffic — only a deliberately-injected test event.
+# =============================================================================
+198.51.100.66	Intel::ADDR	suburban-soc/test	TEST C2 indicator (RFC-5737 TEST-NET-2) — WS1.1 simulation
+malware-c2.suburban-soc.invalid	Intel::DOMAIN	suburban-soc/test	TEST malicious domain (.invalid) — WS1.1 simulation
