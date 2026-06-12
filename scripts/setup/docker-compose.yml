@@ -55,6 +55,17 @@ services:
           bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
           unzip config/certs/certs.zip -d config/certs;
         fi;
+        # WS3.1: dedicated logstash server cert (CA-signed PEM) so the Beats input
+        # (:5044) can serve TLS — Filebeat->Logstash is otherwise plaintext. Generated
+        # here, BEFORE the find-chmod below strips +x from certutil. certutil emits a
+        # PKCS1 key; the cert_pkcs8 one-shot service converts it (the Beats SSL input
+        # requires PKCS8, and this image has no openssl).
+        if [ ! -f config/certs/logstash/logstash.crt ]; then
+          echo "Creating logstash cert (WS3.1 Beats TLS)";
+          printf "instances:\n  - name: logstash\n    dns:\n      - logstash\n      - localhost\n" > config/certs/ls-instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/ls.zip --in config/certs/ls-instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/ls.zip -d config/certs;
+        fi;
         echo "Setting file permissions";
         chown -R root:root config/certs;
         find . -type d -exec chmod 750 \{\} \;;
@@ -65,6 +76,9 @@ services:
         # node key stay 640 root:root.
         chmod 755 config/certs config/certs/ca;
         chmod 644 config/certs/ca/ca.crt;
+        # WS3.1: the logstash PEM cert/key are now 640 root:root from the find-chmod.
+        # Ownership + PKCS8 conversion are handled by the cert_pkcs8 one-shot service
+        # (this image lacks openssl), which runs before logstash starts.
         # WS0.5: the snapshots named volume mounts as root:root, but the ES process
         # runs as uid 1000 and must create the fs snapshot repo dir under here.
         # Hand it ownership so PUT _snapshot/<repo> can create its blob store.
@@ -172,12 +186,40 @@ services:
       retries: 24
       start_period: 60s
 
+  # WS3.1: convert the logstash PEM key to PKCS8 (the Beats SSL input requires it)
+  # and hand the cert/key to logstash (uid 1000). Runs in the logstash image because
+  # it ships openssl; the ES setup image does not. Idempotent — skips if already done.
+  cert_pkcs8:
+    image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-9.3.2}
+    container_name: soc_cert_pkcs8
+    user: "0"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        C=/usr/share/logstash/config/certs/logstash
+        if [ ! -f "$$C/logstash.pkcs8.key" ]; then
+          echo "Converting logstash key to PKCS8 (WS3.1 Beats TLS)";
+          openssl pkcs8 -topk8 -inform PEM -in "$$C/logstash.key" -out "$$C/logstash.pkcs8.key" -nocrypt;
+        fi
+        chown -R 1000:0 "$$C"; chmod 750 "$$C"; chmod 640 "$$C"/*;
+        echo "logstash TLS material ready (WS3.1)"
+    volumes:
+      - certs:/usr/share/logstash/config/certs
+    networks:
+      - soc-mesh-net
+
   logstash:
     image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-9.3.2}
     container_name: logstash
     depends_on:
       elasticsearch:
         condition: service_healthy
+      cert_pkcs8:
+        condition: service_completed_successfully
     environment:
       - LS_JAVA_OPTS=-Xms512m -Xmx512m
       # Least-privilege ES credentials consumed by configs/logstash.conf output.
