@@ -10,6 +10,8 @@ on:
       - "configs/detections/**"
       - "configs/logstash.conf"
       - "tests/pipeline/**"
+      - "docs/detections/**"
+      - "scripts/setup/build_attack_coverage.py"
       - ".github/workflows/detections.yml"
   workflow_dispatch:
 
@@ -42,3 +44,6 @@ jobs:
           # Each converted rule must query our ECS fields, not the ECS-standard
           # process.command_line (this stack uses process.args).
           ! grep -q "process.command_line" converted.ndjson || { echo "::error::rule queries process.command_line; pipeline mapping is wrong"; exit 1; }
+
+      - name: ATT&CK coverage matrix is in sync with the rules (WS1.5)
+        run: python scripts/setup/build_attack_coverage.py --check
