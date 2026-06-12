@@ -80,6 +80,11 @@ services:
         curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/role/logstash_writer -d "{\"cluster\":[\"monitor\",\"manage_index_templates\",\"manage_ilm\"],\"indices\":[{\"names\":[\"logstash-*\",\"soar-actions-*\"],\"privileges\":[\"create_index\",\"create\",\"write\",\"manage\"]}]}" > /dev/null;
         echo "Provisioning logstash_internal user";
         curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/logstash_internal -d "{\"password\":\"${LOGSTASH_PASSWORD}\",\"roles\":[\"logstash_writer\"],\"full_name\":\"Logstash writer (Suburban-SOC)\"}" > /dev/null;
+        if [ x${SOC_AGENT_KIBANA_PASSWORD} != x ]; then
+          echo "Provisioning soc_agent_cases role + soc_agent user (WS2.3 Kibana Cases)";
+          curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/role/soc_agent_cases -d "{\"applications\":[{\"application\":\"kibana-.kibana\",\"privileges\":[\"feature_generalCases.all\"],\"resources\":[\"*\"]}]}" > /dev/null;
+          curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/soc_agent -d "{\"password\":\"${SOC_AGENT_KIBANA_PASSWORD}\",\"roles\":[\"soc_agent_cases\"],\"full_name\":\"SOC AI agent (Kibana Cases)\"}" > /dev/null;
+        fi;
         echo "Setup complete.";
       '
     healthcheck:
@@ -209,6 +214,12 @@ services:
       - ES_USER=logstash_internal
       - ES_PASS=${LOGSTASH_PASSWORD}
       - ES_CA=/certs/ca/ca.crt
+      # WS2.3: Kibana Cases — the agent opens/updates a tracked case per /alert as the
+      # least-privilege `soc_agent` user (generalCases feature). Unset password =>
+      # case tracking is skipped (alert handling still works).
+      - KIBANA_URL=http://kibana:5601
+      - KIBANA_AGENT_USER=soc_agent
+      - KIBANA_AGENT_PASS=${SOC_AGENT_KIBANA_PASSWORD:-}
       # Shared secret for HMAC-signed /alert requests (WS0.2). Required — the
       # endpoint fails closed (503/401) if unset or the signature is wrong.
       - SOC_AGENT_HMAC_SECRET=${SOC_AGENT_HMAC_SECRET}

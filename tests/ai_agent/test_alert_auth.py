@@ -75,6 +75,12 @@ class AlertResponseTests(unittest.TestCase):
         for fn in ("analyze_alert_with_ai", "send_soc_alert",
                    "send_discord_alert", "log_soar_action"):
             mock.patch.object(agent_app, fn, return_value="stub").start()
+        # WS2.3: stub Kibana Cases — create returns a fake id; comment/close are
+        # tracked so tests can assert the case lifecycle without a live Kibana.
+        self.mock_create_case = mock.patch.object(
+            agent_app, "create_case", return_value="case-abc123").start()
+        self.mock_case_comment = mock.patch.object(agent_app, "add_case_comment").start()
+        self.mock_close_case = mock.patch.object(agent_app, "close_case").start()
         self.addCleanup(mock.patch.stopall)
         self.addCleanup(lambda: os.unlink(self._qfile.name))
 
@@ -169,6 +175,26 @@ class AlertResponseTests(unittest.TestCase):
         self.mock_dispatch.assert_called_once()
         # dispatch_block_via_broker(attacker_ip, tenant, source_mac=...)
         self.assertEqual(self.mock_dispatch.call_args[0][1], "home-smith")
+
+    # --- WS2.3 alert triage & case tracking ----------------------------------
+    def test_alert_opens_tracked_case(self):
+        r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
+                        "source_mac": GOOD_MAC, "tenant_id": "home-smith"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.get_json()["case_id"], "case-abc123")
+        self.mock_create_case.assert_called_once()
+        # the SOAR decision is appended to the case timeline
+        self.assertTrue(self.mock_case_comment.called)
+
+    def test_approve_closes_case_with_disposition(self):
+        draft = self._post({"severity": "critical", "source_ip": "1.2.3.4",
+                            "source_mac": GOOD_MAC}).get_json()
+        r = self._post({"id": draft["action_id"], "approver": "analyst1"}, path="/approve")
+        self.assertEqual(r.get_json()["status"], "executed")
+        self.assertEqual(r.get_json()["case_id"], "case-abc123")
+        # approval closes the case with a disposition
+        self.mock_close_case.assert_called_with("unassigned", "case-abc123",
+                                                "true_positive_contained")
 
     def test_broker_refusal_surfaces_as_isolation_failed(self):
         # When the broker reports no routers for the tenant (it owns inventory),
