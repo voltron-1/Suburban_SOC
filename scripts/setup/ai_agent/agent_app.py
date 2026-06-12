@@ -34,6 +34,15 @@ LLM_MODEL          = os.environ.get("LLM_MODEL",          "gpt-4")
 # on every /alert; the dead SOAR trigger + the pre-#109 crash-loop hid it.)
 LLM_ALLOW_HOSTED   = os.environ.get("LLM_ALLOW_HOSTED",   "false").lower() == "true"
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
+# WS2.3: Kibana Cases — every /alert becomes a tracked case (state/owner/timeline),
+# tenant-scoped to the alert's Kibana space, with the AI summary + SOAR action
+# attached and closeable with a disposition. Needs a Kibana user holding the
+# generalCases feature privilege (provisioned as `soc_agent` by docker-compose setup).
+# Unset creds degrade gracefully — case tracking is skipped, /alert still works.
+KIBANA_URL         = os.environ.get("KIBANA_URL",         "http://kibana:5601")
+KIBANA_AGENT_USER  = os.environ.get("KIBANA_AGENT_USER",  "")
+KIBANA_AGENT_PASS  = os.environ.get("KIBANA_AGENT_PASS",  "")
+CASES_OWNER        = "cases"  # generic Stack Cases (generalCases feature)
 # Elasticsearch endpoint for the SOAR feedback loop (Executive Dashboard metrics).
 # Defaults to the Docker-network service name used by docker-compose.yml.
 # Security is enabled (WS0.1): connect over HTTPS with a least-privilege user and
@@ -463,6 +472,81 @@ def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity, te
 
 
 # =============================================================================
+# 3.6 ALERT TRIAGE & CASE TRACKING — Kibana Cases (WS2.3)
+# =============================================================================
+def _kibana_base(tenant: str) -> str:
+    """Kibana base URL for the tenant's space (WS0.3). 'unassigned' -> default space."""
+    if tenant and tenant != "unassigned":
+        return f"{KIBANA_URL}/s/{tenant}"
+    return KIBANA_URL
+
+
+def _cases_enabled() -> bool:
+    return bool(KIBANA_AGENT_USER and KIBANA_AGENT_PASS)
+
+
+def _kibana(method, path, tenant, **kw):
+    return requests.request(
+        method, f"{_kibana_base(tenant)}{path}",
+        headers={"kbn-xsrf": "true", "Content-Type": "application/json"},
+        auth=(KIBANA_AGENT_USER, KIBANA_AGENT_PASS), timeout=8, **kw)
+
+
+def create_case(tenant, severity, ai_summary, source_ip, source_mac, extra_tags=None):
+    """Open a Kibana case for an alert (tenant-scoped). Returns case id, or None.
+
+    Fail-safe: case tracking never breaks alert handling — failures are logged.
+    """
+    if not _cases_enabled():
+        return None
+    body = {
+        "title": f"[{str(severity).upper()}] SOC alert — {source_ip or source_mac or 'unknown'} ({tenant})",
+        "description": ("**Auto-opened by the Suburban-SOC AI agent.**\n\n"
+                        f"- Tenant: `{tenant}`\n- Severity: `{severity}`\n"
+                        f"- Source IP: `{source_ip}`\n- Source MAC: `{source_mac or 'N/A'}`\n\n"
+                        f"**AI triage**\n\n{ai_summary}"),
+        "tags": ["suburban-soc", str(tenant), str(severity)] + list(extra_tags or []),
+        "connector": {"id": "none", "name": "none", "type": ".none", "fields": None},
+        "settings": {"syncAlerts": False},
+        "owner": CASES_OWNER,
+    }
+    try:
+        r = _kibana("POST", "/api/cases", tenant, json=body)
+        if r.status_code == 200:
+            return r.json().get("id")
+        app.logger.error("Kibana case create -> HTTP %s: %s", r.status_code, r.text[:200])
+    except Exception as e:  # noqa: BLE001 - case tracking must never crash /alert
+        app.logger.error("Kibana case create failed: %s", e)
+    return None
+
+
+def add_case_comment(tenant, case_id, comment):
+    """Append a timeline comment (the SOAR decision/action) to a case."""
+    if not (_cases_enabled() and case_id):
+        return
+    try:
+        _kibana("POST", f"/api/cases/{case_id}/comments", tenant,
+                json={"type": "user", "comment": comment, "owner": CASES_OWNER})
+    except Exception as e:  # noqa: BLE001
+        app.logger.error("Kibana case comment failed: %s", e)
+
+
+def close_case(tenant, case_id, disposition):
+    """Close a case with a disposition (recorded as a tag + a closing comment)."""
+    if not (_cases_enabled() and case_id):
+        return
+    try:
+        cur = _kibana("GET", f"/api/cases/{case_id}", tenant).json()
+        tags = list(dict.fromkeys((cur.get("tags") or []) + [f"disposition:{disposition}"]))
+        _kibana("PATCH", "/api/cases", tenant, json={"cases": [{
+            "id": case_id, "version": cur.get("version"),
+            "status": "closed", "tags": tags}]})
+        add_case_comment(tenant, case_id, f"Closed — disposition: **{disposition}**.")
+    except Exception as e:  # noqa: BLE001
+        app.logger.error("Kibana case close failed: %s", e)
+
+
+# =============================================================================
 # 4. WEBHOOK LISTENER — real-time alert triage
 # =============================================================================
 @app.route("/alert", methods=["POST"])
@@ -490,6 +574,11 @@ def handle_kibana_webhook():
     # Step 1: AI triage
     ai_summary = analyze_alert_with_ai(raw_details)
 
+    # WS2.3: open a tracked Kibana case for this alert (tenant-scoped). The SOAR
+    # decision is appended as a timeline comment in each branch below; /approve and
+    # the autonomous/excluded paths close it with a disposition.
+    case_id = create_case(tenant, severity, ai_summary, safe_ip, valid_mac)
+
     # Step 2 — §12.4: never act on protected infrastructure, not even to draft.
     # Checked first so neither the autonomous path nor a draft can target it.
     excluded = is_excluded(ip=target_ip, mac=target_mac)
@@ -507,10 +596,14 @@ def handle_kibana_webhook():
             tenant=tenant,
         )
         log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity, tenant=tenant)
+        add_case_comment(tenant, case_id,
+                         f"§12.4: alert targets PROTECTED asset `{excluded}` — no action taken.")
+        close_case(tenant, case_id, "no_action_protected_asset")
         return jsonify({
             "status": "no_action_protected_asset",
             "asset": excluded,
             "ai_analysis": ai_summary,
+            "case_id": case_id,
         }), 200
 
     # Step 3 — §12.3: autonomous containment is OFF by default (it is destructive
@@ -535,10 +628,16 @@ def handle_kibana_webhook():
             "quarantine_mac" if ok else "analyst_review",
             safe_ip, valid_mac, ai_summary, severity, tenant=tenant,
         )
+        add_case_comment(tenant, case_id,
+                         f"Autonomous isolation {'SUCCEEDED' if ok else 'FAILED'} for "
+                         f"`{safe_ip}` / `{valid_mac}` — {detail}")
+        if ok:
+            close_case(tenant, case_id, "true_positive_contained")
         return jsonify({
             "status": "auto_isolated" if ok else "isolation_failed",
             "detail": detail,
             "ai_analysis": ai_summary,
+            "case_id": case_id,
         }), (200 if ok else 200)
 
     # Step 4 — default: DRAFT the action and queue it for a human-of-record, who
@@ -554,8 +653,12 @@ def handle_kibana_webhook():
         "target_mac": valid_mac,
         "ai_summary": ai_summary,
         "recommended_action": "isolate (MAC)" if valid_mac else "review (no valid MAC)",
+        "case_id": case_id,
     }
     _append_pending_action(action)
+    add_case_comment(tenant, case_id,
+                     f"Response DRAFTED ({action['recommended_action']}) — awaiting human "
+                     f"approval via POST /approve (id={action['id']}).")
     send_soc_alert(
         title=f"{severity.upper()}: Response DRAFTED — approval required",
         message=(
@@ -572,6 +675,7 @@ def handle_kibana_webhook():
         "status": "drafted",
         "action_id": action["id"],
         "ai_analysis": ai_summary,
+        "case_id": case_id,
     }), 200
 
 
@@ -616,8 +720,15 @@ def approve_action():
         "approver": approver,
         "result": detail,
     })
+    # WS2.3: record the human decision on the case and close it with a disposition.
+    case_id = action.get("case_id")
+    add_case_comment(action_tenant, case_id,
+                     f"Approved by **{approver}** → isolation {'executed' if ok else 'FAILED'}: {detail}")
+    if ok:
+        close_case(action_tenant, case_id, "true_positive_contained")
     code = 200 if ok else 422
-    return jsonify({"status": "executed" if ok else "blocked", "detail": detail, "approver": approver}), code
+    return jsonify({"status": "executed" if ok else "blocked", "detail": detail,
+                    "approver": approver, "case_id": case_id}), code
 
 
 # =============================================================================
