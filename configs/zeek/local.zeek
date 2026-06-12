@@ -17,3 +17,13 @@
 @load base/protocols/ssl
 @load policy/protocols/ssl/validate-certs
 @load policy/protocols/ssl/log-hostcerts-only
+
+# Suburban-SOC — WS1.4: passive asset inventory (NIST Identify)
+#
+# The asset inventory is derived from conn.log (source.ip + source.mac, already
+# ECS-mapped + MAC-enriched above) on the Asset Inventory dashboard — see
+# configs/server/asset_inventory.ndjson. We deliberately do NOT enable
+# known-hosts/known-services: Zeek's `host` field (the asset IP) collides with the
+# ECS/Filebeat `host` object and is clobbered before it reaches Logstash, so it
+# can't reliably populate asset.ip. Revisit once Filebeat preserves Zeek's `host`
+# (rename it pre-host-metadata) — see docs/detections/suricata-evaluation.md style note.
