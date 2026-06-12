@@ -196,6 +196,17 @@ class TenantResolverTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("HIVE_MIND_SECRET", detail)
 
+    def test_hosted_llm_egress_disabled_degrades_gracefully(self):
+        # WS1.1 regression: LLM_ALLOW_HOSTED was referenced but never defined, so
+        # analyze_alert_with_ai raised NameError -> /alert 500 on every intel hit.
+        # With hosted egress disabled it must return a string, never raise.
+        with mock.patch.object(agent_app, "LLM_ALLOW_HOSTED", False), \
+             mock.patch.object(agent_app, "LLM_API_URL",
+                               "https://api.openai.com/v1/chat/completions"):
+            out = agent_app.analyze_alert_with_ai("alert: conn to known-bad IP")
+        self.assertIsInstance(out, str)
+        self.assertIn("skipped", out.lower())
+
     def test_notify_resolution_prefers_tenant_then_global(self):
         with mock.patch.dict(os.environ, {"NTFY_TOPIC_HOME_SMITH": "tenant-topic"}):
             self.assertEqual(agent_app.ntfy_topic_for("home-smith"), "tenant-topic")

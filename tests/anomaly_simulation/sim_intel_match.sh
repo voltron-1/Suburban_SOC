@@ -1,0 +1,88 @@
+#!/usr/bin/env bash
+# =============================================================================
+# sim_intel_match.sh — WS1.1 scenario: live-intel match drives the SOAR loop.
+#
+# Asserts the detection->response loop that WS1.1 restored:
+#   Zeek Intel match (intel.log)  ->  Logstash maps it to ECS threat.indicator.*
+#   ->  SOAR trigger fires /alert  ->  AI agent DRAFTS a response.
+#
+# It injects a Zeek-intel.log-shaped event for the deterministic TEST indicator
+# (198.51.100.66, RFC-5737, shipped in configs/intel/intel.seed.dat) into the REAL
+# running pipeline via the Logstash HTTP input, then verifies:
+#   1. Elasticsearch indexed a zeek.intel doc with threat.indicator.ip set;
+#   2. the AI agent received /alert and queued a draft (/pending count increased).
+#
+# This exercises the WS1.1 wiring end-to-end without needing a live capture NIC.
+# (The Zeek->intel.log half is the Intel framework + WS1.3 feed.)
+#
+# Usage:  ./sim_intel_match.sh        (run from anywhere; loads ../../scripts/setup/.env)
+# Env:    ES_URL, ES_USER, ES_PASS/ELASTIC_PASSWORD, AGENT_URL (default :5000),
+#         MESH_CONTAINER (a container on soc-mesh-net used to reach logstash:5514).
+# =============================================================================
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# Source the canonical stack secrets only (scripts/setup/.env). We intentionally do
+# NOT inherit tests/anomaly_simulation/.env's ES_URL — it predates WS0.1 and points
+# at plain http://, which fails against the now TLS-secured stack.
+[[ -f "$HERE/../../scripts/setup/.env" ]] && { set -a; . "$HERE/../../scripts/setup/.env"; set +a; }
+
+ES_URL="${ES_URL:-https://localhost:9200}"
+ES_USER="${ES_USER:-elastic}"
+ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
+AGENT_URL="${AGENT_URL:-http://127.0.0.1:5000}"
+MESH_CONTAINER="${MESH_CONTAINER:-elasticsearch}"
+TEST_IP="198.51.100.66"
+TENANT="${TENANT:-home-smith}"
+
+[[ -z "$ES_PASS" ]] && { echo "[ERR] ES_PASS/ELASTIC_PASSWORD required" >&2; exit 2; }
+
+es() { curl -sk -u "${ES_USER}:${ES_PASS}" "$@"; }
+fail=0
+
+echo "[*] WS1.1 intel-match sim — test indicator $TEST_IP, tenant $TENANT"
+
+# Baseline the agent's pending count so we can assert it grows by this alert.
+before=$(curl -s --max-time 6 "$AGENT_URL/pending" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
+
+# Inject a Zeek intel.log-shaped event into the real pipeline (Logstash :5514 is
+# mesh-internal, so reach it from a container on soc-mesh-net).
+read -r -d '' EVENT <<JSON
+{"log":{"file":{"path":"/storage/PCAP/zeek_logs/intel.log"}},"seen.indicator":"$TEST_IP","seen.indicator_type":"Intel::ADDR","seen.where":"Conn::IN_RESP","sources":["suburban-soc/test"],"id.orig_h":"10.0.0.50","id.orig_p":44321,"id.resp_h":"$TEST_IP","id.resp_p":443,"tenant":{"id":"$TENANT"}}
+JSON
+code=$(docker exec "$MESH_CONTAINER" curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+  -X POST http://logstash:5514 -H 'Content-Type: application/json' -d "$EVENT")
+echo "[*] injected intel event -> Logstash HTTP $code"
+[[ "$code" == "200" ]] || { echo "[FAIL] injection not accepted"; fail=1; }
+
+echo "[*] waiting for pipeline + agent..."
+sleep 12
+
+# 1. ES: the latest zeek.intel doc carries threat.indicator.ip == TEST_IP.
+#    Query by event.dataset (robust) and read the mapped value from _source rather
+#    than term-querying an ip/keyword field with a quoted query_string.
+es "$ES_URL/logstash-security-${TENANT}/_refresh" >/dev/null 2>&1
+hit=$(es "$ES_URL/logstash-security-${TENANT}/_search?size=1&sort=@timestamp:desc&q=event.dataset:zeek.intel" \
+  | python3 -c "import sys,json;h=json.load(sys.stdin).get('hits',{}).get('hits',[]);print(h[0]['_source'].get('threat',{}).get('indicator',{}).get('ip','') if h else '')" 2>/dev/null)
+if [[ "$hit" == "$TEST_IP" ]]; then
+  echo "[PASS] ES: zeek.intel doc mapped threat.indicator.ip=$TEST_IP"
+else
+  echo "[FAIL] ES: zeek.intel doc missing/mismatched threat.indicator.ip (got '$hit')"; fail=1
+fi
+
+# 2. Agent: /alert drafted a response (pending count grew)
+after=$(curl -s --max-time 6 "$AGENT_URL/pending" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
+if [[ "$after" -gt "$before" ]]; then
+  echo "[PASS] SOAR: /alert fired and drafted a response (pending $before -> $after)"
+else
+  echo "[FAIL] SOAR: no new draft (pending $before -> $after) — did /alert fire/200?"; fail=1
+fi
+
+echo
+if [[ "$fail" -eq 0 ]]; then
+  echo "[=] WS1.1 PASS — intel match drove the detection->response loop end-to-end."
+  exit 0
+else
+  echo "[=] WS1.1 FAIL — see [FAIL] lines above."
+  exit 1
+fi
