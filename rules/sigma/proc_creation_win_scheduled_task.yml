@@ -1,6 +1,6 @@
 title: Scheduled Task Creation via Schtasks
 id: 44444444-4444-4444-4444-444444444444
-status: experimental
+status: stable
 description: Detects the creation of a new scheduled task using schtasks.exe.
 logsource:
     category: process_creation

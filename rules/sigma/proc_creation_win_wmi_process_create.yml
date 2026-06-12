@@ -1,6 +1,6 @@
 title: WMI Process Call Create
 id: 88888888-8888-8888-8888-888888888888
-status: experimental
+status: stable
 description: Detects the use of WMIC to create a new process, a common technique for local or remote execution.
 logsource:
     category: process_creation

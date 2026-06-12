@@ -44,8 +44,10 @@ NO_BUILD=0; ENABLE=1
 for a in "$@"; do case "$a" in
   --no-build)  NO_BUILD=1 ;;
   --no-enable) ENABLE=0 ;;
+  --include-experimental) INCLUDE_EXPERIMENTAL=1 ;;
   *) red "Unknown flag: $a"; exit 1 ;;
 esac; done
+INCLUDE_EXPERIMENTAL="${INCLUDE_EXPERIMENTAL:-0}"
 
 # --- 1. Ensure the Sigma toolchain -------------------------------------------
 SIGMA="$(command -v sigma || true)"
@@ -63,14 +65,24 @@ if [[ -z "$SIGMA" ]]; then
 fi
 green "    sigma: $("$SIGMA" version 2>/dev/null | tail -1)"
 
-# --- 2. Convert all Sigma rules ----------------------------------------------
-blue "==> Converting $(ls "$RULES_DIR"/*.yml | wc -l | tr -d ' ') Sigma rules -> Elastic detection rules"
+# --- 2. Select rules by promotion status, then convert -----------------------
+# WS2.1 promotion gate: only deploy rules that have passed the test/stable gate
+# (tests/detections/). `experimental` rules are excluded unless --include-experimental.
+RULES=()
+for f in "$RULES_DIR"/*.yml; do
+  st="$(grep -m1 '^status:' "$f" | awk '{print $2}' | tr -d '[:space:]')"
+  if [[ "$st" == "stable" || "$st" == "test" || "$INCLUDE_EXPERIMENTAL" == "1" ]]; then
+    RULES+=("$f")
+  fi
+done
+[[ ${#RULES[@]} -gt 0 ]] || { red "ERROR: no rules selected (all experimental? use --include-experimental)."; exit 1; }
+blue "==> Converting ${#RULES[@]} Sigma rule(s) [status test/stable$([[ $INCLUDE_EXPERIMENTAL == 1 ]] && echo '+experimental')] -> Elastic detection rules"
 RAW="$(mktemp)"; NDJSON="$(mktemp)"; ERR="$(mktemp)"
 trap 'rm -f "$RAW" "$NDJSON" "$ERR"' EXIT
 # sigma convert is all-or-nothing: ONE invalid rule fails the whole batch, so we
 # surface its stderr rather than swallowing it. JSON rule lines start with '{';
 # the "Parsing Sigma rules" progress lines do not.
-"$SIGMA" convert -t lucene -f siem_rule_ndjson -p "$PIPELINE" "$RULES_DIR"/*.yml 2>"$ERR" \
+"$SIGMA" convert -t lucene -f siem_rule_ndjson -p "$PIPELINE" "${RULES[@]}" 2>"$ERR" \
   | grep '^{' > "$RAW" || true
 count=$(wc -l < "$RAW" | tr -d ' ')
 if [[ "${count:-0}" -eq 0 ]]; then

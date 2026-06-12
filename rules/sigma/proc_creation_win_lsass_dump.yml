@@ -1,6 +1,6 @@
 title: LSASS Memory Dump via Comsvcs.dll
 id: 22222222-2222-2222-2222-222222222222
-status: experimental
+status: stable
 description: Detects the use of rundll32.exe to execute the MiniDump function of comsvcs.dll to dump LSASS memory.
 logsource:
     category: process_creation

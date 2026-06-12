@@ -1,6 +1,6 @@
 title: Local User Account Creation via Net.exe
 id: 99999999-9999-9999-9999-999999999999
-status: experimental
+status: stable
 description: Detects the creation of a local user account using the net user command.
 logsource:
     category: process_creation

@@ -10,6 +10,7 @@ on:
       - "configs/detections/**"
       - "configs/logstash.conf"
       - "tests/pipeline/**"
+      - "tests/detections/**"
       - "docs/detections/**"
       - "scripts/setup/build_attack_coverage.py"
       - ".github/workflows/detections.yml"
@@ -30,6 +31,9 @@ jobs:
 
       - name: Framework-enrichment consistency tests
         run: python tests/pipeline/test_framework_enrichment.py
+
+      - name: Detection fixture tests (WS2.1 — TP fires, TN regression, promotion gate)
+        run: python tests/detections/test_sigma_detections.py
 
       - name: Every Sigma rule converts to an Elastic detection rule
         run: |

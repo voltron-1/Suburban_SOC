@@ -1,6 +1,6 @@
 title: RDP Session Hijacking via Tscon
 id: aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa
-status: experimental
+status: stable
 description: Detects the use of tscon.exe to hijack an RDP session by passing a destination session ID.
 logsource:
     category: process_creation
