@@ -1,0 +1,44 @@
+name: Detections CI
+
+# WS1.2 detection-as-code gate: validate that the Sigma rules are the single source
+# of truth and convert cleanly to Elastic detection rules. (Full experimental->stable
+# promotion gating on replayable fixtures is WS2.1.)
+on:
+  pull_request:
+    paths:
+      - "rules/sigma/**"
+      - "configs/detections/**"
+      - "configs/logstash.conf"
+      - "tests/pipeline/**"
+      - ".github/workflows/detections.yml"
+  workflow_dispatch:
+
+jobs:
+  detections:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install the Sigma toolchain
+        run: pip install --quiet sigma-cli pysigma-backend-elasticsearch
+
+      - name: Framework-enrichment consistency tests
+        run: python tests/pipeline/test_framework_enrichment.py
+
+      - name: Every Sigma rule converts to an Elastic detection rule
+        run: |
+          set -euo pipefail
+          n_rules=$(ls rules/sigma/*.yml | wc -l)
+          sigma convert -t lucene -f siem_rule_ndjson \
+            -p configs/detections/suburban-soc-ecs.yml rules/sigma/*.yml 2>err.log \
+            | grep '^{' > converted.ndjson || { echo "::error::sigma conversion failed"; cat err.log; exit 1; }
+          n_conv=$(wc -l < converted.ndjson)
+          echo "Converted $n_conv / $n_rules Sigma rules."
+          test "$n_conv" -eq "$n_rules" || { echo "::error::expected $n_rules converted rules, got $n_conv"; exit 1; }
+          # Each converted rule must query our ECS fields, not the ECS-standard
+          # process.command_line (this stack uses process.args).
+          ! grep -q "process.command_line" converted.ndjson || { echo "::error::rule queries process.command_line; pipeline mapping is wrong"; exit 1; }

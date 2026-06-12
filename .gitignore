@@ -11,6 +11,9 @@ Thumbs.db
 venv/
 env/
 .pdf_venv/
+# WS1.2: deploy_detections.sh bootstraps the Sigma toolchain here.
+.venv-detections/
+.venv-sigma/
 __pycache__/
 *.pyc
 *.pyo
