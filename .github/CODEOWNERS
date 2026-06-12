@@ -1,0 +1,11 @@
+# WS3.5 change management — review routing for security-relevant changes.
+# A PR touching these paths requires review from a code owner (enforced once
+# branch protection + "Require review from Code Owners" is enabled by an admin).
+
+# Detections, response logic, and SOC config are change-controlled.
+/rules/                       @sterlinggarnett @voltron-1
+/configs/                     @sterlinggarnett @voltron-1
+/hunts/                       @sterlinggarnett @voltron-1
+/scripts/setup/ai_agent/      @sterlinggarnett @voltron-1
+/scripts/hive-mind-broker/    @sterlinggarnett @voltron-1
+/.github/                     @sterlinggarnett @voltron-1

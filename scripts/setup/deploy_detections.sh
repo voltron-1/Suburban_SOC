@@ -133,6 +133,8 @@ rc=$?
 echo
 if [[ $rc -eq 0 ]]; then
   green "=== Detection rules deployed. View/triage in Kibana → Security → Rules / Alerts. ==="
+  # WS3.5: record the change (deploy changelog evidence).
+  bash "$SCRIPT_DIR/deploy_changelog.sh" "detections" "deployed ${count:-?} rules to the Elastic Detection Engine" 2>/dev/null || true
 else
   red   "=== Detection rule import reported errors (see above). ==="
 fi
