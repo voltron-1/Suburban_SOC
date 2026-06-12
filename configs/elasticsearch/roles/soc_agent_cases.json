@@ -1,0 +1,5 @@
+{
+  "applications": [
+    {"application": "kibana-.kibana", "privileges": ["feature_generalCases.all"], "resources": ["*"]}
+  ]
+}
