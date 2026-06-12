@@ -1,0 +1,15 @@
+# =============================================================================
+# Suburban-SOC SLO metrics (WS2.4)
+#
+# Computes MTTD/MTTR/coverage/FP/ingest-lag/parse-error vs targets, indexes them to
+# soc-slo-metrics (SLO dashboard), and raises an ntfy alert on breach.
+#
+# Install on the SOC host (adjust the repo path):
+#   crontab -l 2>/dev/null | cat - configs/slo/slo-metrics.cron | crontab -
+#
+# ES creds + NTFY_TOPIC are read from scripts/setup/.env by the script.
+# Targets are overridable via SLO_* env (see slo_metrics.py header).
+# =============================================================================
+
+# Every 15 minutes.
+*/15 * * * * cd "$HOME/projects/Suburban-SOC" && python3 scripts/setup/ai_agent/slo_metrics.py >> /var/log/suburban-soc-slo.log 2>&1

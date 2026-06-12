@@ -68,6 +68,7 @@ DASHBOARDS=(
   "soc_navigation_hub.ndjson"
   "intel_feed_health.ndjson"
   "asset_inventory.ndjson"
+  "slo_dashboard.ndjson"
 )
 
 # -----------------------------------------------------------------------------
@@ -110,6 +111,9 @@ code=$(create_data_view "threat-intel-meta-pattern" "threat-intel-meta*" "true")
 [[ "$code" =~ ^20 ]] && green "    threat-intel-meta-pattern ready (HTTP ${code})." || red "    WARN: threat-intel-meta-pattern -> HTTP ${code}"
 # WS1.4: the asset inventory dashboard is conn-derived — it reuses logstash-pattern,
 # so no extra data view is needed.
+# WS2.4: data view for the SLO dashboard (slo_dashboard.ndjson).
+code=$(create_data_view "soc-slo-pattern" "soc-slo-metrics*" "true")
+[[ "$code" =~ ^20 ]] && green "    soc-slo-pattern ready (HTTP ${code})." || red "    WARN: soc-slo-pattern -> HTTP ${code}"
 
 # -----------------------------------------------------------------------------
 # 3. Import all dashboard bundles

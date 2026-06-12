@@ -434,14 +434,16 @@ def _execute_isolation(mac: str, ip: str = "", tenant: str = "unassigned"):
 # =============================================================================
 # 3.5 SOAR FEEDBACK LOOP — index response actions back to Elasticsearch
 # =============================================================================
-def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity, tenant="unassigned"):
+def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity,
+                    tenant="unassigned", latency_seconds=None):
     """Index a SOAR response action to Elasticsearch for the Executive dashboard.
 
     Writes to a per-tenant soar-actions-<tenant> data stream (WS0.3 + WS0.5),
     matching the soar-actions-* data view and the per-tenant role grant. Retention
     is enforced by the soar-actions-ilm policy (365d evidence window). Failures are
     logged but never raised — dashboard telemetry must not break alert handling.
-    `response.automated` is True only for actually-executed actions.
+    `response.automated` is True only for actually-executed actions. WS2.4:
+    `response.latency_seconds` (time from /alert receipt to action) feeds the MTTR SLO.
     """
     doc = {
         "@timestamp":         datetime.now(timezone.utc).isoformat(),
@@ -453,6 +455,8 @@ def log_soar_action(action_type, target_ip, target_mac, ai_summary, severity, te
         "event.severity":     severity,
         "response.automated": action_type not in ("analyst_review", "drafted"),
     }
+    if latency_seconds is not None:
+        doc["response.latency_seconds"] = round(float(latency_seconds), 3)
     # WS0.5: target the per-tenant data stream (no date suffix — ILM rollover owns
     # time). Data streams only accept op_type=create, so use the _bulk create form;
     # ES auto-creates the stream from the soar-actions-* data_stream template.
@@ -558,6 +562,7 @@ def handle_kibana_webhook():
     if not verify_signature(raw_body, request.headers.get(HMAC_HEADER)):
         app.logger.warning("Rejected /alert: missing or invalid HMAC signature.")
         return jsonify({"status": "unauthorized"}), 401
+    _t0 = time.time()  # WS2.4: automated-response latency (-> MTTR SLO)
 
     data = request.get_json(silent=True) or {}
     severity    = data.get("severity",   "medium")
@@ -595,7 +600,7 @@ def handle_kibana_webhook():
             tags="shield,warning,robot",
             tenant=tenant,
         )
-        log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity, tenant=tenant)
+        log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity, tenant=tenant, latency_seconds=time.time() - _t0)
         add_case_comment(tenant, case_id,
                          f"§12.4: alert targets PROTECTED asset `{excluded}` — no action taken.")
         close_case(tenant, case_id, "no_action_protected_asset")
@@ -627,6 +632,7 @@ def handle_kibana_webhook():
         log_soar_action(
             "quarantine_mac" if ok else "analyst_review",
             safe_ip, valid_mac, ai_summary, severity, tenant=tenant,
+            latency_seconds=time.time() - _t0,
         )
         add_case_comment(tenant, case_id,
                          f"Autonomous isolation {'SUCCEEDED' if ok else 'FAILED'} for "
@@ -670,7 +676,7 @@ def handle_kibana_webhook():
         tags="memo,hourglass,robot",
         tenant=tenant,
     )
-    log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity, tenant=tenant)
+    log_soar_action("analyst_review", safe_ip, valid_mac, ai_summary, severity, tenant=tenant, latency_seconds=time.time() - _t0)
     return jsonify({
         "status": "drafted",
         "action_id": action["id"],
@@ -706,13 +712,15 @@ def approve_action():
     if not action:
         return jsonify({"error": f"no pending action {action_id}"}), 404
 
+    _t0 = time.time()
     action_tenant = safe_tenant(action.get("tenant"))
     ok, detail = _execute_isolation(
         action.get("target_mac", ""), action.get("target_ip", ""), action_tenant)
     log_soar_action(
         "quarantine_mac" if ok else "analyst_review",
         action.get("target_ip", "unknown"), action.get("target_mac", ""),
-        action.get("ai_summary", ""), action.get("severity", "medium"), tenant=action_tenant)
+        action.get("ai_summary", ""), action.get("severity", "medium"), tenant=action_tenant,
+        latency_seconds=time.time() - _t0)
     _append_pending_action({
         "id": action_id,
         "ts": time.time(),

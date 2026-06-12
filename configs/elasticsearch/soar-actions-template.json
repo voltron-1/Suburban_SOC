@@ -18,7 +18,10 @@
         "@timestamp": { "type": "date" },
         "tenant":   { "properties": { "id": { "type": "keyword" } } },
         "action":   { "properties": { "type": { "type": "keyword" } } },
-        "response": { "properties": { "automated": { "type": "boolean" } } },
+        "response": { "properties": {
+          "automated": { "type": "boolean" },
+          "latency_seconds": { "type": "float" }
+        }},
         "event":    { "properties": { "severity": { "type": "keyword" } } },
         "source":   { "properties": {
           "ip":  { "type": "keyword" },

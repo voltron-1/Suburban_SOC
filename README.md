@@ -62,7 +62,7 @@ M1–M6 are the completed MVP; M7–M10 follow the four phases of the
 | M6 | Presentation | ✅ Complete |
 | M7 | Platform Security & Multi-Tenancy Foundation (Phase 0) | ✅ Complete (8/8 issues) |
 | M8 | Detection Plane — NIST CSF Coverage & ATT&CK Depth (Phase 1) | ✅ Complete (5/5) |
-| M9 | Operational Maturity (SOC-CMM Level 3) (Phase 2) | 🚧 In progress — 2/5 (WS2.1, WS2.3) |
+| M9 | Operational Maturity (SOC-CMM Level 3) (Phase 2) | 🚧 In progress — 3/5 (WS2.1, WS2.3, WS2.4) |
 | M10 | SOC 2 Type II Technical Control Readiness (Phase 3) | 📋 Planned |
 
 ### M7 — Phase 0 workstream breakdown
