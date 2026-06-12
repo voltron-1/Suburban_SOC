@@ -551,6 +551,36 @@ def close_case(tenant, case_id, disposition):
 
 
 # =============================================================================
+# 3.7 TAMPER-EVIDENT AUDIT TRAIL — append-only record of privileged actions (WS3.3)
+# =============================================================================
+def write_audit(action, actor, tenant, outcome="", target="", detail=""):
+    """Append a tamper-evident audit record (who/what/when/tenant) to soc-audit-<tenant>.
+
+    The agent's ES account holds the append-only `soc_audit_appender` role (create
+    privilege only — no update/delete), so it can ADD audit records but never modify
+    or remove them. Every quarantine/response decision is recorded. Failures are
+    logged, never raised — auditing must not break alert handling.
+    """
+    doc = {
+        "@timestamp":    datetime.now(timezone.utc).isoformat(),
+        "event.action":  action,
+        "actor":         actor,
+        "tenant.id":     tenant,
+        "event.outcome": outcome,
+        "target":        target,
+        "detail":        detail,
+    }
+    # op_type=create (append-only) via the bulk create form.
+    ndjson = '{"create":{}}\n' + json.dumps(doc) + "\n"
+    try:
+        requests.post(f"{ES_HOST}/soc-audit-{tenant}/_bulk", data=ndjson,
+                      headers={"Content-Type": "application/x-ndjson"},
+                      auth=(ES_USER, ES_PASS), verify=ES_VERIFY, timeout=5)
+    except Exception as e:  # noqa: BLE001
+        app.logger.error("Failed to write audit record: %s", e)
+
+
+# =============================================================================
 # 4. WEBHOOK LISTENER — real-time alert triage
 # =============================================================================
 @app.route("/alert", methods=["POST"])
@@ -604,6 +634,8 @@ def handle_kibana_webhook():
         add_case_comment(tenant, case_id,
                          f"§12.4: alert targets PROTECTED asset `{excluded}` — no action taken.")
         close_case(tenant, case_id, "no_action_protected_asset")
+        write_audit("alert_excluded_asset", "soc-ai-agent", tenant,
+                    outcome="no_action", target=str(excluded), detail=f"case={case_id}")
         return jsonify({
             "status": "no_action_protected_asset",
             "asset": excluded,
@@ -639,6 +671,8 @@ def handle_kibana_webhook():
                          f"`{safe_ip}` / `{valid_mac}` — {detail}")
         if ok:
             close_case(tenant, case_id, "true_positive_contained")
+        write_audit("autonomous_isolation", "soc-ai-agent", tenant,
+                    outcome="executed" if ok else "failed", target=safe_ip, detail=detail)
         return jsonify({
             "status": "auto_isolated" if ok else "isolation_failed",
             "detail": detail,
@@ -665,6 +699,8 @@ def handle_kibana_webhook():
     add_case_comment(tenant, case_id,
                      f"Response DRAFTED ({action['recommended_action']}) — awaiting human "
                      f"approval via POST /approve (id={action['id']}).")
+    write_audit("response_drafted", "soc-ai-agent", tenant, outcome="pending_approval",
+                target=safe_ip or valid_mac, detail=f"action={action['id']}")
     send_soc_alert(
         title=f"{severity.upper()}: Response DRAFTED — approval required",
         message=(
@@ -734,6 +770,9 @@ def approve_action():
                      f"Approved by **{approver}** → isolation {'executed' if ok else 'FAILED'}: {detail}")
     if ok:
         close_case(action_tenant, case_id, "true_positive_contained")
+    write_audit("response_approved", approver, action_tenant,
+                outcome="executed" if ok else "failed",
+                target=action.get("target_ip", ""), detail=f"action={action_id}; {detail}")
     code = 200 if ok else 422
     return jsonify({"status": "executed" if ok else "blocked", "detail": detail,
                     "approver": approver, "case_id": case_id}), code

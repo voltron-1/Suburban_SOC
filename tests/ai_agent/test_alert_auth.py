@@ -81,6 +81,8 @@ class AlertResponseTests(unittest.TestCase):
             agent_app, "create_case", return_value="case-abc123").start()
         self.mock_case_comment = mock.patch.object(agent_app, "add_case_comment").start()
         self.mock_close_case = mock.patch.object(agent_app, "close_case").start()
+        # WS3.3: audit writes go to ES — stub them out for unit tests.
+        self.mock_audit = mock.patch.object(agent_app, "write_audit").start()
         self.addCleanup(mock.patch.stopall)
         self.addCleanup(lambda: os.unlink(self._qfile.name))
 
