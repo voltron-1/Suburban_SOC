@@ -71,14 +71,14 @@ DASHBOARDS=(
 # -----------------------------------------------------------------------------
 # 1. Pre-flight — Elasticsearch + Kibana reachable
 # -----------------------------------------------------------------------------
-blue "==> [1/6] Validating Elasticsearch at ${ES_URL}"
+blue "==> [1/7] Validating Elasticsearch at ${ES_URL}"
 if ! curl -fsS "${ES_CURL[@]}" "${ES_URL}" >/dev/null 2>&1; then
   red "ERROR: Elasticsearch not reachable/authenticated at ${ES_URL}. Is the stack up (docker compose up -d) and ES_PASS correct?"
   exit 1
 fi
 green "    Elasticsearch is up (authenticated)."
 
-blue "==> [2/6] Validating Kibana at ${KIBANA_URL}"
+blue "==> [2/7] Validating Kibana at ${KIBANA_URL}"
 if ! curl -fsS "${AUTH[@]}" "${KIBANA_URL}/api/status" >/dev/null 2>&1; then
   red "ERROR: Kibana not reachable at ${KIBANA_URL}/api/status. Give it a minute to start (and check ES_PASS)."
   exit 1
@@ -88,7 +88,7 @@ green "    Kibana is up."
 # -----------------------------------------------------------------------------
 # 2. Provision the logstash-* data view (id: logstash-pattern)
 # -----------------------------------------------------------------------------
-blue "==> [3/6] Ensuring data views exist (logstash-pattern, soar-actions-pattern)"
+blue "==> [3/7] Ensuring data views exist (logstash-pattern, soar-actions-pattern)"
 # Use the Data Views API (NOT the low-level saved-objects API) so the data view
 # is created complete — with field caps. A field-less index-pattern object makes
 # aggregation-based visualizations throw "cannot read properties of undefined"
@@ -107,7 +107,7 @@ code=$(create_data_view "soar-actions-pattern" "soar-actions-*" "true")
 # -----------------------------------------------------------------------------
 # 3. Import all dashboard bundles
 # -----------------------------------------------------------------------------
-blue "==> [4/6] Importing dashboard bundles"
+blue "==> [4/7] Importing dashboard bundles"
 imported=0
 for f in "${DASHBOARDS[@]}"; do
   path="${SERVER_DIR}/${f}"
@@ -128,7 +128,7 @@ done
 # -----------------------------------------------------------------------------
 # 4. Install / update Elastic Watchers (best-effort; needs Watcher feature)
 # -----------------------------------------------------------------------------
-blue "==> [5/6] Installing Elastic Watchers"
+blue "==> [5/7] Installing Elastic Watchers"
 watchers=0
 if [[ -d "$WATCHER_DIR" ]]; then
   for w in "$WATCHER_DIR"/*.json; do
@@ -149,12 +149,29 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 5. Restart Logstash to apply the pipeline config
+# 5b. Install the data lifecycle (WS0.5): ILM + snapshots + data-stream templates
+# -----------------------------------------------------------------------------
+# Must run BEFORE the Logstash restart so the data_stream templates exist when the
+# pipeline reloads and starts writing `create` ops to logstash-security-<tenant>.
+blue "==> [6/7] Installing data lifecycle (ILM + snapshots + data-stream templates)"
+LIFECYCLE_SCRIPT="$REPO_ROOT/configs/elasticsearch/apply-lifecycle.sh"
+if [[ -f "$LIFECYCLE_SCRIPT" ]]; then
+  if ES_URL="$ES_URL" ES_USER="$ES_USER" ES_PASS="$ES_PASS" bash "$LIFECYCLE_SCRIPT"; then
+    green "    Data lifecycle installed."
+  else
+    red "    WARN: apply-lifecycle.sh reported an error (is path.repo + the snapshots volume deployed? re-run docker compose up -d)."
+  fi
+else
+  red "    WARN: ${LIFECYCLE_SCRIPT} not found — ILM/snapshots not installed."
+fi
+
+# -----------------------------------------------------------------------------
+# 6. Restart Logstash to apply the pipeline config
 # -----------------------------------------------------------------------------
 # configs/logstash.conf is the single source of truth and is bind-mounted into
 # the container directly by docker-compose.yml (../../configs/logstash.conf), so
 # there is no copy/sync step — we only need to restart Logstash to reload it.
-blue "==> [6/6] Restarting Logstash to apply configs/logstash.conf"
+blue "==> [7/7] Restarting Logstash to apply configs/logstash.conf"
 if [[ -f "$LOGSTASH_SRC" ]]; then
   if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^logstash$'; then
     docker restart logstash >/dev/null && green "    Restarted Logstash container."

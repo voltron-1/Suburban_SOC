@@ -4,13 +4,14 @@
 #
 # For a given tenant slug, creates:
 #   * a Kibana Space            (UI isolation)
-#   * a space-scoped data view  (logstash-security-<tenant>-*)
-#   * a least-privilege role    (read ONLY that tenant's indices + that space)
+#   * a space-scoped data view  (logstash-security-<tenant>)
+#   * a least-privilege role    (read ONLY that tenant's data streams + that space)
 #   * a tenant viewer user      (mapped to the role; random password printed once)
 #
-# Tenant data is physically separated by index (logstash-security-<tenant>-*,
-# written by configs/logstash.conf). This script grants access to exactly one
-# tenant's slice, so a tenant user can never read another tenant's data.
+# Tenant data is physically separated by data stream (logstash-security-<tenant>,
+# soar-actions-<tenant>; WS0.5), written by configs/logstash.conf and the AI agent.
+# This script grants access to exactly one tenant's slice, so a tenant user can
+# never read another tenant's data.
 #
 # Usage:
 #   cd ~/projects/Suburban-SOC/scripts/setup
@@ -56,20 +57,26 @@ curl "${KARGS[@]}" -o /dev/null -w '    space -> HTTP %{http_code}\n' \
   -X POST "${KIBANA_URL}/api/spaces/space" \
   -d "{\"id\":\"${TENANT}\",\"name\":\"${TENANT}\"}" || true
 
-blue "==> [2/4] Creating space-scoped data view (logstash-security-${TENANT}-*)"
+blue "==> [2/4] Creating space-scoped data view (logstash-security-${TENANT})"
+# WS0.5: the per-tenant target is now a data stream (logstash-security-<tenant>),
+# not daily indices, so the data view matches the exact stream name.
 curl "${KARGS[@]}" -o /dev/null -w '    data view -> HTTP %{http_code}\n' \
   -X POST "${KIBANA_URL}/s/${TENANT}/api/data_views/data_view" \
-  -d "{\"override\":true,\"data_view\":{\"id\":\"logstash-${TENANT}\",\"name\":\"logstash-security-${TENANT}-*\",\"title\":\"logstash-security-${TENANT}-*\",\"timeFieldName\":\"@timestamp\"}}" || true
+  -d "{\"override\":true,\"data_view\":{\"id\":\"logstash-${TENANT}\",\"name\":\"logstash-security-${TENANT}\",\"title\":\"logstash-security-${TENANT}\",\"timeFieldName\":\"@timestamp\"}}" || true
 
 blue "==> [3/4] Creating least-privilege role '${ROLE}'"
 # Kibana role API sets BOTH the ES index privileges and the space-scoped feature
-# access in one object — the role can read only this tenant's indices + space.
+# access in one object — the role can read only this tenant's data + space.
+# WS0.5: grant the exact per-tenant data stream names (logstash-security-<tenant>,
+# soar-actions-<tenant>). ES applies a data-stream grant to its backing indices
+# automatically, and exact names (no trailing -*) remove the wildcard prefix
+# collision the old "<tenant>-*" patterns had between slugs like `home`/`home-x`.
 curl "${KARGS[@]}" -o /dev/null -w '    role -> HTTP %{http_code}\n' \
   -X PUT "${KIBANA_URL}/api/security/role/${ROLE}" \
   -d "{
         \"elasticsearch\": {
           \"indices\": [
-            {\"names\": [\"logstash-security-${TENANT}-*\", \"soar-actions-${TENANT}-*\"],
+            {\"names\": [\"logstash-security-${TENANT}\", \"soar-actions-${TENANT}\"],
              \"privileges\": [\"read\", \"view_index_metadata\"]}
           ]
         },
@@ -87,7 +94,7 @@ echo
 green "=================== TENANT PROVISIONED ==================="
 printf '  Tenant     : %s\n' "$TENANT"
 printf '  Space      : %s/s/%s\n' "$KIBANA_URL" "$TENANT"
-printf '  Indices    : logstash-security-%s-* , soar-actions-%s-*\n' "$TENANT" "$TENANT"
+printf '  Data streams: logstash-security-%s , soar-actions-%s\n' "$TENANT" "$TENANT"
 printf '  Login      : %s  /  %s\n' "$USER" "$TENANT_PW"
 red    "  ^ Record this password now — it is shown only once."
 green "========================================================="

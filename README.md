@@ -76,7 +76,7 @@ no customer deploy ships before it closes.
 | WS0.2 | Authenticate & harden the SOAR response webhook (HMAC, fail-closed) | ✅ Complete |
 | WS0.3 | Multi-tenancy foundation (`tenant.id`, per-tenant indices/roles/response) | ✅ Complete (PR #117) |
 | WS0.4 | Secrets management (`.env`, no hardcoded defaults) | ✅ Complete |
-| WS0.5 | Data lifecycle & retention (ILM, per-tenant purge) | 📋 Planned |
+| WS0.5 | Data lifecycle & retention (data streams, ILM hot/warm/delete, snapshot-before-delete) | 🚧 In progress (this branch) |
 | WS0.6 | Consolidate the duplicate Logstash config | ✅ Complete |
 
 ### Recent Enhancements
