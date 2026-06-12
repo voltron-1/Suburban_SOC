@@ -1,0 +1,13 @@
+# =============================================================================
+# Suburban-SOC reliability schedule (WS2.5)
+#
+# Install on the SOC host (adjust the repo path):
+#   crontab -l 2>/dev/null | cat - configs/monitoring/reliability.cron | crontab -
+# Env (ES creds, NTFY_TOPIC) is read from scripts/setup/.env by each script.
+# =============================================================================
+
+# Self-monitoring: alert if any component is DOWN (the SOC detects its own outages).
+*/5 * * * * cd "$HOME/projects/Suburban-SOC" && ./scripts/setup/stack_health.sh >> /var/log/suburban-soc-health.log 2>&1
+
+# Restore-test the backups daily (a backup you never restore is not a backup).
+0 2 * * * cd "$HOME/projects/Suburban-SOC" && ./scripts/setup/restore_test.sh >> /var/log/suburban-soc-restore.log 2>&1
