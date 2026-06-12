@@ -179,6 +179,9 @@ services:
       - ELASTIC_HOSTS=https://elasticsearch:9200
       # Secret for signing the SOAR /alert webhook to the AI agent (WS0.2).
       - SOC_AGENT_HMAC_SECRET=${SOC_AGENT_HMAC_SECRET}
+      # WS1.1: ntfy push topic (de-hardcoded). The logstash.conf output reads it as
+      # ${NTFY_TOPIC:subsoc-alerts}; set per deployment in .env.
+      - NTFY_TOPIC=${NTFY_TOPIC:-subsoc-alerts}
     ports:
       - 5044:5044
     volumes:
@@ -220,6 +223,8 @@ services:
       - LLM_API_KEY=${LLM_API_KEY:-}
       - LLM_API_URL=${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
       - LLM_MODEL=${LLM_MODEL:-gpt-4}
+      # Allow sending sanitised telemetry to a HOSTED LLM (default false = local-only).
+      - LLM_ALLOW_HOSTED=${LLM_ALLOW_HOSTED:-false}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
       # §12.4 exclusion list, mounted read-only below (without this the agent could
       # not enforce the never-isolate list inside the container).

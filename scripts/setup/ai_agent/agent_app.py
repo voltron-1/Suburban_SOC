@@ -27,6 +27,12 @@ NTFY_TOPIC         = os.environ.get("NTFY_TOPIC",         "")
 LLM_API_KEY        = os.environ.get("LLM_API_KEY",        "")
 LLM_API_URL        = os.environ.get("LLM_API_URL",        "https://api.openai.com/v1/chat/completions")
 LLM_MODEL          = os.environ.get("LLM_MODEL",          "gpt-4")
+# CDP §4 egress control: only send (sanitised) telemetry to a HOSTED LLM endpoint
+# when explicitly allowed. Default false → with the hosted default URL the agent
+# degrades gracefully ("AI Analysis skipped") instead of leaking or crashing.
+# (analyze_alert_with_ai referenced this but it was never defined — NameError 500
+# on every /alert; the dead SOAR trigger + the pre-#109 crash-loop hid it.)
+LLM_ALLOW_HOSTED   = os.environ.get("LLM_ALLOW_HOSTED",   "false").lower() == "true"
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 # Elasticsearch endpoint for the SOAR feedback loop (Executive Dashboard metrics).
 # Defaults to the Docker-network service name used by docker-compose.yml.

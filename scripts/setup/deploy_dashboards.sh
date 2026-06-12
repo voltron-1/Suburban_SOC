@@ -66,6 +66,7 @@ DASHBOARDS=(
   "endpoint_dashboard.ndjson"
   "dataquality_dashboard.ndjson"
   "soc_navigation_hub.ndjson"
+  "intel_feed_health.ndjson"
 )
 
 # -----------------------------------------------------------------------------
@@ -103,6 +104,9 @@ code=$(create_data_view "logstash-pattern" "logstash-*" "false")
 [[ "$code" =~ ^20 ]] && green "    logstash-pattern ready (HTTP ${code})." || red "    WARN: logstash-pattern -> HTTP ${code}"
 code=$(create_data_view "soar-actions-pattern" "soar-actions-*" "true")
 [[ "$code" =~ ^20 ]] && green "    soar-actions-pattern ready (HTTP ${code})." || red "    WARN: soar-actions-pattern -> HTTP ${code}"
+# WS1.3: data view for the threat-intel feed-health panel (intel_feed_health.ndjson).
+code=$(create_data_view "threat-intel-meta-pattern" "threat-intel-meta*" "true")
+[[ "$code" =~ ^20 ]] && green "    threat-intel-meta-pattern ready (HTTP ${code})." || red "    WARN: threat-intel-meta-pattern -> HTTP ${code}"
 
 # -----------------------------------------------------------------------------
 # 3. Import all dashboard bundles
