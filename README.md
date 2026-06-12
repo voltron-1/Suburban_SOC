@@ -266,7 +266,7 @@ Before you begin, ensure you have the following:
 ### 3. Usage:
 1.  **Architecture Flow:**
     **Detection:** `OpenWrt (SSH/tcpdump) ➔ Zeek (JSON + MAC enrichment) ➔ Filebeat ➔ Logstash ➔ Elasticsearch ➔ Kibana`  
-    **Response:** `Kibana Watcher ➔ SOC AI Agent (LLM triage + approval queue) ➔ isolate.sh ➔ OpenWrt (MAC DROP rule)`  
+    **Response:** `Kibana Watcher ➔ SOC AI Agent (LLM triage + approval queue) ➔ Hive-Mind Broker (HMAC) ➔ OpenWrt (nftables IP DROP)`  
     **Alerts:** `SOC AI Agent ➔ ntfy (mobile push) + Discord (SOC channel)`
 2.  **Running the Pipeline:**
     Execute the relevant bash scripts in `/scripts/setup/` to begin streaming raw PCAP data over SSH.

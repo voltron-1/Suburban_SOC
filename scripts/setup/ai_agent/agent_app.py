@@ -8,7 +8,6 @@ import hashlib
 import ipaddress
 import threading
 import requests
-import subprocess
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -47,10 +46,23 @@ ES_VERIFY          = ES_CA if (ES_CA and Path(ES_CA).is_file()) else False
 AUTONOMOUS_ISOLATION = os.environ.get("AUTONOMOUS_ISOLATION", "false").lower() == "true"
 
 # CDP §12.4: permanent exclusion list — assets the SOAR may never isolate.
-EXCLUSION_LIST = os.environ.get(
-    "EXCLUSION_LIST",
-    str((Path(__file__).resolve().parents[3] / "governance" / "exclusion_list.txt")),
-)
+def _default_exclusion_path() -> str:
+    """Locate governance/exclusion_list.txt by walking up from this file.
+
+    A fixed parents[N] breaks across layouts: in the repo this file lives at
+    scripts/setup/ai_agent/, but in the container it is /app/agent_app.py (only two
+    parents) — parents[3] raised IndexError at import and crash-looped the agent.
+    Walking the parents finds it in both, and falls back to the container mount path.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "governance" / "exclusion_list.txt"
+        if candidate.is_file():
+            return str(candidate)
+    return "/governance/exclusion_list.txt"
+
+
+EXCLUSION_LIST = os.environ.get("EXCLUSION_LIST") or _default_exclusion_path()
 
 # Human-approval queue (pending isolation actions awaiting a human-of-record).
 APPROVAL_QUEUE = os.environ.get(
@@ -59,9 +71,14 @@ APPROVAL_QUEUE = os.environ.get(
 )
 _queue_lock = threading.Lock()
 
-# Absolute path to isolate.sh — resolved at import time so subprocess.run works
-# regardless of Flask's current working directory.
-ISOLATE_SCRIPT = str((Path(__file__).resolve().parent.parent / "isolate.sh"))
+# Hive-Mind broker — the router-block dispatcher (#109). The agent runs in a slim
+# container with no ssh/sudo, so it can't run isolate.sh against a router itself.
+# Instead it routes containment to the broker over an authenticated (HMAC) webhook;
+# the broker owns the per-tenant router inventory and executes the block.
+BROKER_URL    = os.environ.get("BROKER_URL", "http://hive_mind_broker:8000")
+# Shared secret for signing broker requests — MUST equal the broker's
+# HIVE_MIND_SECRET. If unset, _execute_isolation fails closed (never dispatches).
+HIVE_MIND_SECRET = os.environ.get("HIVE_MIND_SECRET", "").encode("utf-8")
 
 # --- Webhook authentication (WS0.2) ------------------------------------------
 # /alert triggers device isolation, so it MUST be authenticated. Callers sign the
@@ -72,7 +89,7 @@ ISOLATE_SCRIPT = str((Path(__file__).resolve().parent.parent / "isolate.sh"))
 HMAC_HEADER = "x-elastic-signature"
 HMAC_SECRET = os.environ.get("SOC_AGENT_HMAC_SECRET", "").encode("utf-8")
 
-# Validation patterns for anything that reaches the isolate.sh subprocess.
+# Validation patterns for anything that reaches the broker / response path.
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$")
 
 
@@ -114,29 +131,46 @@ def _tenant_env_suffix(tenant: str) -> str:
     return tenant.upper().replace("-", "_")
 
 
-def resolve_router(tenant: str):
-    """Resolve a tenant's OpenWrt router SSH target from env (WS0.3).
+def dispatch_block_via_broker(attacker_ip: str, tenant: str, source_mac: str = ""):
+    """Route an approved containment to the hive-mind-broker (#109).
 
-    A named tenant MUST have ROUTER_HOST_<TENANT>; if absent, returns None so the
-    caller refuses to isolate (never on a default or another tenant's router). The
-    'unassigned' tenant falls back to the global OPENWRT_* env (an empty host lets
-    isolate.sh apply its built-in default). Returns {host,user,key} or None.
+    The agent's slim container has no ssh/sudo, so it cannot run isolate.sh against
+    a router. The broker can: it owns the per-tenant router inventory and applies an
+    nftables drop. We sign the request with HIVE_MIND_SECRET (same HMAC scheme as
+    /alert) and POST it to the broker's authenticated /webhook/dispatch — which
+    executes immediately because the agent already performed the §12.3 approval gate.
+
+    Fails CLOSED: with no secret configured we never dispatch. Returns (ok, detail).
     """
-    if tenant == "unassigned":
-        return {
-            "host": os.environ.get("OPENWRT_HOST", ""),
-            "user": os.environ.get("OPENWRT_USER", ""),
-            "key":  os.environ.get("SSH_KEY", ""),
-        }
-    suffix = _tenant_env_suffix(tenant)
-    host = os.environ.get(f"ROUTER_HOST_{suffix}", "")
-    if not host:
-        return None
-    return {
-        "host": host,
-        "user": os.environ.get(f"ROUTER_USER_{suffix}", "root"),
-        "key":  os.environ.get(f"ROUTER_KEY_{suffix}", ""),
-    }
+    if not HIVE_MIND_SECRET:
+        return False, "HIVE_MIND_SECRET unset — refusing to dispatch (broker unreachable/unsigned)"
+    body = json.dumps({
+        "attacker_ip": attacker_ip,
+        "tenant_id":   tenant,
+        "source_mac":  source_mac,
+        "approver":    "soc-ai-agent",
+    }).encode("utf-8")
+    sig = "sha256=" + hmac.new(HIVE_MIND_SECRET, body, hashlib.sha256).hexdigest()
+    try:
+        resp = requests.post(
+            f"{BROKER_URL}/webhook/dispatch",
+            data=body,
+            headers={"Content-Type": "application/json", HMAC_HEADER: sig},
+            timeout=15,
+        )
+    except Exception as exc:  # noqa: BLE001 - never let response handling crash
+        app.logger.error("broker dispatch failed: %s", exc)
+        return False, f"broker unreachable: {exc}"
+
+    detail = resp.text[:300]
+    try:
+        data = resp.json()
+        detail = data.get("message", detail)
+    except Exception:
+        data = {}
+    # The block actually happened only if the broker reached >=1 router.
+    ok = resp.status_code == 200 and bool(data.get("executed")) and data.get("success_count", 0) >= 1
+    return ok, detail
 
 
 def ntfy_topic_for(tenant: str) -> str:
@@ -361,36 +395,25 @@ def _read_queue():
 # 3c. ISOLATION EXECUTION — only ever reached after a guard (flag or approval)
 # =============================================================================
 def _execute_isolation(mac: str, ip: str = "", tenant: str = "unassigned"):
-    """Run isolate.sh for a format-validated MAC. Returns (ok: bool, detail: str).
+    """Quarantine an attacker by routing the block through the hive-mind-broker (#109).
 
-    isolate.sh is MAC-only, so without a valid MAC we never invoke the subprocess.
-    The exclusion list is re-checked here (defence in depth, CDP §12.4) so neither
-    the autonomous path nor a human approval can ever quarantine protected infra.
+    The agent runs in a slim container with no ssh/sudo, so it can't isolate a router
+    directly; the broker does it. The broker blocks by IP (nftables drop), so a usable
+    source IP is required — `mac` is carried along only for the audit trail.
 
-    WS0.3: the tenant's router is resolved and passed to isolate.sh as positional
-    args (they survive `sudo`, which strips env). A NAMED tenant with no configured
-    router is refused — we never isolate on a default or another tenant's router.
+    The §12.4 exclusion list is re-checked here (defence in depth) so neither the
+    autonomous path nor a human approval can ever quarantine protected infra. WS0.3
+    tenant scoping (which routers get the block) is enforced by the broker from its
+    own per-tenant inventory; a NAMED tenant with no router yields a clean refusal
+    rather than touching another tenant's router.
     """
-    if not is_valid_mac(mac):
-        return False, f"no valid MAC to isolate (got {mac!r}); manual action required"
     excluded = is_excluded(mac=mac, ip=ip)
     if excluded:
         return False, f"{excluded} is on the permanent exclusion list — refused"
-    router = resolve_router(tenant)
-    if router is None:
-        return False, (f"no router configured for tenant '{tenant}' "
-                       f"(set ROUTER_HOST_{_tenant_env_suffix(tenant)}); manual isolation required")
-    try:
-        result = subprocess.run(
-            ["sudo", ISOLATE_SCRIPT, mac,
-             router.get("host", ""), router.get("user", ""), router.get("key", "")],
-            check=False,
-        )
-    except Exception as exc:  # noqa: BLE001 - never let response handling crash
-        app.logger.error("isolate.sh invocation failed: %s", exc)
-        return False, f"isolate.sh error: {exc}"
-    ok = result.returncode == 0
-    return ok, ("isolated" if ok else f"isolate.sh exited {result.returncode}")
+    if not is_valid_ip(ip):
+        return False, (f"no valid IP to block (got {ip!r}); the broker blocks by IP — "
+                       f"manual action required")
+    return dispatch_block_via_broker(ip, tenant, source_mac=mac)
 
 
 # =============================================================================
@@ -452,8 +475,8 @@ def handle_kibana_webhook():
     target_mac  = str(data.get("source_mac", "")).strip()
     raw_details = data.get("raw_log",    "No log data provided")
 
-    # Validate anything that could reach the OS / isolate.sh. Invalid values are
-    # blanked (never passed through) so the subprocess only ever sees a clean MAC.
+    # Validate anything that feeds the response path. Invalid values are blanked
+    # (never passed through) so the broker only ever sees a clean MAC/IP.
     valid_mac = target_mac if is_valid_mac(target_mac) else ""
     safe_ip   = target_ip if is_valid_ip(target_ip) else "unknown"
     tenant    = safe_tenant(data.get("tenant_id"))  # WS0.3: scopes response + notify

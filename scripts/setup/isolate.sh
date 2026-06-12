@@ -1,7 +1,14 @@
 #!/bin/bash
 # =============================================================================
-# isolate.sh — Suburban-SOC SOAR Quarantine Script
+# isolate.sh — Suburban-SOC MAC-based device isolation (STANDALONE / MANUAL TOOL)
 # Phase C: OpenWrt uci MAC-based device isolation
+#
+# NOTE (#109): this script is NO LONGER on the automated response path. The AI
+# agent runs in a slim container with no ssh/sudo, so it now routes containment to
+# the hive-mind-broker (scripts/hive-mind-broker/), which blocks by IP via nftables.
+# This script is kept as a STANDALONE operator tool for MAC-level quarantine — a
+# capability the broker's IP-block does not provide. Run it by hand on a host that
+# has SSH access to the router; nothing invokes it automatically.
 #
 # Usage:
 #   ./isolate.sh <MAC_ADDRESS> [ROUTER_HOST] [ROUTER_USER] [SSH_KEY]
