@@ -29,3 +29,9 @@ output.logstash:
   # LOGSTASH_HOST env var allows team members to change target without editing this file.
   # Default: localhost:5044 (works for Docker stack on same host)
   hosts: ["${LOGSTASH_HOST:localhost:5044}"]
+  # WS3.1: encrypt telemetry in transit. Logstash's Beats input serves a CA-signed
+  # cert; verify it against the stack CA. Ship the CA to the endpoint and point
+  # FILEBEAT_CA at it (default path matches the agent-deploy bundle).
+  ssl.enabled: true
+  ssl.certificate_authorities: ["${FILEBEAT_CA:/etc/filebeat/certs/ca.crt}"]
+  ssl.verification_mode: "${FILEBEAT_SSL_VERIFY:full}"
