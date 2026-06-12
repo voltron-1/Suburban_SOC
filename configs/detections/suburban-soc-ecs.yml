@@ -1,0 +1,20 @@
+# pySigma processing pipeline (WS1.2) — maps Sigma's Sysmon field names to the ECS
+# fields the Suburban-SOC Logstash pipeline actually produces (configs/logstash.conf
+# Category 2). IMPORTANT: this stack uses process.args (NOT the ECS-standard
+# process.command_line), so converted detections must query process.args to match
+# real data. deploy_detections.sh sets the rule index to logstash-* after conversion.
+name: suburban-soc-ecs
+priority: 100
+transformations:
+  - id: field-mapping
+    type: field_name_mapping
+    mapping:
+      Image: process.executable
+      OriginalFileName: process.pe.original_file_name
+      CommandLine: process.args
+      ParentImage: process.parent.name
+      ParentCommandLine: process.parent.args
+      User: user.name
+      TargetUserName: user.target.name
+      TargetFilename: file.path
+      Hashes: file.hash.sha256

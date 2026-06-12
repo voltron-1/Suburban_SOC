@@ -10,7 +10,7 @@ detection:
         Image|endswith:
             - '\powershell.exe'
             - '\pwsh.exe'
-        CommandLine|contains|nocase:
+        CommandLine|contains:
             - ' -enc'
             - ' -EncodedCommand'
             - ' -ec '
