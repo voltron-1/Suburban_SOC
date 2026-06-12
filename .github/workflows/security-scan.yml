@@ -1,0 +1,56 @@
+name: Security Scan
+
+# WS3.6 vulnerability management: scan the SOC's own images + Python dependencies.
+# Fails on CRITICAL findings (blocks a known-critical CVE from merging). The weekly
+# schedule is the patch-cadence checkpoint (see docs/SOP-008-vuln-management.md).
+on:
+  pull_request:
+    paths:
+      - "scripts/setup/ai_agent/**"
+      - "scripts/hive-mind-broker/**"
+      - ".github/workflows/security-scan.yml"
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC — weekly patch cadence
+  workflow_dispatch:
+
+jobs:
+  dependencies:
+    name: Python dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install --quiet pip-audit
+      - name: Audit AI-agent dependencies
+        run: pip-audit -r scripts/setup/ai_agent/requirements.txt
+      - name: Audit hive-mind-broker dependencies
+        # PYSEC-2026-161 (starlette) fix is 1.0.1, which FastAPI doesn't yet support
+        # (it caps starlette < 0.50). Tracked exception until FastAPI catches up —
+        # see docs/SOP-008-vuln-management.md. pip-audit still fails on any NEW vuln.
+        run: pip-audit -r scripts/hive-mind-broker/requirements.txt --ignore-vuln PYSEC-2026-161
+
+  images:
+    name: Container image scan (Trivy)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ai-agent
+            context: scripts/setup/ai_agent
+          - name: hive-mind-broker
+            context: scripts/hive-mind-broker
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build ${{ matrix.name }} image
+        run: docker build -t suburban-soc/${{ matrix.name }}:scan ${{ matrix.context }}
+      - name: Trivy — fail on CRITICAL (fixed) vulnerabilities
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: suburban-soc/${{ matrix.name }}:scan
+          severity: CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
