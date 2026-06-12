@@ -1,0 +1,5 @@
+{
+  "indices": [
+    {"names": ["soc-audit-*"], "privileges": ["create_index", "create"]}
+  ]
+}

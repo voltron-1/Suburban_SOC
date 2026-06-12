@@ -78,8 +78,10 @@ services:
         until curl -s -X POST --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/kibana_system/_password -d "{\"password\":\"${KIBANA_PASSWORD}\"}" | grep -q "^{}"; do sleep 5; done;
         echo "Provisioning least-privilege logstash_writer role";
         curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/role/logstash_writer -d "{\"cluster\":[\"monitor\",\"manage_index_templates\",\"manage_ilm\"],\"indices\":[{\"names\":[\"logstash-*\",\"soar-actions-*\"],\"privileges\":[\"create_index\",\"create\",\"write\",\"manage\"]}]}" > /dev/null;
-        echo "Provisioning logstash_internal user";
-        curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/logstash_internal -d "{\"password\":\"${LOGSTASH_PASSWORD}\",\"roles\":[\"logstash_writer\"],\"full_name\":\"Logstash writer (Suburban-SOC)\"}" > /dev/null;
+        echo "Provisioning append-only soc_audit_appender role (WS3.3 tamper-evident audit)";
+        curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/role/soc_audit_appender -d "{\"indices\":[{\"names\":[\"soc-audit-*\"],\"privileges\":[\"create_index\",\"create\"]}]}" > /dev/null;
+        echo "Provisioning logstash_internal user (logstash_writer + append-only audit)";
+        curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/logstash_internal -d "{\"password\":\"${LOGSTASH_PASSWORD}\",\"roles\":[\"logstash_writer\",\"soc_audit_appender\"],\"full_name\":\"Logstash writer (Suburban-SOC)\"}" > /dev/null;
         if [ x${SOC_AGENT_KIBANA_PASSWORD} != x ]; then
           echo "Provisioning soc_agent_cases role + soc_agent user (WS2.3 Kibana Cases)";
           curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/role/soc_agent_cases -d "{\"applications\":[{\"application\":\"kibana-.kibana\",\"privileges\":[\"feature_generalCases.all\"],\"resources\":[\"*\"]}]}" > /dev/null;
