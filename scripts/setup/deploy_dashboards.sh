@@ -209,3 +209,5 @@ echo  "  Dashboard IDs       : executive-dashboard, network-dashboard-v3,"
 echo  "                        endpoint-dashboard, dataquality-dashboard,"
 echo  "                        soc-navigation-hub"
 green "========================================================="
+# WS3.5: record the change (deploy changelog evidence).
+bash "$SCRIPT_DIR/deploy_changelog.sh" "dashboards" "imported ${imported}/${#DASHBOARDS[@]} dashboards + data views/watchers" 2>/dev/null || true
