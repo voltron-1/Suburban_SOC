@@ -60,7 +60,7 @@ M1–M6 are the completed MVP; M7–M10 follow the four phases of the
 | M4 | Data Visualization (ELK Integration) | ✅ Complete |
 | M5 | Advanced Features / Automation | ✅ Complete |
 | M6 | Presentation | ✅ Complete |
-| M7 | Platform Security & Multi-Tenancy Foundation (Phase 0) | 🚧 In progress — 6/8 issues |
+| M7 | Platform Security & Multi-Tenancy Foundation (Phase 0) | ✅ Complete (8/8 issues) |
 | M8 | Detection Plane — NIST CSF Coverage & ATT&CK Depth (Phase 1) | 📋 Planned |
 | M9 | Operational Maturity (SOC-CMM Level 3) (Phase 2) | 📋 Planned |
 | M10 | SOC 2 Type II Technical Control Readiness (Phase 3) | 📋 Planned |
@@ -76,8 +76,13 @@ no customer deploy ships before it closes.
 | WS0.2 | Authenticate & harden the SOAR response webhook (HMAC, fail-closed) | ✅ Complete |
 | WS0.3 | Multi-tenancy foundation (`tenant.id`, per-tenant indices/roles/response) | ✅ Complete (PR #117) |
 | WS0.4 | Secrets management (`.env`, no hardcoded defaults) | ✅ Complete |
-| WS0.5 | Data lifecycle & retention (data streams, ILM hot/warm/delete, snapshot-before-delete) | 🚧 In progress (this branch) |
+| WS0.5 | Data lifecycle & retention (data streams, ILM hot/warm/delete, snapshot-before-delete) | ✅ Complete (PR #121) |
 | WS0.6 | Consolidate the duplicate Logstash config | ✅ Complete |
+
+Plus two hardening tasks that complete the milestone (8/8): the SOAR response webhook
+fix and **routing agent quarantine through the hive-mind-broker** (#109, PR #122) — the
+slim agent container has no ssh/sudo, so containment is now an authenticated (HMAC)
+IP-block dispatched to the broker, tenant-scoped, instead of a direct `isolate.sh` call.
 
 ### Recent Enhancements
 
