@@ -70,6 +70,7 @@ DASHBOARDS=(
   "asset_inventory.ndjson"
   "slo_dashboard.ndjson"
   "hunts_dashboard.ndjson"
+  "control_status_dashboard.ndjson"  # WS3.7 SOC 2 continuous control monitoring
 )
 
 # -----------------------------------------------------------------------------
