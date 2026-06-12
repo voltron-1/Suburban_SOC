@@ -1,0 +1,11 @@
+# =============================================================================
+# Suburban-SOC scheduled threat hunts (WS2.2)
+#
+# Runs the versioned hunt library (hunts/*.yml) and records findings to soc-hunts.
+# Install on the SOC host (adjust the repo path):
+#   crontab -l 2>/dev/null | cat - configs/hunts/hunts.cron | crontab -
+# ES creds read from scripts/setup/.env. Requires python3 + requests + PyYAML.
+# =============================================================================
+
+# Every hour, on the half hour.
+30 * * * * cd "$HOME/projects/Suburban-SOC" && python3 scripts/setup/run_hunts.py >> /var/log/suburban-soc-hunts.log 2>&1

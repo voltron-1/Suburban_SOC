@@ -1,0 +1,12 @@
+id: HUNT-002
+title: Authentication brute force (failed-logon spikes)
+hypothesis: >
+  A source generating many failed authentications in a short window indicates a
+  password brute-force/spray against SSH or Windows logon.
+attack: [T1110]
+data_source: Windows Security 4625 / Linux auth.log
+index: logstash-security-*
+query: 'winlog.event_id:4625 OR event.outcome:failure'
+threshold: 5
+status: active
+notes: Pivot the finding on source.ip; a sustained source is a candidate detection.
