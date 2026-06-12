@@ -10,8 +10,10 @@
 #      so it exercises auth + the signing format WITHOUT triggering a real
 #      router SSH/quarantine.
 #
-# Optional (RUN_QUARANTINE=1): a signed critical alert WITH a valid MAC, which
-#   WILL invoke `sudo isolate.sh` and attempt to SSH the router. Off by default.
+# Optional (RUN_QUARANTINE=1): a signed critical alert WITH a valid MAC. By
+#   default (autonomous OFF) the agent DRAFTS the action for approval (200) — no
+#   router is touched. With AUTONOMOUS_ISOLATION=true the agent dispatches the block
+#   to the hive-mind-broker over HMAC (#109); it never shells out to isolate.sh.
 #
 # Usage:
 #   cd ~/projects/Suburban-SOC/scripts/setup      # for .env
@@ -67,9 +69,12 @@ check "tampered signature rejected" 401 "$BODY" "sha256=deadbeef"
 LS_BODY='{"severity":"critical","source_ip":"203.0.113.5","source_mac":""}'
 check "valid signature accepted (Logstash scheme)" 200 "$LS_BODY" "sha256=$(sign "$LS_BODY")"
 
-# 4. OPTIONAL: signed + valid MAC -> 200 AND triggers real isolate.sh (SSH).
+# 4. OPTIONAL: signed + valid MAC -> 200. By default this is DRAFTED for approval
+#    (no router action). With AUTONOMOUS_ISOLATION=true the agent dispatches the
+#    block to the hive-mind-broker over HMAC (#109) — never isolate.sh.
 if [[ "${RUN_QUARANTINE:-0}" == "1" ]]; then
-  echo "[!] RUN_QUARANTINE=1 — this will invoke sudo isolate.sh and SSH the router."
+  echo "[!] RUN_QUARANTINE=1 — critical+MAC alert. Drafts by default; with"
+  echo "    AUTONOMOUS_ISOLATION=true it dispatches to the hive-mind-broker."
   Q_BODY='{"severity":"critical","source_ip":"203.0.113.5","source_mac":"AA:BB:CC:DD:EE:FF"}'
   check "valid signature + valid MAC accepted" 200 "$Q_BODY" "sha256=$(sign "$Q_BODY")"
 fi
