@@ -10,9 +10,11 @@ Covers WS0.2 (HMAC auth + MAC validation) and the CDP §12.3/§12.4 response mod
     human-in-the-loop posture for a destructive, irreversible action);
   * autonomous execution happens ONLY when an operator opts in
     (AUTONOMOUS_ISOLATION=true);
-  * a malicious/invalid MAC never reaches the isolate.sh subprocess;
+  * a malicious/invalid MAC never reaches the response path;
   * §12.4 protected assets are never isolated and never even drafted;
-  * a drafted action can be listed (/pending) and executed by a human (/approve).
+  * a drafted action can be listed (/pending) and executed by a human (/approve);
+  * execution routes containment to the hive-mind-broker over HMAC (#109) — the
+    slim agent never shells out to isolate.sh.
 
 Run:  python tests/ai_agent/test_alert_auth.py     (or: pytest tests/ai_agent)
 """
@@ -64,10 +66,12 @@ class AlertResponseTests(unittest.TestCase):
         self._qpatch = mock.patch.object(agent_app, "APPROVAL_QUEUE", self._qfile.name)
         self._qpatch.start()
 
-        # Neutralize outbound side-effects. subprocess.run returns success (rc=0)
-        # so the autonomous/approve paths see isolate.sh "succeed".
-        self.mock_run = mock.patch.object(agent_app.subprocess, "run").start()
-        self.mock_run.return_value.returncode = 0
+        # Neutralize outbound side-effects. The broker dispatch is mocked to report
+        # a successful block, so the autonomous/approve paths see containment succeed
+        # without any real HTTP/SSH. Default return: (ok, detail).
+        self.mock_dispatch = mock.patch.object(
+            agent_app, "dispatch_block_via_broker",
+            return_value=(True, "IP blocked on 1/1 router(s)")).start()
         for fn in ("analyze_alert_with_ai", "send_soc_alert",
                    "send_discord_alert", "log_soar_action"):
             mock.patch.object(agent_app, fn, return_value="stub").start()
@@ -88,12 +92,12 @@ class AlertResponseTests(unittest.TestCase):
     def test_missing_signature_rejected(self):
         r = self._post({"severity": "critical", "source_mac": GOOD_MAC}, sign=False)
         self.assertEqual(r.status_code, 401)
-        self.mock_run.assert_not_called()
+        self.mock_dispatch.assert_not_called()
 
     def test_invalid_signature_rejected(self):
         r = self._post({"severity": "critical", "source_mac": GOOD_MAC}, tamper=True)
         self.assertEqual(r.status_code, 401)
-        self.mock_run.assert_not_called()
+        self.mock_dispatch.assert_not_called()
 
     # --- §12.3 draft-by-default (autonomous OFF) -----------------------------
     def test_critical_valid_mac_drafts_not_executes_by_default(self):
@@ -101,33 +105,34 @@ class AlertResponseTests(unittest.TestCase):
                         "source_mac": GOOD_MAC})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()["status"], "drafted")
-        self.mock_run.assert_not_called()          # NEVER auto-executes by default
+        self.mock_dispatch.assert_not_called()     # NEVER auto-dispatches by default
         # The drafted action is queued for approval.
         pending = self.client.get("/pending").get_json()["pending"]
         self.assertTrue(any(a["target_mac"] == GOOD_MAC for a in pending))
 
-    def test_malicious_mac_never_reaches_subprocess(self):
+    def test_malicious_mac_never_dispatches(self):
         r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
                         "source_mac": "x; rm -rf / #"})
         self.assertEqual(r.status_code, 200)
-        self.mock_run.assert_not_called()
+        self.mock_dispatch.assert_not_called()
 
     # --- §12.3 autonomous path (opt-in) --------------------------------------
-    def test_autonomous_flag_executes_isolation(self):
+    def test_autonomous_flag_dispatches_to_broker(self):
         with mock.patch.object(agent_app, "AUTONOMOUS_ISOLATION", True):
             r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
                             "source_mac": GOOD_MAC})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()["status"], "auto_isolated")
-        self.mock_run.assert_called_once()
-        self.assertIn(GOOD_MAC, self.mock_run.call_args[0][0])
+        self.mock_dispatch.assert_called_once()
+        # The broker blocks by IP — the attacker IP is the first positional arg.
+        self.assertEqual(self.mock_dispatch.call_args[0][0], "1.2.3.4")
 
     def test_autonomous_flag_still_blocks_invalid_mac(self):
         with mock.patch.object(agent_app, "AUTONOMOUS_ISOLATION", True):
             r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
                             "source_mac": "not-a-mac"})
         self.assertEqual(r.status_code, 200)
-        self.mock_run.assert_not_called()          # no valid MAC -> never executes
+        self.mock_dispatch.assert_not_called()     # no valid MAC -> never dispatches
 
     # --- §12.4 exclusion list ------------------------------------------------
     def test_excluded_asset_never_acted_on(self):
@@ -136,47 +141,44 @@ class AlertResponseTests(unittest.TestCase):
                             "source_mac": GOOD_MAC})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()["status"], "no_action_protected_asset")
-        self.mock_run.assert_not_called()          # protected asset, even with flag on
+        self.mock_dispatch.assert_not_called()     # protected asset, even with flag on
         # And nothing was drafted for it either.
         pending = self.client.get("/pending").get_json()["pending"]
         self.assertFalse(any(a["target_ip"] == EXCLUDED_IP for a in pending))
 
     # --- approval flow: human executes a drafted action ----------------------
-    def test_pending_then_approve_executes(self):
+    def test_pending_then_approve_dispatches(self):
         draft = self._post({"severity": "critical", "source_ip": "1.2.3.4",
                             "source_mac": GOOD_MAC}).get_json()
         action_id = draft["action_id"]
-        self.mock_run.assert_not_called()          # still not executed at draft time
+        self.mock_dispatch.assert_not_called()     # still not executed at draft time
 
         r = self._post({"id": action_id, "approver": "analyst1"}, path="/approve")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.get_json()["status"], "executed")
-        self.mock_run.assert_called_once()         # the human approval executes it
-        self.assertIn(GOOD_MAC, self.mock_run.call_args[0][0])
+        self.mock_dispatch.assert_called_once()    # the human approval dispatches it
+        self.assertEqual(self.mock_dispatch.call_args[0][0], "1.2.3.4")
 
-    # --- WS0.3 tenant-scoped isolation routing -------------------------------
-    def test_named_tenant_router_used_on_autonomous(self):
-        # The tenant's router is resolved and passed to isolate.sh.
-        with mock.patch.object(agent_app, "AUTONOMOUS_ISOLATION", True), \
-             mock.patch.dict(os.environ, {"ROUTER_HOST_HOME_SMITH": "192.168.9.1"}):
+    # --- WS0.3 tenant-scoped routing (the broker owns router resolution) ------
+    def test_named_tenant_passed_to_broker_on_autonomous(self):
+        # The agent forwards the tenant; the broker maps it to that tenant's routers.
+        with mock.patch.object(agent_app, "AUTONOMOUS_ISOLATION", True):
             r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
                             "source_mac": GOOD_MAC, "tenant_id": "home-smith"})
         self.assertEqual(r.get_json()["status"], "auto_isolated")
-        self.mock_run.assert_called_once()
-        passed = self.mock_run.call_args[0][0]
-        self.assertIn(GOOD_MAC, passed)
-        self.assertIn("192.168.9.1", passed)       # tenant's router, not a default
+        self.mock_dispatch.assert_called_once()
+        # dispatch_block_via_broker(attacker_ip, tenant, source_mac=...)
+        self.assertEqual(self.mock_dispatch.call_args[0][1], "home-smith")
 
-    def test_named_tenant_without_router_refuses(self):
-        # A named tenant with no ROUTER_HOST_* must never isolate on a default
-        # or another tenant's router — even with autonomy enabled.
-        with mock.patch.object(agent_app, "AUTONOMOUS_ISOLATION", True), \
-             mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("ROUTER_HOST_NEIGHBOR_JONES", None)
+    def test_broker_refusal_surfaces_as_isolation_failed(self):
+        # When the broker reports no routers for the tenant (it owns inventory),
+        # the agent reports isolation_failed — never a silent success.
+        self.mock_dispatch.return_value = (False, "no routers for tenant 'neighbor-jones'")
+        with mock.patch.object(agent_app, "AUTONOMOUS_ISOLATION", True):
             r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
                             "source_mac": GOOD_MAC, "tenant_id": "neighbor-jones"})
         self.assertEqual(r.get_json()["status"], "isolation_failed")
-        self.mock_run.assert_not_called()
+        self.mock_dispatch.assert_called_once()
 
 
 class TenantResolverTests(unittest.TestCase):
@@ -187,16 +189,12 @@ class TenantResolverTests(unittest.TestCase):
         self.assertEqual(agent_app.safe_tenant("bad slug!"), "unassigned")
         self.assertEqual(agent_app.safe_tenant(None), "unassigned")
 
-    def test_resolve_router_named_requires_host(self):
-        with mock.patch.dict(os.environ, {"ROUTER_HOST_HOME_SMITH": "10.0.0.9"}):
-            self.assertEqual(agent_app.resolve_router("home-smith")["host"], "10.0.0.9")
-        with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("ROUTER_HOST_NOBODY", None)
-            self.assertIsNone(agent_app.resolve_router("nobody"))
-
-    def test_resolve_router_unassigned_uses_global(self):
-        with mock.patch.dict(os.environ, {"OPENWRT_HOST": "192.168.1.1"}):
-            self.assertEqual(agent_app.resolve_router("unassigned")["host"], "192.168.1.1")
+    def test_dispatch_fails_closed_without_secret(self):
+        # #109: no HIVE_MIND_SECRET => the agent never dispatches (fails closed).
+        with mock.patch.object(agent_app, "HIVE_MIND_SECRET", b""):
+            ok, detail = agent_app.dispatch_block_via_broker("1.2.3.4", "home-smith")
+        self.assertFalse(ok)
+        self.assertIn("HIVE_MIND_SECRET", detail)
 
     def test_notify_resolution_prefers_tenant_then_global(self):
         with mock.patch.dict(os.environ, {"NTFY_TOPIC_HOME_SMITH": "tenant-topic"}):

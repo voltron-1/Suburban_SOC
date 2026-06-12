@@ -6,10 +6,23 @@ import os
 from pathlib import Path
 
 # CDP §12.4: permanent exclusion list — IPs the broker may never block.
-EXCLUSION_LIST = os.environ.get(
-    "EXCLUSION_LIST",
-    str(Path(__file__).resolve().parents[2] / "governance" / "exclusion_list.txt"),
-)
+def _default_exclusion_path() -> str:
+    """Locate governance/exclusion_list.txt by walking up from this file.
+
+    A fixed parents[N] breaks across layouts: in the repo this file lives at
+    scripts/hive-mind-broker/, but in the container it is /app/dispatcher.py (only
+    two parents) — parents[2] raised IndexError at import and crash-looped the
+    broker. Walking the parents finds it in both, with a container-mount fallback.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        candidate = parent / "governance" / "exclusion_list.txt"
+        if candidate.is_file():
+            return str(candidate)
+    return "/governance/exclusion_list.txt"
+
+
+EXCLUSION_LIST = os.environ.get("EXCLUSION_LIST") or _default_exclusion_path()
 
 
 def load_excluded_ips() -> set:

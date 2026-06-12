@@ -181,6 +181,8 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+      hive-mind-broker:
+        condition: service_started
     environment:
       # SOAR feedback loop writes to ES over HTTPS, authenticated. Reuses the
       # least-privilege logstash_internal writer (WS3.2 will split per-component
@@ -192,6 +194,11 @@ services:
       # Shared secret for HMAC-signed /alert requests (WS0.2). Required — the
       # endpoint fails closed (503/401) if unset or the signature is wrong.
       - SOC_AGENT_HMAC_SECRET=${SOC_AGENT_HMAC_SECRET}
+      # #109: route quarantine through the broker (the slim agent has no ssh/sudo).
+      # The agent signs /webhook/dispatch with HIVE_MIND_SECRET (must equal the
+      # broker's). If unset, _execute_isolation fails closed (never dispatches).
+      - BROKER_URL=${BROKER_URL:-http://hive_mind_broker:8000}
+      - HIVE_MIND_SECRET=${HIVE_MIND_SECRET:-}
       # Notification / LLM secrets (WS0.4) — sourced from .env, no code defaults.
       # Unset values degrade gracefully (push/triage skipped).
       - NTFY_TOPIC=${NTFY_TOPIC:-}
@@ -199,12 +206,48 @@ services:
       - LLM_API_URL=${LLM_API_URL:-https://api.openai.com/v1/chat/completions}
       - LLM_MODEL=${LLM_MODEL:-gpt-4}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      # §12.4 exclusion list, mounted read-only below (without this the agent could
+      # not enforce the never-isolate list inside the container).
+      - EXCLUSION_LIST=/governance/exclusion_list.txt
     ports:
       # Bound to localhost only — the agent is NOT reachable from the LAN. /alert
       # additionally requires a valid HMAC signature.
       - "127.0.0.1:5000:5000"
     volumes:
       - certs:/certs:ro
+      - ../../governance:/governance:ro
+    networks:
+      - soc-mesh-net
+    restart: unless-stopped
+
+  # --- Hive-Mind broker: authenticated router-block dispatcher (#109) ----------
+  # The slim AI agent can't ssh/sudo a router, so it routes containment here over
+  # an HMAC webhook. The broker owns the per-tenant router inventory and applies
+  # the nftables block. Not LAN-exposed; only the agent (holding HIVE_MIND_SECRET)
+  # can reach /webhook/dispatch.
+  hive-mind-broker:
+    build:
+      context: ../hive-mind-broker
+    container_name: hive_mind_broker
+    environment:
+      # Must equal the agent's HIVE_MIND_SECRET. Broker fails closed (503) if unset.
+      - HIVE_MIND_SECRET=${HIVE_MIND_SECRET:-}
+      # §12.4 exclusion list, mounted from the repo's governance dir (below).
+      - EXCLUSION_LIST=/governance/exclusion_list.txt
+      # Legacy auto-block on /webhook/alert stays OFF; the agent owns approval.
+      - AUTONOMOUS_BLOCK_ENABLED=${AUTONOMOUS_BLOCK_ENABLED:-false}
+    volumes:
+      # Host-specific secrets — mounted read-only, never baked into the image.
+      # inventory.yaml is gitignored; copy it from inventory.example.yaml first.
+      - ../hive-mind-broker/inventory.yaml:/app/inventory.yaml:ro
+      - ../../governance:/governance:ro
+      # SSH key(s) the broker uses to reach routers (path per inventory.yaml).
+      # Compose does NOT expand `~`, so default to an absolute ${HOME}/.ssh; set
+      # HIVE_MIND_SSH_DIR to an absolute path to override (required on Windows hosts).
+      - ${HIVE_MIND_SSH_DIR:-${HOME}/.ssh}:/root/.ssh:ro
+    ports:
+      # Localhost only — for debugging/verification; the agent uses the service name.
+      - "127.0.0.1:8000:8000"
     networks:
       - soc-mesh-net
     restart: unless-stopped

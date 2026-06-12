@@ -52,35 +52,40 @@ def _read_queue():
     except OSError:
         return []
 
-@app.post("/webhook/alert")
-async def receive_alert(request: Request, background_tasks: BackgroundTasks):
-    """
-    Receives webhook payloads from Kibana when a critical alert fires.
+
+async def _verify_and_parse(request: Request) -> dict:
+    """Fail-closed HMAC gate shared by every block-producing endpoint.
+
+    Verifies the x-elastic-signature HMAC over the RAW body (same scheme as the AI
+    agent), then returns the parsed JSON. Raises the appropriate HTTPException on
+    any failure so callers never see an unauthenticated or malformed payload.
     """
     # Fail closed if no secret is configured — never accept unauthenticated blocks.
     if not HMAC_SECRET:
         raise HTTPException(status_code=503, detail="Broker secret not configured")
 
-    # Verify HMAC signature
     signature_header = request.headers.get("x-elastic-signature")
     if not signature_header:
         raise HTTPException(status_code=401, detail="Missing signature header")
-    
-    # Read the raw body for HMAC verification
+
+    # The raw body is what was signed — verify before parsing.
     body = await request.body()
-    
-    # Calculate expected signature
     expected_mac = hmac.new(HMAC_SECRET, body, hashlib.sha256).hexdigest()
-    
-    # Use hmac.compare_digest to prevent timing attacks
     if not hmac.compare_digest(f"sha256={expected_mac}", signature_header):
         raise HTTPException(status_code=401, detail="Invalid signature")
 
-    # Parse JSON payload
     try:
-        payload = await request.json()
+        return json.loads(body)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+
+@app.post("/webhook/alert")
+async def receive_alert(request: Request, background_tasks: BackgroundTasks):
+    """
+    Receives webhook payloads from Kibana when a critical alert fires.
+    """
+    payload = await _verify_and_parse(request)
 
     # Extract the attacker IP from the Kibana alert payload
     # Payload structure depends on the specific Kibana Watcher/Alert action
@@ -126,6 +131,55 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     print(f"[*] Drafted block for {attacker_ip} (action {action['id']}) — awaiting approval.")
     return {"status": "success",
             "message": f"IP {attacker_ip} drafted for human approval (action {action['id']})."}
+
+
+@app.post("/webhook/dispatch")
+async def dispatch_block(request: Request):
+    """Authenticated IMMEDIATE dispatch for an already-approved block (#109).
+
+    The AI agent can't run isolate.sh from its slim container (no ssh/sudo), so it
+    routes containment here. The agent performs the CDP §12.3 human-of-record gate
+    upstream (autonomous opt-in OR a human /approve), so — unlike /webhook/alert —
+    this endpoint does NOT re-queue for approval; it dispatches now.
+
+    Still defence-in-depth: §12.4 exclusion and WS0.3 tenant scoping are re-checked
+    here, and the dispatch is recorded to the approval queue as an audit line.
+    Authentication is the same HMAC scheme; only a holder of HIVE_MIND_SECRET (the
+    agent) can reach it.
+    """
+    payload = await _verify_and_parse(request)
+
+    attacker_ip = payload.get("attacker_ip")
+    if not attacker_ip:
+        raise HTTPException(status_code=400, detail="Payload missing attacker_ip")
+    approver = str(payload.get("approver", "soc-ai-agent"))
+
+    # §12.4: refuse protected infrastructure, signed or not.
+    if is_excluded_ip(attacker_ip):
+        print(f"[!] REFUSED dispatch: {attacker_ip} is on the exclusion list.")
+        return {"status": "refused", "executed": False,
+                "message": f"IP {attacker_ip} is on the exclusion list — no block dispatched."}
+
+    # WS0.3: only this tenant's routers are ever touched; unknown tenant => no-op.
+    tenant = safe_tenant(payload.get("tenant_id"))
+    routers = inv.get_routers_for_tenant(tenant)
+    if not routers:
+        print(f"[!] No routers for tenant '{tenant}' — refusing to dispatch {attacker_ip}.")
+        return {"status": "no_routers", "executed": False,
+                "message": f"No routers configured for tenant '{tenant}' — nothing to block."}
+
+    count = await dispatch_block_to_all(routers, attacker_ip)
+    _append_action({
+        "id": uuid.uuid4().hex[:12], "ts": time.time(), "status": "executed",
+        "approver": approver, "tenant": tenant, "attacker_ip": attacker_ip,
+        "result": f"{count}/{len(routers)} routers",
+    })
+    print(f"[*] Dispatched block for {attacker_ip} on tenant '{tenant}' "
+          f"({count}/{len(routers)} routers) — approver={approver}.")
+    return {"status": "executed", "executed": True, "tenant": tenant,
+            "router_count": len(routers), "success_count": count,
+            "message": f"IP {attacker_ip} blocked on {count}/{len(routers)} "
+                       f"router(s) for tenant '{tenant}'."}
 
 
 @app.get("/pending")

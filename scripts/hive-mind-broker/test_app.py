@@ -94,6 +94,58 @@ def test_excluded_ip_refused(_no_real_ssh):
     assert client.get("/pending").json()["count"] == 0
 
 
+def _post_dispatch(payload, sign=True, tamper=False):
+    body = json.dumps(payload).encode("utf-8")
+    headers = {}
+    if sign:
+        sig = _sign(body)
+        if tamper:
+            sig = sig[:-1] + ("0" if sig[-1] != "0" else "1")
+        headers["x-elastic-signature"] = sig
+    return client.post("/webhook/dispatch", data=body, headers=headers)
+
+
+# --- #109: /webhook/dispatch — immediate, pre-approved block -------------------
+def test_dispatch_missing_signature():
+    assert client.post("/webhook/dispatch", json={"attacker_ip": "9.9.9.9"}).status_code == 401
+
+
+def test_dispatch_invalid_signature():
+    assert _post_dispatch({"attacker_ip": "9.9.9.9"}, tamper=True).status_code == 401
+
+
+def test_dispatch_missing_ip():
+    assert _post_dispatch({"tenant_id": TENANT}).status_code == 400
+
+
+def test_dispatch_executes_to_tenant_routers(_no_real_ssh):
+    r = _post_dispatch({"attacker_ip": "9.9.9.9", "tenant_id": TENANT})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["executed"] is True and body["status"] == "executed"
+    _no_real_ssh.assert_awaited_once()                 # actually dispatched, no draft
+    routers_arg = _no_real_ssh.await_args[0][0]
+    assert routers_arg and all(rt.get("tenant") == TENANT for rt in routers_arg)
+    # Recorded as executed (not left pending).
+    assert client.get("/pending").json()["count"] == 0
+
+
+def test_dispatch_excluded_ip_refused(_no_real_ssh):
+    r = _post_dispatch({"attacker_ip": EXCLUDED_IP, "tenant_id": TENANT})
+    assert r.status_code == 200
+    assert r.json()["executed"] is False
+    assert "exclusion list" in r.json()["message"].lower()
+    _no_real_ssh.assert_not_awaited()
+
+
+def test_dispatch_unknown_tenant_is_no_op(_no_real_ssh):
+    r = _post_dispatch({"attacker_ip": "9.9.9.9", "tenant_id": "ghost-tenant"})
+    assert r.status_code == 200
+    assert r.json()["executed"] is False
+    assert "no routers" in r.json()["message"].lower()
+    _no_real_ssh.assert_not_awaited()
+
+
 def test_approve_dispatches_only_to_tenant_routers(_no_real_ssh):
     draft = _post({"attacker_ip": "9.9.9.9", "tenant_id": TENANT}).json()
     # pull the drafted id
