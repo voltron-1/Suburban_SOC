@@ -1,6 +1,8 @@
-fastapi
-uvicorn
-pyyaml
-asyncssh
-pytest
-httpx
+# Pinned for reproducibility + vulnerability scanning (WS3.6).
+# pytest is a TEST-only dep — installed separately in CI, kept out of the image.
+# Review weekly (docs/SOP-008-vuln-management.md).
+fastapi==0.121.1
+uvicorn==0.34.0
+pyyaml==6.0.2
+asyncssh==2.18.0
+httpx==0.28.1
