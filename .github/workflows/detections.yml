@@ -12,6 +12,7 @@ on:
       - "tests/pipeline/**"
       - "tests/detections/**"
       - "docs/detections/**"
+      - "hunts/**"
       - "scripts/setup/build_attack_coverage.py"
       - ".github/workflows/detections.yml"
   workflow_dispatch:
@@ -51,3 +52,22 @@ jobs:
 
       - name: ATT&CK coverage matrix is in sync with the rules (WS1.5)
         run: python scripts/setup/build_attack_coverage.py --check
+
+      - name: Hunt library is well-formed (WS2.2)
+        run: |
+          python - <<'PY'
+          import glob, sys, yaml
+          required = {"id", "title", "hypothesis", "attack", "data_source", "query"}
+          hunts = sorted(glob.glob("hunts/*.yml"))
+          assert len(hunts) >= 5, f"expected >=5 hunts, found {len(hunts)}"
+          bad = []
+          for f in hunts:
+              h = yaml.safe_load(open(f, encoding="utf-8"))
+              missing = required - set(h or {})
+              if missing:
+                  bad.append(f"{f}: missing {sorted(missing)}")
+              if h and h.get("status") == "promoted" and not h.get("promoted_to"):
+                  bad.append(f"{f}: status=promoted but no promoted_to")
+          assert not bad, "malformed hunts: " + "; ".join(bad)
+          print(f"OK: {len(hunts)} hunts well-formed.")
+          PY

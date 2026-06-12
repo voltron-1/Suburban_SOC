@@ -1,0 +1,12 @@
+id: HUNT-003
+title: Connections to uncommon destination ports
+hypothesis: >
+  Traffic to non-standard destination ports (outside the common service set) can
+  indicate C2 over a non-standard port or tunnelled exfiltration.
+attack: [T1571]
+data_source: Zeek conn
+index: logstash-security-*
+query: 'event.dataset:zeek.conn AND NOT destination.port:(80 OR 443 OR 53 OR 22 OR 123 OR 25 OR 993 OR 995 OR 587 OR 3389)'
+threshold: 1
+status: active
+notes: Triage the long tail; repeated rare-port beacons are promotion candidates.

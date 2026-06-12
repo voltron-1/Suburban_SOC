@@ -1,0 +1,12 @@
+id: HUNT-004
+title: Repeated connections to external destinations (beaconing)
+hypothesis: >
+  An internal host repeatedly contacting the same external IP at regular cadence is
+  a classic C2 beacon signature.
+attack: [T1071]
+data_source: Zeek conn
+index: logstash-security-*
+query: 'event.dataset:zeek.conn AND NOT destination.ip:(10.0.0.0/8 OR 192.168.0.0/16 OR 172.16.0.0/12 OR 127.0.0.0/8)'
+threshold: 1
+status: active
+notes: Aggregate by source.ip -> destination.ip; high regular counts indicate beaconing.

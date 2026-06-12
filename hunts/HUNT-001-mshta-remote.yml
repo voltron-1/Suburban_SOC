@@ -1,0 +1,15 @@
+id: HUNT-001
+title: mshta.exe executing remote/script payloads
+hypothesis: >
+  An adversary uses the signed LOLBin mshta.exe to proxy-execute a remote HTA or
+  inline script, bypassing application controls (System Binary Proxy Execution).
+attack: [T1218.005]
+data_source: Sysmon/Winlogbeat process_creation
+index: logstash-security-*
+query: 'process.executable:*\mshta.exe AND process.args:(*http* OR *javascript* OR *vbscript*)'
+threshold: 1
+status: promoted
+promoted_to: rules/sigma/proc_creation_win_mshta_remote.yml
+notes: >
+  Promoted to a detection on 2026-06-12 — the hunt repeatedly surfaced mshta+http,
+  so it graduated to a stable Sigma rule (closing the hunt -> detection loop, WS2.1).

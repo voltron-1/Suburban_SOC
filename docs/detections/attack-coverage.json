@@ -43,6 +43,14 @@
       "enabled": true
     },
     {
+      "techniqueID": "T1218.005",
+      "tactic": "defense-evasion",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "Mshta Remote or Script Payload Execution \u2014 rules/sigma/proc_creation_win_mshta_remote.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
       "techniqueID": "T1059.001",
       "tactic": "execution",
       "score": 100,
@@ -124,7 +132,7 @@
   "metadata": [
     {
       "name": "detections",
-      "value": "12"
+      "value": "13"
     },
     {
       "name": "source",
