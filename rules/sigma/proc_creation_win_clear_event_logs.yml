@@ -1,6 +1,6 @@
 title: Clearing Windows Event Logs via Wevtutil
 id: 33333333-3333-3333-3333-333333333333
-status: experimental
+status: stable
 description: Detects the use of wevtutil.exe to clear event logs.
 logsource:
     category: process_creation

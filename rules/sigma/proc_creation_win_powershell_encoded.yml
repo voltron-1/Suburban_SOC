@@ -1,6 +1,6 @@
 title: Suspicious PowerShell Encoded Command Execution
 id: 11111111-1111-1111-1111-111111111111
-status: experimental
+status: stable
 description: Detects the use of encoded commands in PowerShell, a common technique for obfuscation.
 logsource:
     category: process_creation

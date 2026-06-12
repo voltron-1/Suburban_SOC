@@ -1,6 +1,6 @@
 title: Regsvr32 Execution from Remote Server
 id: 66666666-6666-6666-6666-666666666666
-status: experimental
+status: stable
 description: Detects regsvr32.exe attempting to execute a remote script, known as the Squiblydoo bypass.
 logsource:
     category: process_creation
