@@ -1,0 +1,10 @@
+{
+  "type": "s3",
+  "settings": {
+    "bucket": "suburban-soc-snapshots",
+    "endpoint": "${S3_ENDPOINT}",
+    "protocol": "https",
+    "path_style_access": true,
+    "compress": true
+  }
+}

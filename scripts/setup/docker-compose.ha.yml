@@ -1,0 +1,155 @@
+# =============================================================================
+# docker-compose.ha.yml — WS2.5: 3-node High-Availability Elasticsearch cluster.
+#
+# The single-node dev stack (docker-compose.yml) is not HA: one ES node, replicas 0.
+# This is the PRODUCTION topology — three master+data nodes with TLS, so a node loss
+# keeps the cluster green and serving (set index replicas >= 1; data survives).
+#
+#   cp .env.example .env   # set ELASTIC_PASSWORD etc.
+#   docker compose -f docker-compose.ha.yml up -d
+#   # verify green 3-node cluster:
+#   curl -sk -u elastic:$ELASTIC_PASSWORD https://localhost:9200/_cluster/health
+#   # kill-a-node drill (cluster stays green if indices have a replica):
+#   docker compose -f docker-compose.ha.yml stop es02
+#
+# Snapshots: point path.repo at object storage in production (see the reliability
+# SOP); the SLM policy from configs/elasticsearch/apply-lifecycle.sh applies as-is.
+# =============================================================================
+
+x-es-common: &es-common
+  image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
+  environment: &es-env
+    - cluster.name=${CLUSTER_NAME:-suburban-soc-ha}
+    - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    - bootstrap.memory_lock=true
+    - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+    - xpack.security.enabled=true
+    - xpack.security.http.ssl.enabled=true
+    - xpack.security.transport.ssl.enabled=true
+    - xpack.security.transport.ssl.verification_mode=certificate
+    - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+    - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+    - xpack.license.self_generated.type=${LICENSE:-basic}
+    # HA discovery: the three nodes find each other and bootstrap one cluster.
+    - discovery.seed_hosts=es01,es02,es03
+    - cluster.initial_master_nodes=es01,es02,es03
+  ulimits:
+    memlock: { soft: -1, hard: -1 }
+  networks: [ha-net]
+  healthcheck:
+    test: ["CMD-SHELL", "curl -s --cacert config/certs/ca/ca.crt https://localhost:9200 | grep -q 'missing authentication credentials'"]
+    interval: 10s
+    timeout: 10s
+    retries: 30
+    start_period: 60s
+
+services:
+  # One-shot: generate a CA + a cert per node into the shared certs volume.
+  ha-setup:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
+    container_name: ha_setup
+    user: "0"
+    volumes:
+      - ha-certs:/usr/share/elasticsearch/config/certs
+    networks: [ha-net]
+    command: >
+      bash -c '
+        if [ x${ELASTIC_PASSWORD} == x ]; then echo "ERROR: set ELASTIC_PASSWORD in .env"; exit 1; fi;
+        if [ ! -f config/certs/ca.zip ]; then
+          bin/elasticsearch-certutil ca --silent --pem -out config/certs/ca.zip;
+          unzip config/certs/ca.zip -d config/certs;
+        fi;
+        if [ ! -f config/certs/certs.zip ]; then
+          printf "instances:\n  - name: es01\n    dns: [es01, localhost]\n  - name: es02\n    dns: [es02, localhost]\n  - name: es03\n    dns: [es03, localhost]\n" > config/certs/instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/certs.zip --in config/certs/instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/certs.zip -d config/certs;
+        fi;
+        chown -R 1000:0 config/certs; find config/certs -type d -exec chmod 750 \{\} \;; find config/certs -type f -exec chmod 640 \{\} \;;
+        echo "HA certs ready.";
+      '
+
+  es01:
+    <<: *es-common
+    container_name: es01
+    depends_on: { ha-setup: { condition: service_completed_successfully } }
+    environment:
+      - node.name=es01
+      - xpack.security.http.ssl.key=certs/es01/es01.key
+      - xpack.security.http.ssl.certificate=certs/es01/es01.crt
+      - xpack.security.transport.ssl.key=certs/es01/es01.key
+      - xpack.security.transport.ssl.certificate=certs/es01/es01.crt
+      - cluster.name=${CLUSTER_NAME:-suburban-soc-ha}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.license.self_generated.type=${LICENSE:-basic}
+      - discovery.seed_hosts=es01,es02,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+    ports: ["${ES_PORT:-9200}:9200"]
+    volumes: [ha-certs:/usr/share/elasticsearch/config/certs, ha-es01:/usr/share/elasticsearch/data]
+
+  es02:
+    <<: *es-common
+    container_name: es02
+    depends_on: { ha-setup: { condition: service_completed_successfully } }
+    environment:
+      - node.name=es02
+      - xpack.security.http.ssl.key=certs/es02/es02.key
+      - xpack.security.http.ssl.certificate=certs/es02/es02.crt
+      - xpack.security.transport.ssl.key=certs/es02/es02.key
+      - xpack.security.transport.ssl.certificate=certs/es02/es02.crt
+      - cluster.name=${CLUSTER_NAME:-suburban-soc-ha}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.license.self_generated.type=${LICENSE:-basic}
+      - discovery.seed_hosts=es01,es02,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+    volumes: [ha-certs:/usr/share/elasticsearch/config/certs, ha-es02:/usr/share/elasticsearch/data]
+
+  es03:
+    <<: *es-common
+    container_name: es03
+    depends_on: { ha-setup: { condition: service_completed_successfully } }
+    environment:
+      - node.name=es03
+      - xpack.security.http.ssl.key=certs/es03/es03.key
+      - xpack.security.http.ssl.certificate=certs/es03/es03.crt
+      - xpack.security.transport.ssl.key=certs/es03/es03.key
+      - xpack.security.transport.ssl.certificate=certs/es03/es03.crt
+      - cluster.name=${CLUSTER_NAME:-suburban-soc-ha}
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - bootstrap.memory_lock=true
+      - "ES_JAVA_OPTS=-Xms1g -Xmx1g"
+      - xpack.security.enabled=true
+      - xpack.security.http.ssl.enabled=true
+      - xpack.security.transport.ssl.enabled=true
+      - xpack.security.transport.ssl.verification_mode=certificate
+      - xpack.security.transport.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.security.http.ssl.certificate_authorities=certs/ca/ca.crt
+      - xpack.license.self_generated.type=${LICENSE:-basic}
+      - discovery.seed_hosts=es01,es02,es03
+      - cluster.initial_master_nodes=es01,es02,es03
+    volumes: [ha-certs:/usr/share/elasticsearch/config/certs, ha-es03:/usr/share/elasticsearch/data]
+
+networks:
+  ha-net:
+    driver: bridge
+
+volumes:
+  ha-certs:
+  ha-es01:
+  ha-es02:
+  ha-es03:
