@@ -1,0 +1,50 @@
+{
+  "metadata": {
+    "_meta": {
+      "description": "WS1.3 stale threat-intel-feed alert. Fires when refresh_intel.sh has not recorded a successful (status=ok) heartbeat in threat-intel-meta within the window — i.e. the cron refresh died or every feed fetch is failing. Refresh cadence is 6h; window is 8h to tolerate one missed run.",
+      "managed_by": "scripts/setup/deploy_dashboards.sh"
+    }
+  },
+  "trigger": {
+    "schedule": {
+      "interval": "1h"
+    }
+  },
+  "input": {
+    "search": {
+      "request": {
+        "indices": ["threat-intel-meta"],
+        "body": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "must": [
+                { "match": { "status": "ok" } }
+              ],
+              "filter": {
+                "range": {
+                  "@timestamp": { "gte": "now-8h" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "condition": {
+    "compare": {
+      "ctx.payload.hits.total": {
+        "lte": 0
+      }
+    }
+  },
+  "actions": {
+    "log_stale_feed": {
+      "logging": {
+        "level": "warn",
+        "text": "STALE THREAT-INTEL FEED: no successful refresh_intel.sh run (status=ok) in threat-intel-meta within the last 8h. Detections are running on a stale indicator set — check the cron job / feed source (abuse.ch)."
+      }
+    }
+  }
+}
