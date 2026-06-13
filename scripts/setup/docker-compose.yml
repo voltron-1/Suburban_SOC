@@ -76,9 +76,20 @@ services:
         # node key stay 640 root:root.
         chmod 755 config/certs config/certs/ca;
         chmod 644 config/certs/ca/ca.crt;
-        # WS3.1: the logstash PEM cert/key are now 640 root:root from the find-chmod.
-        # Ownership + PKCS8 conversion are handled by the cert_pkcs8 one-shot service
-        # (this image lacks openssl), which runs before logstash starts.
+        # WS3.1 fix: the find-chmod above re-set the logstash cert dir to root:root.
+        # Logstash runs as uid 1000 and must read its own server cert/key; if they
+        # stay root-owned it crashes at startup ("cert file cannot be opened"). The
+        # cert_pkcs8 one-shot also fixes ownership, but compose SKIPS it on a partial
+        # `up` (its prior run already "completed successfully"), which previously left
+        # logstash unable to read its certs. Make setup the authoritative owner so the
+        # logstash TLS material is ALWAYS readable by uid 1000, regardless of whether
+        # cert_pkcs8 re-runs. (cert_pkcs8 still owns the PKCS8 conversion — openssl is
+        # absent from this image.)
+        if [ -d config/certs/logstash ]; then
+          chown -R 1000:0 config/certs/logstash;
+          chmod 750 config/certs/logstash;
+          chmod 640 config/certs/logstash/*;
+        fi;
         # WS0.5: the snapshots named volume mounts as root:root, but the ES process
         # runs as uid 1000 and must create the fs snapshot repo dir under here.
         # Hand it ownership so PUT _snapshot/<repo> can create its blob store.
