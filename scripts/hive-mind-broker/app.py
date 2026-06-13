@@ -53,14 +53,16 @@ def _read_queue():
         return []
 
 
-async def _verify_and_parse(request: Request) -> dict:
-    """Fail-closed HMAC gate shared by every block-producing endpoint.
+async def _verify(request: Request) -> bytes:
+    """Fail-closed HMAC gate. Verifies the x-elastic-signature over the RAW body
+    (same scheme as the AI agent) and returns the raw body, or raises HTTPException.
 
-    Verifies the x-elastic-signature HMAC over the RAW body (same scheme as the AI
-    agent), then returns the parsed JSON. Raises the appropriate HTTPException on
-    any failure so callers never see an unauthenticated or malformed payload.
+    Used directly by endpoints that take no JSON body (e.g. GET /pending, which
+    signs the empty body) and via _verify_and_parse by the JSON endpoints. Every
+    block-producing OR queue-disclosing endpoint must pass through here — an open
+    /approve or /pending defeats the signing on /webhook/* entirely.
     """
-    # Fail closed if no secret is configured — never accept unauthenticated blocks.
+    # Fail closed if no secret is configured — never accept unauthenticated calls.
     if not HMAC_SECRET:
         raise HTTPException(status_code=503, detail="Broker secret not configured")
 
@@ -73,7 +75,12 @@ async def _verify_and_parse(request: Request) -> dict:
     expected_mac = hmac.new(HMAC_SECRET, body, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(f"sha256={expected_mac}", signature_header):
         raise HTTPException(status_code=401, detail="Invalid signature")
+    return body
 
+
+async def _verify_and_parse(request: Request) -> dict:
+    """HMAC-verify (via _verify) then return the parsed JSON body."""
+    body = await _verify(request)
     try:
         return json.loads(body)
     except Exception:
@@ -183,8 +190,9 @@ async def dispatch_block(request: Request):
 
 
 @app.get("/pending")
-async def list_pending():
-    """List drafted blocks awaiting a human-of-record."""
+async def list_pending(request: Request):
+    """List drafted blocks awaiting a human-of-record. Authenticated (HMAC)."""
+    await _verify(request)  # sign the empty body; raises 401/503 on failure
     resolved = {a["id"] for a in _read_queue() if a.get("status") in ("approved", "denied")}
     pending = [a for a in _read_queue()
                if a.get("status") == "pending" and a["id"] not in resolved]
@@ -193,8 +201,13 @@ async def list_pending():
 
 @app.post("/approve")
 async def approve(request: Request):
-    """Human-of-record approves a drafted block, which then dispatches."""
-    body = await request.json()
+    """Human-of-record approves a drafted block, which then dispatches.
+
+    Authenticated (HMAC) — this endpoint EXECUTES a router block, so it must be
+    gated to the same bar as /webhook/dispatch; an open /approve would let any
+    caller execute a drafted block.
+    """
+    body = await _verify_and_parse(request)
     action_id = body.get("id")
     approver = body.get("approver", "unknown")
     if not action_id:
