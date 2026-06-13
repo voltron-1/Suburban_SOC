@@ -8,6 +8,14 @@
 
 # Config files — always LF
 *.conf      text eol=lf
+# Environment files — always LF. CRLF here leaks a trailing \r into every value
+# read by `source .env` in bash (breaks HMAC signing, ES/curl auth, etc.). Docker
+# Compose strips it, but the many shell scripts that source .env do not.
+.env        text eol=lf
+.env.*      text eol=lf
+*.env       text eol=lf
+# Cron fragments are sourced/parsed line-by-line — keep LF
+*.cron      text eol=lf
 # Zeek Intel feed files — tab-separated, MUST be LF (CRLF corrupts the last field)
 *.dat       text eol=lf
 *.yml       text eol=lf
