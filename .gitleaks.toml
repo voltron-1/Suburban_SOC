@@ -1,0 +1,42 @@
+# gitleaks configuration — extends the default ruleset with project-specific
+# rules (audit P0-1). The stock rules missed a plain `elastic:<password>`
+# basic-auth credential that was committed in an HTML deliverable and an AI
+# transcript. This config makes that class fail the Secret Scan workflow.
+title = "Suburban-SOC gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "elastic-inline-basic-auth"
+description = "Hard-coded Elasticsearch basic-auth credential — use $ELASTIC_PASSWORD, never an inline literal"
+# Matches `elastic:<literal>` as used in `curl -u`, URLs and docs. Variable
+# forms (elastic:$ELASTIC_PASSWORD, elastic:${VAR}) begin with `$`, which is not
+# in the class, so they never match — only real inline literals are flagged.
+regex = '''elastic:[A-Za-z0-9!@#%^&*()_+=.-]{6,}'''
+keywords = ["elastic:"]
+tags = ["password", "elasticsearch", "basic-auth"]
+
+  [rules.allowlist]
+  # Intentionally non-secret placeholder/example values.
+  regexes = [
+    '''elastic:changeme''',
+    '''elastic:YourCustom''',
+    '''elastic:<[A-Za-z]''',
+  ]
+
+[allowlist]
+description = "Global allowlist"
+paths = [
+  '''AUDIT_REPORT\.md''',      # the audit documents (redacted) examples of the leak
+  '''\.gitleaks\.toml''',      # this config necessarily contains the patterns
+]
+# audit P0-1: the `SuburbanSOC2026!` literal was committed in past history. It has
+# been ROTATED/INVALIDATED (the live elastic password is now the random .env value)
+# and scrubbed from the working tree, but by project decision history is NOT being
+# rewritten — so the burned string remains in old commits. Allowlist that ONE dead
+# value so full-history scans don't stay red. It is no longer a valid credential;
+# any NEW/different inline secret is still caught by the rule above.
+stopwords = [
+  "SuburbanSOC2026!",
+]
