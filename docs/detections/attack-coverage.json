@@ -19,11 +19,35 @@
       "enabled": true
     },
     {
+      "techniqueID": "T1140",
+      "tactic": "defense-evasion",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "Payload Decoding via Certutil \u2014 rules/sigma/proc_creation_win_certutil_decode.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
       "techniqueID": "T1070.001",
       "tactic": "defense-evasion",
       "score": 100,
       "color": "#2ca02c",
       "comment": "Clearing Windows Event Logs via Wevtutil \u2014 rules/sigma/proc_creation_win_clear_event_logs.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1562.001",
+      "tactic": "defense-evasion",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "Windows Defender Real-Time Protection Disabled \u2014 rules/sigma/proc_creation_win_defender_tamper.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1087.002",
+      "tactic": "discovery",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "Domain Group Discovery via Net.exe \u2014 rules/sigma/proc_creation_win_domain_group_discovery.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
       "enabled": true
     },
     {
@@ -51,6 +75,14 @@
       "enabled": true
     },
     {
+      "techniqueID": "T1018",
+      "tactic": "discovery",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "Domain Controller Discovery via Nltest \u2014 rules/sigma/proc_creation_win_nltest_discovery.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
       "techniqueID": "T1059.001",
       "tactic": "execution",
       "score": 100,
@@ -67,11 +99,27 @@
       "enabled": true
     },
     {
+      "techniqueID": "T1003.002",
+      "tactic": "credential-access",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "SAM Hive Dump via Reg.exe \u2014 rules/sigma/proc_creation_win_reg_save_sam.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
       "techniqueID": "T1218.010",
       "tactic": "defense-evasion",
       "score": 100,
       "color": "#2ca02c",
       "comment": "Regsvr32 Execution from Remote Server \u2014 rules/sigma/proc_creation_win_regsvr32_remote_sct.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1547.001",
+      "tactic": "persistence",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "Registry Run Key Persistence via Reg.exe \u2014 rules/sigma/proc_creation_win_run_key_persistence.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
       "enabled": true
     },
     {
@@ -83,11 +131,27 @@
       "enabled": true
     },
     {
+      "techniqueID": "T1543.003",
+      "tactic": "persistence",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "Windows Service Creation via Sc.exe \u2014 rules/sigma/proc_creation_win_service_creation_sc.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
       "techniqueID": "T1033",
       "tactic": "discovery",
       "score": 100,
       "color": "#2ca02c",
       "comment": "Suspicious System Owner/User Discovery \u2014 rules/sigma/proc_creation_win_user_discovery.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "enabled": true
+    },
+    {
+      "techniqueID": "T1490",
+      "tactic": "impact",
+      "score": 100,
+      "color": "#2ca02c",
+      "comment": "Shadow Copy Deletion via Vssadmin \u2014 rules/sigma/proc_creation_win_vss_delete_shadows.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
       "enabled": true
     },
     {
@@ -132,7 +196,7 @@
   "metadata": [
     {
       "name": "detections",
-      "value": "13"
+      "value": "21"
     },
     {
       "name": "source",
