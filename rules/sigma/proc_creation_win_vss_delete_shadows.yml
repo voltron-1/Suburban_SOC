@@ -1,0 +1,20 @@
+title: Shadow Copy Deletion via Vssadmin
+id: a1c1f003-0003-4a03-9003-000000000003
+status: stable
+description: Detects deletion of Volume Shadow Copies via vssadmin — a hallmark of ransomware inhibiting system recovery.
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\vssadmin.exe'
+        CommandLine|contains|all:
+            - 'delete'
+            - 'shadows'
+    condition: selection
+falsepositives:
+    - Backup software pruning shadow copies (rare; verify context).
+level: high
+tags:
+    - attack.impact
+    - attack.t1490

@@ -1,0 +1,22 @@
+title: Domain Group Discovery via Net.exe
+id: a1c1f008-0008-4a08-9008-000000000008
+status: stable
+description: Detects net.exe enumerating domain groups (e.g. Domain Admins) — account discovery during recon.
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith:
+            - '\net.exe'
+            - '\net1.exe'
+        CommandLine|contains|all:
+            - 'group'
+            - '/domain'
+    condition: selection
+falsepositives:
+    - Help-desk and IAM administration.
+level: low
+tags:
+    - attack.discovery
+    - attack.t1087.002

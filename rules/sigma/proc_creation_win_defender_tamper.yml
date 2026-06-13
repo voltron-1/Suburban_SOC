@@ -1,0 +1,22 @@
+title: Windows Defender Real-Time Protection Disabled
+id: a1c1f004-0004-4a04-9004-000000000004
+status: stable
+description: Detects use of Set-MpPreference to disable Defender protections (real-time monitoring), a common defense-evasion step.
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+        CommandLine|contains|all:
+            - 'Set-MpPreference'
+            - 'Disable'
+    condition: selection
+falsepositives:
+    - Administrators temporarily disabling protection for troubleshooting.
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.t1562.001

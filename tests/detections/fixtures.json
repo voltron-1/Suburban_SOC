@@ -77,5 +77,61 @@
       {"Image": "C:\\Windows\\System32\\mshta.exe", "CommandLine": "mshta.exe C:\\local\\dialog.hta"},
       {"Image": "C:\\Windows\\System32\\cmd.exe", "CommandLine": "cmd /c echo http"}
     ]
+  },
+  "proc_creation_win_run_key_persistence.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\reg.exe", "CommandLine": "reg add HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run /v Updater /t REG_SZ /d C:\\m.exe"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\reg.exe", "CommandLine": "reg query HKLM\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"},
+      {"Image": "C:\\Windows\\System32\\reg.exe", "CommandLine": "reg add HKCU\\Software\\MyApp\\Settings /v theme /d dark"}
+    ]
+  },
+  "proc_creation_win_service_creation_sc.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\sc.exe", "CommandLine": "sc create EvilSvc binPath= C:\\m.exe start= auto"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\sc.exe", "CommandLine": "sc query Spooler"},
+      {"Image": "C:\\Windows\\System32\\sc.exe", "CommandLine": "sc qc Dnscache"}
+    ]
+  },
+  "proc_creation_win_vss_delete_shadows.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\vssadmin.exe", "CommandLine": "vssadmin delete shadows /all /quiet"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\vssadmin.exe", "CommandLine": "vssadmin list shadows"},
+      {"Image": "C:\\Windows\\System32\\vssadmin.exe", "CommandLine": "vssadmin resize shadowstorage /maxsize=10GB"}
+    ]
+  },
+  "proc_creation_win_defender_tamper.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "CommandLine": "powershell Set-MpPreference -DisableRealtimeMonitoring $true"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "CommandLine": "powershell Get-MpPreference"},
+      {"Image": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", "CommandLine": "powershell Set-MpPreference -ExclusionPath C:\\temp"}
+    ]
+  },
+  "proc_creation_win_certutil_decode.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\certutil.exe", "CommandLine": "certutil -decode C:\\enc.txt C:\\out.exe"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\certutil.exe", "CommandLine": "certutil -hashfile C:\\x.exe SHA256"},
+      {"Image": "C:\\Windows\\System32\\certutil.exe", "CommandLine": "certutil -urlcache /transfer http://x/y"}
+    ]
+  },
+  "proc_creation_win_reg_save_sam.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\reg.exe", "CommandLine": "reg save HKLM\\SAM C:\\sam.hive"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\reg.exe", "CommandLine": "reg query HKLM\\SAM"},
+      {"Image": "C:\\Windows\\System32\\reg.exe", "CommandLine": "reg save HKLM\\Software\\MyApp C:\\app.hive"}
+    ]
+  },
+  "proc_creation_win_nltest_discovery.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\nltest.exe", "CommandLine": "nltest /dclist:corp.local"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\nltest.exe", "CommandLine": "nltest /query"},
+      {"Image": "C:\\Windows\\System32\\nltest.exe", "CommandLine": "nltest /sc_verify:corp.local"}
+    ]
+  },
+  "proc_creation_win_domain_group_discovery.yml": {
+    "true_positive": {"Image": "C:\\Windows\\System32\\net.exe", "CommandLine": "net group \"Domain Admins\" /domain"},
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\net.exe", "CommandLine": "net group"},
+      {"Image": "C:\\Windows\\System32\\net.exe", "CommandLine": "net user administrator"}
+    ]
   }
 }

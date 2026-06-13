@@ -1,0 +1,20 @@
+title: SAM Hive Dump via Reg.exe
+id: a1c1f006-0006-4a06-9006-000000000006
+status: stable
+description: Detects reg.exe saving the SAM registry hive to disk — offline credential theft (Credential Access).
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\reg.exe'
+        CommandLine|contains|all:
+            - 'save'
+            - 'hklm\sam'
+    condition: selection
+falsepositives:
+    - Legitimate registry backups by administrators (rare; verify).
+level: high
+tags:
+    - attack.credential_access
+    - attack.t1003.002

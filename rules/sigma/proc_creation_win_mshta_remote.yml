@@ -1,5 +1,5 @@
 title: Mshta Remote or Script Payload Execution
-id: 88888888-8888-8888-8888-888888888888
+id: a1c1f009-0009-4a09-9009-000000000009
 status: stable
 description: >
   Detects mshta.exe proxy-executing a remote HTA or inline javascript/vbscript
