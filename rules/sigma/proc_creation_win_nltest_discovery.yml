@@ -1,0 +1,21 @@
+title: Domain Controller Discovery via Nltest
+id: a1c1f007-0007-4a07-9007-000000000007
+status: stable
+description: Detects nltest.exe enumerating domain controllers or domain trusts — remote system discovery during recon.
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\nltest.exe'
+        CommandLine|contains:
+            - '/dclist:'
+            - '/domain_trusts'
+            - '/dsgetdc:'
+    condition: selection
+falsepositives:
+    - Domain administration and diagnostics.
+level: medium
+tags:
+    - attack.discovery
+    - attack.t1018

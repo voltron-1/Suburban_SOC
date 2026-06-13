@@ -1,0 +1,20 @@
+title: Registry Run Key Persistence via Reg.exe
+id: a1c1f001-0001-4a01-9001-000000000001
+status: stable
+description: Detects creation of an autorun entry under a CurrentVersion\Run key using reg.exe add — a common persistence mechanism.
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith: '\reg.exe'
+        CommandLine|contains|all:
+            - 'add'
+            - 'CurrentVersion\Run'
+    condition: selection
+falsepositives:
+    - Installers legitimately registering startup entries.
+level: medium
+tags:
+    - attack.persistence
+    - attack.t1547.001
