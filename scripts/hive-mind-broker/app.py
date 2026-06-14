@@ -20,6 +20,13 @@ inv = Inventory("inventory.yaml")
 # The secret used for HMAC validation. Loaded from the environment with NO
 # insecure default (WS0.4) — if unset, the endpoint fails closed (503).
 HMAC_SECRET = os.getenv("HIVE_MIND_SECRET", "").encode("utf-8")
+# audit P1-1: replay protection. Signed requests carry x-elastic-timestamp; the
+# timestamp must be within +/- HMAC_REPLAY_WINDOW of now, and a signature seen once
+# within that window is refused (nonce cache), so a captured block request cannot
+# be replayed.
+HMAC_REPLAY_WINDOW = int(os.getenv("HMAC_REPLAY_WINDOW", "300"))  # seconds
+_seen_sigs = {}            # signature -> expiry epoch
+_seen_sigs_lock = threading.Lock()
 
 # CDP §12.3: autonomous containment is Deferred Scope. By default the broker
 # DRAFTS a block and queues it for a human-of-record; it does not push it.
@@ -54,8 +61,11 @@ def _read_queue():
 
 
 async def _verify(request: Request) -> bytes:
-    """Fail-closed HMAC gate. Verifies the x-elastic-signature over the RAW body
-    (same scheme as the AI agent) and returns the raw body, or raises HTTPException.
+    """Fail-closed HMAC + timestamp-freshness + replay gate. Verifies
+    sha256=HMAC(secret, '<x-elastic-timestamp>.' + raw_body) (same scheme as the AI
+    agent), requires the timestamp within +/- HMAC_REPLAY_WINDOW of now, and refuses
+    a previously-seen signature — so a captured signed block request cannot be
+    replayed (audit P1-1). Returns the raw body, or raises HTTPException.
 
     Used directly by endpoints that take no JSON body (e.g. GET /pending, which
     signs the empty body) and via _verify_and_parse by the JSON endpoints. Every
@@ -67,14 +77,32 @@ async def _verify(request: Request) -> bytes:
         raise HTTPException(status_code=503, detail="Broker secret not configured")
 
     signature_header = request.headers.get("x-elastic-signature")
-    if not signature_header:
-        raise HTTPException(status_code=401, detail="Missing signature header")
+    timestamp_header = request.headers.get("x-elastic-timestamp")
+    if not signature_header or not timestamp_header:
+        raise HTTPException(status_code=401, detail="Missing signature or timestamp header")
+    try:
+        ts = int(timestamp_header)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid timestamp")
+    now = int(time.time())
+    if abs(now - ts) > HMAC_REPLAY_WINDOW:
+        raise HTTPException(status_code=401, detail="Timestamp outside replay window")
 
-    # The raw body is what was signed — verify before parsing.
+    # The raw body is what was signed (prefixed by the timestamp) — verify before parsing.
     body = await request.body()
-    expected_mac = hmac.new(HMAC_SECRET, body, hashlib.sha256).hexdigest()
+    signed = f"{timestamp_header}.".encode("utf-8") + body
+    expected_mac = hmac.new(HMAC_SECRET, signed, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(f"sha256={expected_mac}", signature_header):
         raise HTTPException(status_code=401, detail="Invalid signature")
+    # Replay check only AFTER the signature is proven valid (so forged signatures
+    # cannot poison the cache).
+    with _seen_sigs_lock:
+        for s, exp in list(_seen_sigs.items()):
+            if exp <= now:
+                del _seen_sigs[s]
+        if signature_header in _seen_sigs:
+            raise HTTPException(status_code=401, detail="Replayed signature")
+        _seen_sigs[signature_header] = now + HMAC_REPLAY_WINDOW
     return body
 
 

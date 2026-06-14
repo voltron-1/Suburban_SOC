@@ -99,28 +99,82 @@ BROKER_URL    = os.environ.get("BROKER_URL", "http://hive_mind_broker:8000")
 # HIVE_MIND_SECRET. If unset, _execute_isolation fails closed (never dispatches).
 HIVE_MIND_SECRET = os.environ.get("HIVE_MIND_SECRET", "").encode("utf-8")
 
-# --- Webhook authentication (WS0.2) ------------------------------------------
-# /alert triggers device isolation, so it MUST be authenticated. Callers sign the
-# raw request body with HMAC-SHA256 and send it in the `x-elastic-signature`
-# header as "sha256=<hexdigest>" (same scheme as the hive-mind-broker). The shared
-# secret comes from the SOC_AGENT_HMAC_SECRET env var — if it is unset the endpoint
-# fails CLOSED (503), never open.
-HMAC_HEADER = "x-elastic-signature"
-HMAC_SECRET = os.environ.get("SOC_AGENT_HMAC_SECRET", "").encode("utf-8")
+# --- Webhook authentication (WS0.2 + audit P1-1 replay protection) -----------
+# /alert triggers device isolation, so it MUST be authenticated AND replay-proof.
+# Callers send two headers:
+#   x-elastic-timestamp: <unix seconds>
+#   x-elastic-signature: sha256=<HMAC-SHA256(secret, "<timestamp>." + raw_body)>
+# The verifier (a) requires the timestamp within +/- HMAC_REPLAY_WINDOW seconds of
+# now and (b) refuses a signature already seen within that window (nonce cache), so
+# a captured signed request cannot be replayed. The shared secret comes from
+# SOC_AGENT_HMAC_SECRET; if unset the endpoint fails CLOSED (503), never open.
+HMAC_HEADER        = "x-elastic-signature"
+HMAC_TS_HEADER     = "x-elastic-timestamp"
+HMAC_SECRET        = os.environ.get("SOC_AGENT_HMAC_SECRET", "").encode("utf-8")
+HMAC_REPLAY_WINDOW = int(os.environ.get("HMAC_REPLAY_WINDOW", "300"))  # seconds
+
+# Replay/nonce cache: signature -> expiry epoch. Bounded by the window (pruned on use).
+_seen_sigs: dict[str, int] = {}
+_seen_sigs_lock = threading.Lock()
 
 # Validation patterns for anything that reaches the broker / response path.
 _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$")
 
 
-def verify_signature(raw_body: bytes, signature_header: str | None) -> bool:
-    """Constant-time HMAC-SHA256 verification of the raw request body."""
+def _signed_payload(timestamp: str, raw_body: bytes) -> bytes:
+    """The exact bytes both sides HMAC: '<timestamp>.' + raw_body."""
+    return f"{timestamp}.".encode("utf-8") + raw_body
+
+
+def _nonce_is_fresh(signature: str, now: int) -> bool:
+    """Record a VALID signature; return False if it was already seen (replay)."""
+    with _seen_sigs_lock:
+        for sig, exp in list(_seen_sigs.items()):
+            if exp <= now:
+                del _seen_sigs[sig]
+        if signature in _seen_sigs:
+            return False
+        _seen_sigs[signature] = now + HMAC_REPLAY_WINDOW
+        return True
+
+
+def sign_request(secret: bytes, raw_body: bytes, timestamp: str | None = None):
+    """Build (timestamp, 'sha256=<hmac>') for the replay-protected scheme. Used by
+    the agent's own outbound calls (and mirrored by every other signer)."""
+    ts = timestamp or str(int(time.time()))
+    sig = "sha256=" + hmac.new(secret, _signed_payload(ts, raw_body), hashlib.sha256).hexdigest()
+    return ts, sig
+
+
+def verify_signature(raw_body: bytes, signature_header: str | None,
+                     timestamp_header: str | None = None) -> bool:
+    """Constant-time HMAC verification with timestamp-freshness + replay protection.
+
+    Verifies sha256=HMAC(secret, '<timestamp>.' + raw_body), requires the timestamp
+    within +/- HMAC_REPLAY_WINDOW of now, and refuses a previously-seen signature.
+    """
     if not HMAC_SECRET:
         app.logger.critical("SOC_AGENT_HMAC_SECRET is not set — refusing all signed requests.")
         return False
-    if not signature_header:
+    if not signature_header or not timestamp_header:
         return False
-    expected = "sha256=" + hmac.new(HMAC_SECRET, raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, signature_header)
+    try:
+        ts = int(timestamp_header)
+    except (TypeError, ValueError):
+        return False
+    now = int(time.time())
+    if abs(now - ts) > HMAC_REPLAY_WINDOW:
+        app.logger.warning("Rejected request: timestamp outside the +/-%ss replay window.", HMAC_REPLAY_WINDOW)
+        return False
+    expected = "sha256=" + hmac.new(HMAC_SECRET, _signed_payload(timestamp_header, raw_body), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature_header):
+        return False
+    # Consult/record the nonce cache only AFTER the signature is proven valid, so an
+    # attacker cannot poison it with forged signatures.
+    if not _nonce_is_fresh(signature_header, now):
+        app.logger.warning("Rejected request: replayed signature (already seen within the window).")
+        return False
+    return True
 
 
 def _require_signature():
@@ -135,8 +189,9 @@ def _require_signature():
     body). Returns a Flask (response, status) tuple to abort with on failure, or
     None when the request is authenticated.
     """
-    if not verify_signature(request.get_data(), request.headers.get(HMAC_HEADER)):
-        app.logger.warning("Rejected %s: missing or invalid HMAC signature.", request.path)
+    if not verify_signature(request.get_data(), request.headers.get(HMAC_HEADER),
+                            request.headers.get(HMAC_TS_HEADER)):
+        app.logger.warning("Rejected %s: missing/invalid/replayed HMAC signature.", request.path)
         return jsonify({"status": "unauthorized"}), 401
     return None
 
@@ -187,12 +242,13 @@ def dispatch_block_via_broker(attacker_ip: str, tenant: str, source_mac: str = "
         "source_mac":  source_mac,
         "approver":    "soc-ai-agent",
     }).encode("utf-8")
-    sig = "sha256=" + hmac.new(HIVE_MIND_SECRET, body, hashlib.sha256).hexdigest()
+    ts, sig = sign_request(HIVE_MIND_SECRET, body)  # replay-protected (audit P1-1)
     try:
         resp = requests.post(
             f"{BROKER_URL}/webhook/dispatch",
             data=body,
-            headers={"Content-Type": "application/json", HMAC_HEADER: sig},
+            headers={"Content-Type": "application/json",
+                     HMAC_HEADER: sig, HMAC_TS_HEADER: ts},
             timeout=15,
         )
     except Exception as exc:  # noqa: BLE001 - never let response handling crash
@@ -611,8 +667,9 @@ def handle_kibana_webhook():
     # Step 0: authenticate the request BEFORE doing anything else. The raw body is
     # what was signed, so verify it before parsing.
     raw_body = request.get_data()
-    if not verify_signature(raw_body, request.headers.get(HMAC_HEADER)):
-        app.logger.warning("Rejected /alert: missing or invalid HMAC signature.")
+    if not verify_signature(raw_body, request.headers.get(HMAC_HEADER),
+                            request.headers.get(HMAC_TS_HEADER)):
+        app.logger.warning("Rejected /alert: missing/invalid/replayed HMAC signature.")
         return jsonify({"status": "unauthorized"}), 401
     _t0 = time.time()  # WS2.4: automated-response latency (-> MTTR SLO)
 
@@ -825,10 +882,13 @@ def trigger_weekly_report():
     open endpoint is a cost/DoS amplifier; the caller signs the request body
     (empty body is fine) with SOC_AGENT_HMAC_SECRET.
 
-    Invoke manually (sign the empty body):
-        SIG="sha256=$(printf '' | openssl dgst -sha256 -hmac "$SOC_AGENT_HMAC_SECRET" | awk '{print $2}')"
-        curl -s -X POST -H "x-elastic-signature: $SIG" http://localhost:5000/weekly-report
-    Or schedule via cron with the same signed header.
+    Invoke manually (replay-protected: sign "<timestamp>." + empty body, send both
+    the signature and the timestamp header — audit P1-1):
+        TS=$(date +%s)
+        SIG="sha256=$(printf '%s.' "$TS" | openssl dgst -sha256 -hmac "$SOC_AGENT_HMAC_SECRET" | awk '{print $2}')"
+        curl -s -X POST -H "x-elastic-signature: $SIG" -H "x-elastic-timestamp: $TS" \
+             http://localhost:5000/weekly-report
+    Or schedule via cron with the same signed headers (freshly per run).
     """
     auth_error = _require_signature()
     if auth_error:

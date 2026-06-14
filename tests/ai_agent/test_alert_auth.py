@@ -22,6 +22,7 @@ Run:  python tests/ai_agent/test_alert_auth.py     (or: pytest tests/ai_agent)
 import os
 import sys
 import json
+import time
 import types
 import hmac
 import hashlib
@@ -50,14 +51,21 @@ EXCLUDED_IP = "192.168.1.1"
 GOOD_MAC = "AA:BB:CC:DD:EE:FF"
 
 
-def _sign(body: bytes) -> str:
-    return "sha256=" + hmac.new(SECRET.encode(), body, hashlib.sha256).hexdigest()
+def _sign(body: bytes, ts=None):
+    """Return (timestamp, 'sha256=<hmac>') for the replay-protected scheme: the HMAC
+    is over '<timestamp>.' + body (audit P1-1)."""
+    ts = ts or str(int(time.time()))
+    sig = "sha256=" + hmac.new(SECRET.encode(), f"{ts}.".encode() + body, hashlib.sha256).hexdigest()
+    return ts, sig
 
 
 class AlertResponseTests(unittest.TestCase):
     def setUp(self):
         agent_app.app.testing = True
         self.client = agent_app.app.test_client()
+        # The replay/nonce cache is module-level (audit P1-1); isolate it per test so
+        # identical signed requests across tests don't trip replay rejection.
+        agent_app._seen_sigs.clear()
 
         # Isolate the approval queue to a throwaway file per test.
         self._qfile = tempfile.NamedTemporaryFile(
@@ -86,21 +94,24 @@ class AlertResponseTests(unittest.TestCase):
         self.addCleanup(mock.patch.stopall)
         self.addCleanup(lambda: os.unlink(self._qfile.name))
 
-    def _post(self, payload, sign=True, tamper=False, path="/alert"):
+    def _post(self, payload, sign=True, tamper=False, path="/alert", ts=None):
         body = json.dumps(payload).encode()
         headers = {"Content-Type": "application/json"}
         if sign:
-            sig = _sign(body)
+            tstamp, sig = _sign(body, ts)
             if tamper:
                 sig = sig[:-1] + ("0" if sig[-1] != "0" else "1")
             headers["x-elastic-signature"] = sig
+            headers["x-elastic-timestamp"] = tstamp
         return self.client.post(path, data=body, headers=headers)
 
     def _get_pending(self, sign=True):
         """GET /pending is HMAC-gated; sign the (empty) body like an operator would."""
         headers = {}
         if sign:
-            headers["x-elastic-signature"] = _sign(b"")
+            tstamp, sig = _sign(b"")
+            headers["x-elastic-signature"] = sig
+            headers["x-elastic-timestamp"] = tstamp
         return self.client.get("/pending", headers=headers)
 
     # --- WS0.2 authentication ------------------------------------------------
@@ -135,6 +146,33 @@ class AlertResponseTests(unittest.TestCase):
 
     def test_pending_unsigned_rejected(self):
         r = self._get_pending(sign=False)
+        self.assertEqual(r.status_code, 401)
+
+    # --- replay protection (audit P1-1) --------------------------------------
+    def test_replayed_alert_rejected(self):
+        # A valid signed /alert is accepted once; replaying the EXACT same body +
+        # timestamp + signature is refused (nonce already seen).
+        payload = {"severity": "critical", "source_ip": "1.2.3.4", "source_mac": GOOD_MAC}
+        ts = str(int(time.time()))
+        first = self._post(payload, ts=ts)
+        self.assertEqual(first.status_code, 200)
+        replay = self._post(payload, ts=ts)              # identical -> identical signature
+        self.assertEqual(replay.status_code, 401)
+
+    def test_stale_timestamp_rejected(self):
+        # A correctly-signed request with a timestamp outside the window is refused.
+        old = str(int(time.time()) - (agent_app.HMAC_REPLAY_WINDOW + 60))
+        r = self._post({"severity": "critical", "source_mac": GOOD_MAC}, ts=old)
+        self.assertEqual(r.status_code, 401)
+        self.mock_dispatch.assert_not_called()
+
+    def test_missing_timestamp_rejected(self):
+        # A valid signature with NO timestamp header is refused (can't prove freshness).
+        body = json.dumps({"severity": "critical"}).encode()
+        _, sig = _sign(body)
+        r = self.client.post("/alert", data=body,
+                             headers={"Content-Type": "application/json",
+                                      "x-elastic-signature": sig})  # no timestamp
         self.assertEqual(r.status_code, 401)
 
     def test_weekly_report_unsigned_rejected(self):

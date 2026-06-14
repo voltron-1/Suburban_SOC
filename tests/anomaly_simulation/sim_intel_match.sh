@@ -39,14 +39,17 @@ TENANT="${TENANT:-home-smith}"
 
 es() { curl -sk -u "${ES_USER}:${ES_PASS}" "$@"; }
 
-# /pending is HMAC-gated (audit P0-2). Sign the empty GET body with the same
-# SOC_AGENT_HMAC_SECRET the agent uses and read back the drafted-action count.
+# /pending is HMAC-gated (audit P0-2) with replay protection (audit P1-1): sign
+# "<timestamp>." + empty-body and send both x-elastic-signature and
+# x-elastic-timestamp, using the same SOC_AGENT_HMAC_SECRET the agent uses.
 agent_pending_count() {
-  local sig
+  local ts sig
   if [[ -n "${SOC_AGENT_HMAC_SECRET:-}" ]]; then
-    sig="sha256=$(printf '' | openssl dgst -sha256 -hmac "$SOC_AGENT_HMAC_SECRET" | awk '{print $2}')"
+    ts=$(date +%s)
+    sig="sha256=$(printf '%s.' "$ts" | openssl dgst -sha256 -hmac "$SOC_AGENT_HMAC_SECRET" | awk '{print $2}')"
   fi
-  curl -s --max-time 6 -H "x-elastic-signature: ${sig:-}" "$AGENT_URL/pending" \
+  curl -s --max-time 6 -H "x-elastic-signature: ${sig:-}" -H "x-elastic-timestamp: ${ts:-}" \
+    "$AGENT_URL/pending" \
     | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0
 }
 fail=0
