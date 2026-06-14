@@ -36,6 +36,10 @@ ES_URL = os.environ.get("ES_URL", "https://localhost:9200")
 ES_USER = os.environ.get("ES_USER", "elastic")
 ES_PASS = os.environ.get("ES_PASS") or os.environ.get("ELASTIC_PASSWORD", "")
 WINDOW = os.environ.get("HUNT_WINDOW", "now-7d")
+# FAIL CLOSED (audit P1-2): verify TLS against the stack CA, never verify=False.
+# Set ES_CA to your CA path for host/standalone runs, or "" for system trust.
+ES_CA = os.environ.get("ES_CA", "/certs/ca/ca.crt")
+ES_VERIFY = ES_CA if ES_CA else True
 
 
 def es_count(index, query_string):
@@ -44,7 +48,7 @@ def es_count(index, query_string):
         {"range": {"@timestamp": {"gte": WINDOW}}}]}}}
     try:
         r = requests.post(f"{ES_URL}/{index}/_count", auth=(ES_USER, ES_PASS),
-                          verify=False, headers={"Content-Type": "application/json"},
+                          verify=ES_VERIFY, headers={"Content-Type": "application/json"},
                           data=json.dumps(body), timeout=20)
         return r.json().get("count", 0) if r.status_code == 200 else 0
     except Exception:
@@ -82,7 +86,7 @@ def main():
         bulk.append(json.dumps(doc))
     if bulk:
         try:
-            requests.post(f"{ES_URL}/_bulk", auth=(ES_USER, ES_PASS), verify=False,
+            requests.post(f"{ES_URL}/_bulk", auth=(ES_USER, ES_PASS), verify=ES_VERIFY,
                           headers={"Content-Type": "application/x-ndjson"},
                           data="\n".join(bulk) + "\n", timeout=20)
             print(f"  -> indexed {len(hunts)} hunt results to soc-hunts ({findings} findings)")

@@ -57,9 +57,17 @@ LOWER_BETTER = {
 }
 
 
+# FAIL CLOSED (audit P1-2): verify TLS against the stack CA instead of verify=False.
+# ES_CA defaults to the agent container's mounted CA; set it to your CA path for
+# host/standalone runs, or to "" to verify against the system trust store. requests
+# raises a clear error if the path is missing — we never silently skip verification.
+ES_CA = os.environ.get("ES_CA", "/certs/ca/ca.crt")
+ES_VERIFY = ES_CA if ES_CA else True
+
+
 def es(method, path, body=None):
     return requests.request(
-        method, f"{ES_URL}{path}", auth=(ES_USER, ES_PASS), verify=False,
+        method, f"{ES_URL}{path}", auth=(ES_USER, ES_PASS), verify=ES_VERIFY,
         headers={"Content-Type": "application/json"},
         data=json.dumps(body) if body is not None else None, timeout=15)
 

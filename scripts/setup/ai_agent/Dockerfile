@@ -25,6 +25,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 4. Copy the rest of your agent's code into the container
 COPY . .
 
+# 4b. Drop root (audit P1-4): run as a dedicated non-root user. The agent writes its
+#     approval queue under /app and renders PDFs to /tmp, so give the user ownership
+#     of /app. A code-exec bug in the webhook listener then yields an unprivileged
+#     user, not root.
+RUN useradd --create-home --uid 10001 appuser && chown -R appuser:appuser /app
+USER appuser
+
 # 5. Expose port 5000 for Kibana webhooks
 EXPOSE 5000
 

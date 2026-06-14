@@ -1,5 +1,5 @@
 {
-  "cluster": ["monitor","manage_index_templates","manage_ilm","manage_slm","read_slm","manage"],
+  "cluster": ["monitor","manage_index_templates","manage_ilm","manage_slm","read_slm"],
   "indices": [
     {"names": ["logstash-*","soar-actions-*","asset-inventory-*","threat-intel-*","soc-*"],
      "privileges": ["all"]}

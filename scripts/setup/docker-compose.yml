@@ -26,6 +26,11 @@
 # single source of truth for certs.)
 # =============================================================================
 
+# Explicit Compose project name so this stack never collides with another repo
+# whose compose also lives in a scripts/setup/ directory (Docker otherwise derives
+# the project name "setup" from the folder, cross-wiring the two stacks).
+name: suburban-soc
+
 services:
   # --- One-shot: generate certs, set passwords, provision least-priv users -----
   setup:
@@ -330,7 +335,9 @@ services:
       # SSH key(s) the broker uses to reach routers (path per inventory.yaml).
       # Compose does NOT expand `~`, so default to an absolute ${HOME}/.ssh; set
       # HIVE_MIND_SSH_DIR to an absolute path to override (required on Windows hosts).
-      - ${HIVE_MIND_SSH_DIR:-${HOME}/.ssh}:/root/.ssh:ro
+      # Mounted at the non-root `broker` user's home (audit P1-4); dispatcher.py
+      # expanduser()s the inventory ssh_key_path (~/.ssh/...) to /home/broker/.ssh.
+      - ${HIVE_MIND_SSH_DIR:-${HOME}/.ssh}:/home/broker/.ssh:ro
     ports:
       # Localhost only — for debugging/verification; the agent uses the service name.
       - "127.0.0.1:8000:8000"

@@ -51,9 +51,13 @@ ES_HOST            = os.environ.get("ES_HOST",            "https://elasticsearch
 ES_USER            = os.environ.get("ES_USER",            "logstash_internal")
 ES_PASS            = os.environ.get("ES_PASS",            "")
 ES_CA              = os.environ.get("ES_CA",              "/certs/ca/ca.crt")
-# requests `verify` arg: path to the CA bundle if present, else fall back to False
-# (self-signed cert on the internal docker network). Never disable for public ES.
-ES_VERIFY          = ES_CA if (ES_CA and Path(ES_CA).is_file()) else False
+# requests `verify` arg. FAIL CLOSED (audit P1-2): never silently disable TLS
+# verification. If a CA path is configured we hand it to requests — which raises a
+# clear error if the file is missing — instead of the old `else False`, which
+# downgraded every ES call (incl. least-priv creds + audit writes) to an
+# unverified connection whenever the CA wasn't mounted. An explicit empty ES_CA
+# opts into system-trust verification (verify=True); never False.
+ES_VERIFY          = ES_CA if ES_CA else True
 
 # CDP §12.3: autonomous containment is Deferred Scope. The agent DRAFTS a
 # response; a human executes it. Set AUTONOMOUS_ISOLATION=true only to restore
