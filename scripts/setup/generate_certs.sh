@@ -18,6 +18,29 @@
 # =============================================================================
 set -euo pipefail
 
+# -----------------------------------------------------------------------------
+# SAFETY GUARD (added after a live incident): this standalone script is NOT the
+# stack's source of truth for certificates. docker-compose.yml runs a one-shot
+# `setup` service that mints an Elastic-certutil CA + node certs into the shared
+# `certs` volume. This script instead mints a SEPARATE "UIW-SOC Internal CA" with
+# a different layout (certs/es/...). If its output reaches the compose `certs`
+# volume, the CA no longer matches the running Elasticsearch node cert and every
+# client (Logstash, Kibana, curl) fails TLS with "PKIX path building failed",
+# silently halting ingestion. Do NOT run this against a stack provisioned by
+# docker compose. Require an explicit opt-in so it can't be run by accident.
+if [[ "${ALLOW_STANDALONE_CERTS:-0}" != "1" ]]; then
+  cat >&2 <<'WARN'
+[REFUSED] generate_certs.sh is a standalone alternative and is NOT needed for the
+          docker-compose stack — the compose `setup` service is the single source
+          of truth for certificates. Running this can overwrite the stack CA and
+          break Elasticsearch TLS for every client (ingestion stops).
+
+          If you really intend to mint standalone certs (no compose stack), re-run:
+              ALLOW_STANDALONE_CERTS=1 ./generate_certs.sh
+WARN
+  exit 1
+fi
+
 CERT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/certs"
 CA_DIR="$CERT_DIR/ca"
 ES_DIR="$CERT_DIR/es"
