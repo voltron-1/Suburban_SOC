@@ -24,6 +24,28 @@ def _default_exclusion_path() -> str:
 
 EXCLUSION_LIST = os.environ.get("EXCLUSION_LIST") or _default_exclusion_path()
 
+# SSH host-key verification (audit P1-3). Previously every router connection used
+# known_hosts=None (no host-key checking), so a MITM on the router path could
+# capture the root SSH session on the containment path. Default to verifying
+# against a known_hosts file. Operators must pin the router host keys there (e.g.
+# `ssh-keyscan -t ed25519 <router> >> ~/.ssh/known_hosts`). An explicit
+# BROKER_INSECURE_SSH=true restores the old no-verification behaviour for a
+# first-run/lab only — it logs loudly.
+KNOWN_HOSTS = os.path.expanduser(
+    os.environ.get("BROKER_KNOWN_HOSTS", "~/.ssh/known_hosts"))
+INSECURE_SSH = os.environ.get("BROKER_INSECURE_SSH", "false").lower() == "true"
+
+
+def _resolve_known_hosts():
+    """Return the asyncssh `known_hosts` value: the known_hosts path (strict — the
+    connection fails if the router key is unknown), or None ONLY when the operator
+    explicitly opted out via BROKER_INSECURE_SSH=true."""
+    if INSECURE_SSH:
+        print("[!] BROKER_INSECURE_SSH=true — SSH host-key verification is DISABLED "
+              "(lab/first-run only; do not use in production).", file=sys.stderr)
+        return None
+    return KNOWN_HOSTS
+
 
 def load_excluded_ips() -> set:
     """Read exact IPv4 entries from the canonical exclusion list."""
@@ -65,7 +87,7 @@ async def block_ip_on_router(router: dict, attacker_ip: str):
             host=ip,
             username=username,
             client_keys=[key_path],
-            known_hosts=None  # In production, configure strict host key checking!
+            known_hosts=_resolve_known_hosts()  # strict by default (audit P1-3)
         ) as conn:
             
             # Execute command
