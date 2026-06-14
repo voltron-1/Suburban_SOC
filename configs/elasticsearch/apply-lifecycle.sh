@@ -62,8 +62,10 @@ put "soar-actions-ilm"      "/_ilm/policy/soar-actions-ilm"      "$HERE/ilm/soar
 
 echo "==> [4/4] Installing data-stream index templates"
 # Templates carry data_stream:{} + index.lifecycle.name, so they must go in after
-# the ILM policies they reference exist.
-"$HERE/apply-templates.sh"
+# the ILM policies they reference exist. Invoke via `bash` so it works even when
+# the script is mounted read-only without the executable bit (the compose
+# `lifecycle` one-shot mounts configs/elasticsearch :ro).
+bash "$HERE/apply-templates.sh"
 
 if [[ $SNAPSHOT_NOW -eq 1 ]]; then
   echo "==> Triggering an immediate snapshot via SLM '${SLM}'"
