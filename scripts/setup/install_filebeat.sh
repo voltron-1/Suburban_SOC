@@ -2,12 +2,22 @@
 # Install Filebeat 9.x — matches ELK stack version (9.3.2)
 # Run with: sudo bash scripts/setup/install_filebeat.sh
 
-set -e
+set -euo pipefail
 
 echo "[INFO] Installing Filebeat 9.x..."
 
-# Import Elastic GPG key
+# Import the Elastic GPG key AND verify its fingerprint before trusting the repo
+# (audit P2-10) — piping a fetched key straight into the keyring trusts whatever the
+# network returns. The expected fingerprint is Elastic's published signing key.
+ELASTIC_GPG_FPR="46095ACC8548582C1A2699A9D27D666CD88E42B4"
 wget -qO - https://artifacts.elastic.co/GPG-KEY-elasticsearch | sudo gpg --dearmor -o /usr/share/keyrings/elastic-keyring.gpg
+GOT_FPR="$(gpg --show-keys --with-colons /usr/share/keyrings/elastic-keyring.gpg 2>/dev/null | awk -F: '/^fpr:/{print $10; exit}')"
+if [ "$GOT_FPR" != "$ELASTIC_GPG_FPR" ]; then
+  echo "[ERR] Elastic GPG fingerprint mismatch (got '${GOT_FPR}', expected '${ELASTIC_GPG_FPR}') — refusing to add the repo." >&2
+  sudo rm -f /usr/share/keyrings/elastic-keyring.gpg
+  exit 1
+fi
+echo "[PASS] Elastic GPG key verified ($ELASTIC_GPG_FPR)"
 
 # Install prerequisite
 sudo apt-get install -y apt-transport-https
