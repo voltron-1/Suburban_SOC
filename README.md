@@ -244,7 +244,8 @@ This project encompasses the design, development, and testing of an advanced **n
 │   ├── /intel                  # Zeek threat intelligence feed (intel.dat, config.zeek)
 │   ├── /network                # Filebeat configuration (filebeat.yml)
 │   ├── /server                 # Kibana dashboard exports (.ndjson)
-│   └── /zeek_intel             # Zeek intel framework configs
+│   ├── /zeek                    # Zeek TLS/telemetry policy (local.zeek)
+│   └── /detections             # ECS field pipeline (suburban-soc-ecs.yml)
 ├── /docs                       # Technical documentation
 │   ├── SOP-001-pipeline-operations.md
 │   ├── Zeek_ELK_Pipeline.md
@@ -261,8 +262,8 @@ This project encompasses the design, development, and testing of an advanced **n
 │   ├── /agile                  # GitHub project board & issue management scripts
 │   └── /setup                  # Pipeline setup, capture, and AI agent scripts
 │       ├── /ai_agent           # SOC AI agent (Flask webhook, LLM triage, ntfy)
-│       ├── /configs/logstash   # Logstash pipeline config (Docker source of truth)
-│       ├── docker-compose.yml  # ELK + AI agent stack definition
+│       ├── /hive-mind-broker   # (../) HMAC router-block dispatcher (FastAPI)
+│       ├── docker-compose.yml  # ELK + AI agent stack (mounts ../../configs/logstash.conf)
 │       └── soc_pipeline.sh     # Interactive SOP automation menu
 └── /wiki-temp                  # GitHub Wiki source files (submodule)
 ```
@@ -281,7 +282,7 @@ Before you begin, ensure you have the following:
     cd Suburban_SOC
     ```
 2.  **Configure Agents:**
-    Review and modify `/configs/filebeat.yml` and `/configs/logstash.conf` to match your environment.
+    Review and modify `/configs/network/filebeat.yml` and `/configs/logstash.conf` to match your environment.
 3.  **Configure Secrets:**
     The stack runs with security + TLS enabled. Copy the env template and set strong values:
     ```bash
