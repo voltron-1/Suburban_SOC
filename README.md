@@ -89,12 +89,19 @@ IP-block dispatched to the broker, tenant-scoped, instead of a direct `isolate.s
 Individual improvements merged toward the in-progress Phase 0 (M7) and detection
 plane (M8) — these are work items within those milestones, not milestone completions:
 
-- **Detection framework enrichment (PR #112).** `configs/logstash.conf` classifies
-  detections into ECS `threat.technique.*` / `threat.tactic.*` and `nist.function`:
-  all **10 Sigma rules** (`rules/sigma/`) plus the Zeek network detections (port
-  scan `T1046`, SSH brute force `T1110`) — 12 techniques total. This powers the
-  Executive dashboard's MITRE ATT&CK heatmap and NIST CSF donut. A stdlib test
-  (`tests/pipeline/test_framework_enrichment.py`) keeps the rules and pipeline in sync.
+- **Detection framework enrichment (PR #112).** The detection plane spans
+  **21 ATT&CK techniques across 8 tactics** (see
+  [`docs/detections/attack-coverage.md`](docs/detections/attack-coverage.md)). The
+  **19 Sigma rules** (`rules/sigma/`) each carry their own ATT&CK technique tag and
+  convert to Elastic SIEM rules via pySigma (`deploy_detections.sh`) — the rules,
+  not the pipeline, are the single source of truth for endpoint detection. In
+  addition, `configs/logstash.conf` classifies the two Zeek **network** detections —
+  port scan `T1046`, SSH brute force `T1110` — into ECS `threat.technique.*` /
+  `threat.tactic.*` / `nist.function`. Together these power the Executive
+  dashboard's MITRE ATT&CK heatmap and NIST CSF donut. A stdlib test
+  (`tests/pipeline/test_framework_enrichment.py`) keeps the Zeek pipeline enrichment
+  in sync with the rule corpus (and asserts endpoint Sigma logic is *not* inlined in
+  the pipeline).
 - **SOAR response model (PR #113).** The AI agent now follows a human-in-the-loop
   posture (CDP §12.3/§12.4): the §12.4 **exclusion list** is checked first
   (protected infrastructure is never isolated *or* drafted); **autonomous
