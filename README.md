@@ -65,6 +65,22 @@ M1–M6 are the completed MVP; M7–M10 follow the four phases of the
 | M9 | Operational Maturity (SOC-CMM Level 3) (Phase 2) | ✅ Complete (5/5) |
 | M10 | SOC 2 Type II Technical Control Readiness (Phase 3) | ✅ Complete — 7/7 (WS3.1–3.7) |
 
+> **What "✅ Complete" means here (scope note, audit P1-12/P1-13).** A milestone is
+> marked complete when its tracked issues/workstreams were implemented and merged —
+> it is **not** a claim of independent operational validation, sustained-period
+> evidence, or third-party certification. In particular:
+> - **SOC 2 Type II (M10)** here means the *technical control design is in place*
+>   ("readiness"), **not** that an audited Type II report exists — Type II requires
+>   controls operating over a defined period, and the change-evidence ledger
+>   ([`docs/deploy-changelog.md`](docs/deploy-changelog.md)) is not yet populated
+>   from real deploys.
+> - **SOC-CMM Level 3 (M9)** is a *self-assessed* maturity target, not an external
+>   rating.
+> - The [SOC Maturity Roadmap](docs/SOC-maturity-roadmap.md) is the design/target
+>   source of truth; where it, the wiki, or sprint notes disagree with this table,
+>   treat them as the more conservative current state and reconcile before citing
+>   "complete" externally.
+
 ### M7 — Phase 0 workstream breakdown
 
 Phase 0 ("secure the platform & lay the tenancy foundation") is the current focus —
