@@ -8,6 +8,8 @@ on:
     paths:
       - "scripts/setup/ai_agent/**"
       - "scripts/hive-mind-broker/**"
+      - "scripts/setup/docker-compose*.yml"   # audit P2-15: scan the compose IaC too
+      - "configs/elasticsearch/**"
       - ".github/workflows/security-scan.yml"
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC — weekly patch cadence
@@ -18,8 +20,8 @@ jobs:
     name: Python dependency audit (pip-audit)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.11"
       - run: pip install --quiet pip-audit
@@ -43,14 +45,27 @@ jobs:
           - name: hive-mind-broker
             context: scripts/hive-mind-broker
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Build ${{ matrix.name }} image
         run: docker build -t suburban-soc/${{ matrix.name }}:scan ${{ matrix.context }}
       - name: Trivy — fail on CRITICAL (fixed) vulnerabilities
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: suburban-soc/${{ matrix.name }}:scan
           severity: CRITICAL
           exit-code: "1"
           ignore-unfixed: true
           vuln-type: os,library
+
+  iac:
+    name: IaC / compose misconfig scan (Trivy config)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Trivy config — scan the docker-compose + ES config (audit P2-15)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: scripts/setup
+          severity: CRITICAL,HIGH
+          exit-code: "1"

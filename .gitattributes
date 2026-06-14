@@ -37,6 +37,8 @@
 *.jpeg      binary
 *.gif       binary
 *.ico       binary
-*.ndjson    binary
+# Kibana dashboards are line-delimited JSON, not binary — keep as text (LF) so diffs
+# and secret scanning see their contents (audit P2-16).
+*.ndjson    text eol=lf
 *.pcap      binary
 *.docx      binary
