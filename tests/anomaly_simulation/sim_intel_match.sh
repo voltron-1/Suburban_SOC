@@ -38,12 +38,23 @@ TENANT="${TENANT:-home-smith}"
 [[ -z "$ES_PASS" ]] && { echo "[ERR] ES_PASS/ELASTIC_PASSWORD required" >&2; exit 2; }
 
 es() { curl -sk -u "${ES_USER}:${ES_PASS}" "$@"; }
+
+# /pending is HMAC-gated (audit P0-2). Sign the empty GET body with the same
+# SOC_AGENT_HMAC_SECRET the agent uses and read back the drafted-action count.
+agent_pending_count() {
+  local sig
+  if [[ -n "${SOC_AGENT_HMAC_SECRET:-}" ]]; then
+    sig="sha256=$(printf '' | openssl dgst -sha256 -hmac "$SOC_AGENT_HMAC_SECRET" | awk '{print $2}')"
+  fi
+  curl -s --max-time 6 -H "x-elastic-signature: ${sig:-}" "$AGENT_URL/pending" \
+    | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0
+}
 fail=0
 
 echo "[*] WS1.1 intel-match sim — test indicator $TEST_IP, tenant $TENANT"
 
 # Baseline the agent's pending count so we can assert it grows by this alert.
-before=$(curl -s --max-time 6 "$AGENT_URL/pending" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
+before=$(agent_pending_count)
 
 # Inject a Zeek intel.log-shaped event into the real pipeline (Logstash :5514 is
 # mesh-internal, so reach it from a container on soc-mesh-net).
@@ -71,7 +82,7 @@ else
 fi
 
 # 2. Agent: /alert drafted a response (pending count grew)
-after=$(curl -s --max-time 6 "$AGENT_URL/pending" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("count",0))' 2>/dev/null || echo 0)
+after=$(agent_pending_count)
 if [[ "$after" -gt "$before" ]]; then
   echo "[PASS] SOAR: /alert fired and drafted a response (pending $before -> $after)"
 else

@@ -111,12 +111,30 @@ _MAC_RE = re.compile(r"^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$")
 def verify_signature(raw_body: bytes, signature_header: str | None) -> bool:
     """Constant-time HMAC-SHA256 verification of the raw request body."""
     if not HMAC_SECRET:
-        app.logger.critical("SOC_AGENT_HMAC_SECRET is not set — refusing all /alert requests.")
+        app.logger.critical("SOC_AGENT_HMAC_SECRET is not set — refusing all signed requests.")
         return False
     if not signature_header:
         return False
     expected = "sha256=" + hmac.new(HMAC_SECRET, raw_body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature_header)
+
+
+def _require_signature():
+    """Fail-closed HMAC gate for privileged operator endpoints.
+
+    Every endpoint that executes a destructive action (/approve), discloses the
+    response queue (/pending), or spawns work (/weekly-report) MUST authenticate —
+    not just /alert. Without this an unauthenticated caller could list drafted
+    actions and approve (and thereby execute) router isolation, defeating the HMAC
+    gate on /alert entirely. Callers sign the RAW request body with
+    SOC_AGENT_HMAC_SECRET (same WS0.2 scheme as /alert; GET requests sign the empty
+    body). Returns a Flask (response, status) tuple to abort with on failure, or
+    None when the request is authenticated.
+    """
+    if not verify_signature(request.get_data(), request.headers.get(HMAC_HEADER)):
+        app.logger.warning("Rejected %s: missing or invalid HMAC signature.", request.path)
+        return jsonify({"status": "unauthorized"}), 401
+    return None
 
 
 def is_valid_mac(value: str) -> bool:
@@ -726,7 +744,10 @@ def handle_kibana_webhook():
 # =============================================================================
 @app.route("/pending", methods=["GET"])
 def list_pending():
-    """List drafted actions still awaiting human approval."""
+    """List drafted actions still awaiting human approval. Authenticated (HMAC)."""
+    auth_error = _require_signature()
+    if auth_error:
+        return auth_error
     pending = [a for a in _read_queue() if a.get("status") == "pending"]
     # An action is 'pending' unless a later line resolved it; collapse by id.
     resolved = {a["id"] for a in _read_queue() if a.get("status") in ("approved", "denied")}
@@ -736,8 +757,16 @@ def list_pending():
 
 @app.route("/approve", methods=["POST"])
 def approve_action():
-    """Human-of-record approves (and thereby executes) a drafted isolation."""
-    body = request.json or {}
+    """Human-of-record approves (and thereby executes) a drafted isolation.
+
+    Authenticated (HMAC) — this endpoint EXECUTES device isolation, so it must be
+    gated to the same bar as /alert; an open /approve would let any caller execute
+    a drafted block.
+    """
+    auth_error = _require_signature()
+    if auth_error:
+        return auth_error
+    body = request.get_json(silent=True) or {}
     action_id = body.get("id")
     approver = body.get("approver", "unknown")
     if not action_id:
@@ -788,11 +817,19 @@ def trigger_weekly_report():
     Responds immediately with 202 Accepted; the PDF is generated and
     delivered to Slack + ntfy in the background thread.
 
-    Invoke manually:
-        curl -s -X POST http://localhost:5000/weekly-report
-    Or schedule via cron:
-        0 8 * * 1  curl -s -X POST http://localhost:5000/weekly-report
+    Authenticated (HMAC) — the trigger spawns ES + hosted-LLM + Slack work, so an
+    open endpoint is a cost/DoS amplifier; the caller signs the request body
+    (empty body is fine) with SOC_AGENT_HMAC_SECRET.
+
+    Invoke manually (sign the empty body):
+        SIG="sha256=$(printf '' | openssl dgst -sha256 -hmac "$SOC_AGENT_HMAC_SECRET" | awk '{print $2}')"
+        curl -s -X POST -H "x-elastic-signature: $SIG" http://localhost:5000/weekly-report
+    Or schedule via cron with the same signed header.
     """
+    auth_error = _require_signature()
+    if auth_error:
+        return auth_error
+
     def _run():
         try:
             result = run_reporting_pipeline()

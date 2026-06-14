@@ -96,6 +96,13 @@ class AlertResponseTests(unittest.TestCase):
             headers["x-elastic-signature"] = sig
         return self.client.post(path, data=body, headers=headers)
 
+    def _get_pending(self, sign=True):
+        """GET /pending is HMAC-gated; sign the (empty) body like an operator would."""
+        headers = {}
+        if sign:
+            headers["x-elastic-signature"] = _sign(b"")
+        return self.client.get("/pending", headers=headers)
+
     # --- WS0.2 authentication ------------------------------------------------
     def test_missing_signature_rejected(self):
         r = self._post({"severity": "critical", "source_mac": GOOD_MAC}, sign=False)
@@ -107,6 +114,33 @@ class AlertResponseTests(unittest.TestCase):
         self.assertEqual(r.status_code, 401)
         self.mock_dispatch.assert_not_called()
 
+    # --- privileged-endpoint authentication (audit P0-2) ---------------------
+    def test_approve_unsigned_rejected_and_never_executes(self):
+        # First draft a real action (signed) so a valid target exists to approve.
+        draft = self._post({"severity": "critical", "source_ip": "1.2.3.4",
+                            "source_mac": GOOD_MAC}).get_json()
+        # An UNSIGNED /approve for that action must be refused and never dispatch.
+        r = self._post({"id": draft["action_id"], "approver": "attacker"},
+                       sign=False, path="/approve")
+        self.assertEqual(r.status_code, 401)
+        self.mock_dispatch.assert_not_called()
+
+    def test_approve_invalid_signature_rejected(self):
+        draft = self._post({"severity": "critical", "source_ip": "1.2.3.4",
+                            "source_mac": GOOD_MAC}).get_json()
+        r = self._post({"id": draft["action_id"], "approver": "attacker"},
+                       tamper=True, path="/approve")
+        self.assertEqual(r.status_code, 401)
+        self.mock_dispatch.assert_not_called()
+
+    def test_pending_unsigned_rejected(self):
+        r = self._get_pending(sign=False)
+        self.assertEqual(r.status_code, 401)
+
+    def test_weekly_report_unsigned_rejected(self):
+        r = self._post({}, sign=False, path="/weekly-report")
+        self.assertEqual(r.status_code, 401)
+
     # --- §12.3 draft-by-default (autonomous OFF) -----------------------------
     def test_critical_valid_mac_drafts_not_executes_by_default(self):
         r = self._post({"severity": "critical", "source_ip": "1.2.3.4",
@@ -115,7 +149,7 @@ class AlertResponseTests(unittest.TestCase):
         self.assertEqual(r.get_json()["status"], "drafted")
         self.mock_dispatch.assert_not_called()     # NEVER auto-dispatches by default
         # The drafted action is queued for approval.
-        pending = self.client.get("/pending").get_json()["pending"]
+        pending = self._get_pending().get_json()["pending"]
         self.assertTrue(any(a["target_mac"] == GOOD_MAC for a in pending))
 
     def test_malicious_mac_never_dispatches(self):
@@ -151,7 +185,7 @@ class AlertResponseTests(unittest.TestCase):
         self.assertEqual(r.get_json()["status"], "no_action_protected_asset")
         self.mock_dispatch.assert_not_called()     # protected asset, even with flag on
         # And nothing was drafted for it either.
-        pending = self.client.get("/pending").get_json()["pending"]
+        pending = self._get_pending().get_json()["pending"]
         self.assertFalse(any(a["target_ip"] == EXCLUDED_IP for a in pending))
 
     # --- approval flow: human executes a drafted action ----------------------
