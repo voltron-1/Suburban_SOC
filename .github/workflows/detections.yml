@@ -14,6 +14,7 @@ on:
       - "docs/detections/**"
       - "hunts/**"
       - "scripts/setup/build_attack_coverage.py"
+      - "scripts/setup/build_kql_docs.py"
       - ".github/workflows/detections.yml"
   workflow_dispatch:
 
@@ -52,6 +53,9 @@ jobs:
 
       - name: ATT&CK coverage matrix is in sync with the rules (WS1.5)
         run: python scripts/setup/build_attack_coverage.py --check
+
+      - name: SIEM KQL docs are in sync with the rules (audit P1-18)
+        run: python scripts/setup/build_kql_docs.py --check
 
       - name: Hunt library is well-formed (WS2.2)
         run: |

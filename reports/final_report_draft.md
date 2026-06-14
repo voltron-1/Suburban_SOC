@@ -32,13 +32,15 @@ The Suburban-SOC project addresses the growing need for enhanced cybersecurity i
 *   **Kibana Dashboard:** A user-friendly interface visualizes network trends and anomalies, allowing SOC analysts to monitor both real-time and historical security events.
 
 ## SOAR Response Layer
-*   **Trigger:** A Kibana Watcher (`soar_quarantine_alert`, `rules/elastic_watcher/soar_quarantine_alert.json`) polls every minute against `logstash-security-*` and fires on any of three detection paths:
-    *   **IOC C2 Comms** — `zeek.conn` events with a `threat.indicator.domain` field populated.
-    *   **Port Scan** — `zeek.notice` events where `note = Scan::Port_Scan`.
-    *   **SSH Brute Force** — 5 or more `auth_success=false` events from the same `source.ip` in `zeek.ssh` within the polling window (enforced via aggregation `min_doc_count: 5`).
+*   **Trigger:** Two complementary detection paths feed the AI agent's signed `/alert` webhook:
+    *   **Live Intel / C2 (ingest-time)** — `configs/logstash.conf` signs and POSTs `/alert` the moment a Zeek **Intel-framework** match is enriched to `threat.indicator.value` (WS1.1). This replaces the legacy `threat.indicator.domain` path, which the pipeline never populates.
+    *   **Kibana Watcher** (`soar_quarantine_alert`, `rules/elastic_watcher/soar_quarantine_alert.json`) polls every minute against `logstash-security-*` and fires on:
+        *   **Port Scan** — `zeek.notice` events where `note = Scan::Port_Scan`.
+        *   **SSH Brute Force** — 5 or more `auth_success=false` events from the same `source.ip` in `zeek.ssh` within the polling window (`min_doc_count: 5`).
+    *   *(The watcher still carries a legacy `threat.indicator.domain` clause; because that field is unpopulated, live-intel detection runs through the Logstash path above — not the watcher.)*
 *   **AI Triage:** The Flask-based `soc_ai_agent` service (port `5000`) receives the Watcher webhook, calls an LLM (`llama3.1` via local Ollama by default; hosted model gated behind `LLM_ALLOW_HOSTED=true`) to summarize the threat and map it to MITRE ATT&CK, and classifies severity.
 *   **Human-Approval Queue:** Per CDP §12.3, the agent drafts an isolation action and enqueues it for a human-of-record to approve via `POST /approve`. Because `/approve` (and `/pending`) execute/disclose containment, both are HMAC-authenticated to the same bar as `/alert` — the caller signs the request body with `SOC_AGENT_HMAC_SECRET` (`x-elastic-signature`), and an unsigned call fails closed (401). Autonomous execution is gated behind `AUTONOMOUS_ISOLATION=true`.
-*   **Quarantine:** Upon approval (or autonomous flag), `isolate.sh` SSHes into the OpenWrt router and installs a persistent `uci` MAC-based DROP firewall rule (`SOAR_QUARANTINE_<MAC>`). The rule is idempotent and survives DHCP rotation.
+*   **Quarantine:** Upon approval (or the autonomous flag), the slim agent — which has no ssh/sudo — routes containment to the **Hive-Mind Broker** over an HMAC-signed, replay-protected webhook (#109). The broker applies an `nftables` DROP for the attacker IP (`nft add rule inet fw4 input ip saddr <ip> drop`) on the alerting tenant's OpenWrt router(s) from its per-tenant inventory; it never broadcasts across tenants. (The standalone `isolate.sh` MAC-based `uci` rule is the legacy single-router path it replaced.)
 *   **Exclusion List:** The `governance/exclusion_list.txt` prevents the agent from ever isolating core infrastructure (e.g., the gateway itself).
 *   **Notifications:** ntfy mobile push + Discord SOC channel embed delivered in parallel, both carrying device IP, MAC, reason, and the AI-generated analysis.
 *   **Weekly CISO Report:** `POST /weekly-report` triggers an automated pipeline (`weekly_ciso_report.py`) that queries Elasticsearch for alert metrics, computes MTTD and NIST CSF distribution, generates an LLM executive summary, compiles a PDF via WeasyPrint, and delivers it to Slack + ntfy.

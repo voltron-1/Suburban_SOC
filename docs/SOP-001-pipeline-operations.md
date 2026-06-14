@@ -140,7 +140,7 @@ Starts a Zeek Docker container in `--network host` mode with `NET_ADMIN` and `NE
 
 ---
 
-## SOP-002: Filebeat — Install & Configure
+## SOP-001-F: Filebeat — Install & Configure
 
 **Script:** `scripts/setup/install_filebeat.sh`  
 **Owner:** SA  
@@ -187,7 +187,7 @@ sudo systemctl status filebeat
 
 ---
 
-## SOP-003: Logstash Pipeline
+## SOP-001-G: Logstash Pipeline
 
 **Config:** `configs/logstash.conf`  
 **Owner:** SA / PL  
@@ -213,7 +213,7 @@ export ELASTIC_PASSWORD=your_password_here
 
 ---
 
-## SOP-004: Clear Logs (Reset Environment)
+## SOP-001-H: Clear Logs (Reset Environment)
 
 **Script:** `scripts/setup/clear_logs.sh`  
 **Owner:** SA  
@@ -235,7 +235,7 @@ sudo ./clear_logs.sh
 
 ---
 
-## SOP-005: End-to-End Pipeline Startup Sequence
+## SOP-001-I: End-to-End Pipeline Startup Sequence
 
 Follow this order when starting the full pipeline from scratch:
 
@@ -271,4 +271,4 @@ Follow this order when starting the full pipeline from scratch:
 - [Logstash Config](../configs/logstash.conf)
 - [Zeek ELK Pipeline Docs](../docs/Zeek_ELK_Pipeline.md)
 - [Network Topology](../docs/network_topology.md)
-- [Wiki: Architecture](https://github.com/sterlinggarnett/cis3353_s26_TL_SG_MF/wiki/Architecture)
+- [Wiki: Architecture](https://github.com/sterlinggarnett/Suburban_SOC/wiki/Architecture)
