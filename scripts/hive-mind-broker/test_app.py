@@ -6,6 +6,7 @@ import hmac
 import hashlib
 import json
 import os
+import time
 
 # Set the HMAC secret before importing app (read at import).
 os.environ["HIVE_MIND_SECRET"] = "test_secret"
@@ -20,45 +21,47 @@ TENANT = "home-smith"
 EXCLUDED_IP = "192.168.1.1"
 
 
-def _sign(body: bytes) -> str:
-    return "sha256=" + hmac.new(HMAC_SECRET, body, hashlib.sha256).hexdigest()
+def _sign(body: bytes, ts=None):
+    """Return (timestamp, 'sha256=<hmac>') for the replay-protected scheme: HMAC over
+    '<timestamp>.' + body (audit P1-1)."""
+    ts = ts or str(int(time.time()))
+    sig = "sha256=" + hmac.new(HMAC_SECRET, f"{ts}.".encode() + body, hashlib.sha256).hexdigest()
+    return ts, sig
 
 
-def _post(payload, sign=True, tamper=False):
-    body = json.dumps(payload).encode("utf-8")
+def _signed_headers(body, sign=True, tamper=False, ts=None):
     headers = {}
     if sign:
-        sig = _sign(body)
+        tstamp, sig = _sign(body, ts)
         if tamper:
             sig = sig[:-1] + ("0" if sig[-1] != "0" else "1")
         headers["x-elastic-signature"] = sig
-    return client.post("/webhook/alert", data=body, headers=headers)
+        headers["x-elastic-timestamp"] = tstamp
+    return headers
+
+
+def _post(payload, sign=True, tamper=False, ts=None):
+    body = json.dumps(payload).encode("utf-8")
+    return client.post("/webhook/alert", data=body,
+                       headers=_signed_headers(body, sign, tamper, ts))
 
 
 def _get_pending(sign=True):
     """GET /pending is HMAC-gated; sign the (empty) body like an operator would."""
-    headers = {}
-    if sign:
-        headers["x-elastic-signature"] = _sign(b"")
-    return client.get("/pending", headers=headers)
+    return client.get("/pending", headers=_signed_headers(b"", sign))
 
 
 def _approve(payload, sign=True, tamper=False):
     """POST /approve is HMAC-gated; sign the request body."""
     body = json.dumps(payload).encode("utf-8")
-    headers = {}
-    if sign:
-        sig = _sign(body)
-        if tamper:
-            sig = sig[:-1] + ("0" if sig[-1] != "0" else "1")
-        headers["x-elastic-signature"] = sig
-    return client.post("/approve", data=body, headers=headers)
+    return client.post("/approve", data=body, headers=_signed_headers(body, sign, tamper))
 
 
 @pytest.fixture(autouse=True)
 def _no_real_ssh():
     """Keep the dispatcher from making real SSH calls; reset the queue per test."""
     broker_app._append_action  # touch to ensure import
+    broker_app._seen_sigs.clear()   # isolate the replay/nonce cache per test (P1-1)
     if os.path.exists(broker_app.APPROVAL_QUEUE):
         os.remove(broker_app.APPROVAL_QUEUE)
     with mock.patch.object(broker_app, "dispatch_block_to_all",
@@ -114,15 +117,10 @@ def test_excluded_ip_refused(_no_real_ssh):
     assert _get_pending().json()["count"] == 0
 
 
-def _post_dispatch(payload, sign=True, tamper=False):
+def _post_dispatch(payload, sign=True, tamper=False, ts=None):
     body = json.dumps(payload).encode("utf-8")
-    headers = {}
-    if sign:
-        sig = _sign(body)
-        if tamper:
-            sig = sig[:-1] + ("0" if sig[-1] != "0" else "1")
-        headers["x-elastic-signature"] = sig
-    return client.post("/webhook/dispatch", data=body, headers=headers)
+    return client.post("/webhook/dispatch", data=body,
+                       headers=_signed_headers(body, sign, tamper, ts))
 
 
 # --- #109: /webhook/dispatch — immediate, pre-approved block -------------------
@@ -217,3 +215,32 @@ def test_known_hosts_insecure_opt_out_returns_none():
     import dispatcher
     with mock.patch.object(dispatcher, "INSECURE_SSH", True):
         assert dispatcher._resolve_known_hosts() is None
+
+
+# --- audit P1-1: replay protection on the dispatch path ------------------------
+def test_replayed_dispatch_rejected(_no_real_ssh):
+    # An immediate dispatch is accepted once; replaying the EXACT same body +
+    # timestamp + signature is refused (nonce already seen).
+    payload = {"attacker_ip": "9.9.9.9", "tenant_id": TENANT}
+    ts = str(int(time.time()))
+    first = _post_dispatch(payload, ts=ts)
+    assert first.status_code == 200 and first.json()["executed"] is True
+    replay = _post_dispatch(payload, ts=ts)
+    assert replay.status_code == 401
+    _no_real_ssh.assert_awaited_once()          # the replay never reaches dispatch
+
+
+def test_stale_timestamp_rejected(_no_real_ssh):
+    old = str(int(time.time()) - (broker_app.HMAC_REPLAY_WINDOW + 60))
+    r = _post_dispatch({"attacker_ip": "9.9.9.9", "tenant_id": TENANT}, ts=old)
+    assert r.status_code == 401
+    _no_real_ssh.assert_not_awaited()
+
+
+def test_missing_timestamp_rejected():
+    # A valid signature with no timestamp header is refused.
+    body = json.dumps({"attacker_ip": "9.9.9.9", "tenant_id": TENANT}).encode("utf-8")
+    _, sig = _sign(body)
+    r = client.post("/webhook/dispatch", data=body,
+                    headers={"x-elastic-signature": sig})  # no timestamp
+    assert r.status_code == 401

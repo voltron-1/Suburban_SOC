@@ -36,13 +36,15 @@ if [[ -z "$SECRET" ]]; then
 fi
 
 pass=0; fail=0
-sign() { printf '%s' "$1" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $NF}'; }
+# Replay-protected scheme (audit P1-1): HMAC over "<timestamp>.<body>".
+sign() { printf '%s' "${1}.${2}" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $NF}'; }
 
-# $1=label  $2=expected_code  $3=body  $4=signature-header-value ("" to omit)
+# $1=label  $2=expected_code  $3=body  $4=signature-header ("" to omit)  $5=timestamp ("" to omit)
 check() {
-  local label="$1" want="$2" body="$3" sig="${4:-}"
+  local label="$1" want="$2" body="$3" sig="${4:-}" ts="${5:-}"
   local hdr=(-H "Content-Type: application/json")
   [[ -n "$sig" ]] && hdr+=(-H "x-elastic-signature: $sig")
+  [[ -n "$ts" ]]  && hdr+=(-H "x-elastic-timestamp: $ts")
   local code
   code=$(curl -s -o /dev/null -w '%{http_code}' "${hdr[@]}" \
          --data-binary "$body" "$AGENT_URL/alert" || echo "000")
@@ -59,15 +61,17 @@ echo "[*] Agent: $AGENT_URL"
 check "unsigned request rejected" 401 \
   '{"severity":"critical","source_ip":"203.0.113.5","source_mac":""}' ""
 
-# 2. Tampered signature -> 401
+# 2. Tampered signature (valid timestamp) -> 401
 BODY='{"severity":"critical","source_ip":"203.0.113.5","source_mac":""}'
-check "tampered signature rejected" 401 "$BODY" "sha256=deadbeef"
+check "tampered signature rejected" 401 "$BODY" "sha256=deadbeef" "$(date +%s)"
 
 # 3. Correctly-signed, Logstash-exact body, EMPTY mac -> 200 (no quarantine).
 #    This is byte-for-byte what configs/logstash.conf's ruby filter emits:
-#    {"severity":"critical","source_ip":"<ip>","source_mac":"<mac>"}
+#    {"severity":"critical","source_ip":"<ip>","source_mac":"<mac>"}, signed over
+#    "<timestamp>.<body>" with the freshness timestamp sent alongside (audit P1-1).
 LS_BODY='{"severity":"critical","source_ip":"203.0.113.5","source_mac":""}'
-check "valid signature accepted (Logstash scheme)" 200 "$LS_BODY" "sha256=$(sign "$LS_BODY")"
+LS_TS=$(date +%s)
+check "valid signature accepted (Logstash scheme)" 200 "$LS_BODY" "sha256=$(sign "$LS_TS" "$LS_BODY")" "$LS_TS"
 
 # 4. OPTIONAL: signed + valid MAC -> 200. By default this is DRAFTED for approval
 #    (no router action). With AUTONOMOUS_ISOLATION=true the agent dispatches the
@@ -76,7 +80,8 @@ if [[ "${RUN_QUARANTINE:-0}" == "1" ]]; then
   echo "[!] RUN_QUARANTINE=1 — critical+MAC alert. Drafts by default; with"
   echo "    AUTONOMOUS_ISOLATION=true it dispatches to the hive-mind-broker."
   Q_BODY='{"severity":"critical","source_ip":"203.0.113.5","source_mac":"AA:BB:CC:DD:EE:FF"}'
-  check "valid signature + valid MAC accepted" 200 "$Q_BODY" "sha256=$(sign "$Q_BODY")"
+  Q_TS=$(date +%s)
+  check "valid signature + valid MAC accepted" 200 "$Q_BODY" "sha256=$(sign "$Q_TS" "$Q_BODY")" "$Q_TS"
 fi
 
 echo
