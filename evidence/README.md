@@ -5,6 +5,8 @@
 > Screenshots are stored in two locations:
 > - **Repository:** `evidence/screenshots/` (GitHub-hosted, linked below)
 > - **Wiki:** [Suburban_SOC Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki) (drag-and-drop uploads)
+>
+> **Re-capture in progress (audit P0-4).** Some screenshots below predate the security audit and may have been generated from **mock data**. They are being re-captured from **real telemetry** and re-verified per [issue #147](https://github.com/sterlinggarnett/Suburban_SOC/issues/147) (evidence checklist + reviewer instructions). Treat any row not yet re-verified as **PENDING**.
 
 ---
 

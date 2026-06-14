@@ -315,6 +315,10 @@ Please see our Wiki for detailed procedures on contributing to this project. We 
 ### 2. Manual Testing:
 * Generating sample PCAP files containing known traffic signatures and verifying their appearance in the Kibana dashboard accurately.
 
+### 3. Evidence & Real-Telemetry Validation:
+* Dashboard and detection evidence must come from **real telemetry, not mock data**. The [`tests/anomaly_simulation/`](tests/anomaly_simulation) suite drives real techniques end-to-end (port scan `T1046`, SSH brute force `T1110`, EICAR download, live intel match), and `verify_detections.py` confirms the signals reached the SIEM.
+* The full re-validation effort - evidence checklist (all dashboards + the detection->SOAR loop + platform integrity), reviewer instructions, and the SOC metrics to record (MTTD / MTTR / coverage / ingest-lag / SLO attainment) - is tracked in **[issue #147](https://github.com/sterlinggarnett/Suburban_SOC/issues/147)**. Some existing `evidence/` screenshots predate this and are being re-captured (audit **P0-4**).
+
 ## License
 This project is licensed under the MIT License. (Make sure you include a `LICENSE` file to accompany this).
 
