@@ -26,6 +26,11 @@
 # single source of truth for certs.)
 # =============================================================================
 
+# Explicit Compose project name so this stack never collides with another repo
+# whose compose also lives in a scripts/setup/ directory (Docker otherwise derives
+# the project name "setup" from the folder, cross-wiring the two stacks).
+name: suburban-soc
+
 services:
   # --- One-shot: generate certs, set passwords, provision least-priv users -----
   setup:
