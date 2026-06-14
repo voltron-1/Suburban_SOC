@@ -28,6 +28,9 @@ from elasticsearch import Elasticsearch
 # 0. CONFIGURATION — mirrors agent_app.py env-var conventions
 # ---------------------------------------------------------------------------
 ES_HOST         = os.getenv("ES_HOST",          "https://localhost:9200")
+# FAIL CLOSED (audit P1-2): verify the ES TLS cert against the stack CA instead of
+# verify_certs=False. Set ES_CA to your CA path, or "" to use the system trust store.
+ES_CA           = os.getenv("ES_CA",            "/certs/ca/ca.crt")
 ES_API_KEY      = os.getenv("ES_API_KEY",        "your_es_api_key")
 LLM_API_KEY     = os.getenv("LLM_API_KEY",       "your_api_key_here")   # shared with agent_app
 LLM_API_URL     = os.getenv("LLM_API_URL",       "https://api.openai.com/v1/chat/completions")
@@ -88,7 +91,8 @@ def fetch_and_calculate_metrics() -> dict:
     }
 
     try:
-        es = Elasticsearch(ES_HOST, api_key=ES_API_KEY, verify_certs=False)
+        es = Elasticsearch(ES_HOST, api_key=ES_API_KEY,
+                           verify_certs=True, ca_certs=(ES_CA or None))
         res = es.search(index=".alerts-security.alerts-*", body=query)
         hits = res["hits"]["hits"]
         log.info("Retrieved %d alerts from ES.", len(hits))
