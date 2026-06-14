@@ -1,10 +1,10 @@
 #!/bin/bash
 
 # ==============================================================================
-# UIW_SOC - Repository Posture & Agile Gap Analysis
+# Suburban-SOC - Repository Posture & Agile Gap Analysis
 # ==============================================================================
 
-REPO="voltron-1/UIW_SOC"
+REPO="sterlinggarnett/Suburban_SOC"
 
 # ANSI Color Codes for terminal formatting
 GREEN='\033[0;32m'
