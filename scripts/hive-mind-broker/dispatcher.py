@@ -1,6 +1,6 @@
 import asyncio
 import asyncssh
-import re
+import ipaddress
 import sys
 import os
 from pathlib import Path
@@ -48,21 +48,39 @@ def _resolve_known_hosts():
 
 
 def load_excluded_ips() -> set:
-    """Read exact IPv4 entries from the canonical exclusion list."""
+    """Read IP/CIDR entries (IPv4 or IPv6, single address or network) from the
+    canonical exclusion list (audit P2-7). MAC lines and junk are skipped — the
+    broker blocks by IP only."""
     ips = set()
     try:
         with open(EXCLUSION_LIST, "r", encoding="utf-8") as fh:
             for line in fh:
                 entry = line.split("#", 1)[0].strip()
-                if entry and re.match(r"^(?:\d{1,3}\.){3}\d{1,3}$", entry):
+                if not entry:
+                    continue
+                try:
+                    ipaddress.ip_network(entry, strict=False)  # validates v4/v6/CIDR
                     ips.add(entry)
+                except ValueError:
+                    pass  # not an IP/CIDR (e.g. a MAC) — broker excludes by IP
     except OSError as e:
         print(f"[-] EXCLUSION LIST UNREADABLE ({EXCLUSION_LIST}): {e}", file=sys.stderr)
     return ips
 
 
 def is_excluded_ip(attacker_ip: str) -> bool:
-    return attacker_ip in load_excluded_ips()
+    """True if attacker_ip falls inside any excluded address/CIDR (v4 or v6)."""
+    try:
+        addr = ipaddress.ip_address(attacker_ip)
+    except ValueError:
+        return False
+    for entry in load_excluded_ips():
+        try:
+            if addr in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 # Formulate the nftables drop command (Task 2.2.1)

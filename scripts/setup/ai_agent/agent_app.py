@@ -316,10 +316,28 @@ def _load_exclusions():
     return ips, macs
 
 
+def _ip_excluded(ip: str, entries) -> bool:
+    """True if `ip` falls inside any exclusion entry. Each entry may be a single
+    IPv4/IPv6 address or a CIDR network (audit P2-7) — `192.168.1.0/24` protects the
+    whole subnet, IPv6 is supported, and a non-IP entry falls back to exact match."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    for entry in entries:
+        try:
+            if addr in ipaddress.ip_network(entry, strict=False):
+                return True
+        except ValueError:
+            if entry == ip:   # not an IP/CIDR — exact-string fallback
+                return True
+    return False
+
+
 def is_excluded(ip: str = "", mac: str = ""):
     """Return the matching exclusion entry if ip/mac is protected, else None."""
     ips, macs = _load_exclusions()
-    if ip and ip in ips:
+    if ip and _ip_excluded(ip, ips):
         return ip
     if mac and _normalize_mac(mac) in macs:
         return mac
@@ -833,7 +851,13 @@ def approve_action():
     if not action_id:
         return jsonify({"error": "missing 'id'"}), 400
 
-    pending = {a["id"]: a for a in _read_queue() if a.get("status") == "pending"}
+    # Subtract already-resolved ids (audit P2-9) so an action can't be approved (and
+    # executed) twice — the queue is append-only, so the original 'pending' line
+    # survives after approval. Mirrors list_pending and the broker.
+    queue = _read_queue()
+    resolved = {a["id"] for a in queue if a.get("status") in ("approved", "denied")}
+    pending = {a["id"]: a for a in queue
+               if a.get("status") == "pending" and a["id"] not in resolved}
     action = pending.get(action_id)
     if not action:
         return jsonify({"error": f"no pending action {action_id}"}), 404

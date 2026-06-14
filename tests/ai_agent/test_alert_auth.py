@@ -239,6 +239,20 @@ class AlertResponseTests(unittest.TestCase):
         self.mock_dispatch.assert_called_once()    # the human approval dispatches it
         self.assertEqual(self.mock_dispatch.call_args[0][0], "1.2.3.4")
 
+    def test_approve_twice_does_not_double_execute(self):
+        # audit P2-9: re-approving an already-resolved id must NOT dispatch again.
+        action_id = self._post({"severity": "critical", "source_ip": "1.2.3.4",
+                                "source_mac": GOOD_MAC}).get_json()["action_id"]
+        self.assertEqual(self._post({"id": action_id, "approver": "a1"},
+                                    path="/approve").status_code, 200)
+        self.mock_dispatch.assert_called_once()
+        # Second approval of the same id (different approver -> distinct signature, so
+        # it passes replay/auth and reaches the dedup): now resolved -> 404, no
+        # second dispatch.
+        second = self._post({"id": action_id, "approver": "a2"}, path="/approve")
+        self.assertEqual(second.status_code, 404)
+        self.mock_dispatch.assert_called_once()    # still exactly one dispatch
+
     # --- WS0.3 tenant-scoped routing (the broker owns router resolution) ------
     def test_named_tenant_passed_to_broker_on_autonomous(self):
         # The agent forwards the tenant; the broker maps it to that tenant's routers.
@@ -288,6 +302,15 @@ class TenantResolverTests(unittest.TestCase):
         self.assertEqual(agent_app.safe_tenant("Home-Smith"), "home-smith")
         self.assertEqual(agent_app.safe_tenant("bad slug!"), "unassigned")
         self.assertEqual(agent_app.safe_tenant(None), "unassigned")
+
+    def test_ip_excluded_cidr_and_ipv6(self):
+        # audit P2-7: exclusion entries may be CIDR or IPv6, not just exact IPv4.
+        entries = {"10.0.0.0/24", "2001:db8::/32", "8.8.8.8"}
+        self.assertTrue(agent_app._ip_excluded("10.0.0.5", entries))    # in /24
+        self.assertFalse(agent_app._ip_excluded("10.0.1.5", entries))   # outside
+        self.assertTrue(agent_app._ip_excluded("2001:db8::1", entries)) # IPv6 in /32
+        self.assertTrue(agent_app._ip_excluded("8.8.8.8", entries))     # exact
+        self.assertFalse(agent_app._ip_excluded("nonsense", entries))
 
     def test_dispatch_fails_closed_without_secret(self):
         # #109: no HIVE_MIND_SECRET => the agent never dispatches (fails closed).
