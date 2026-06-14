@@ -251,6 +251,40 @@ services:
     command:
       - "bash /lifecycle/apply-lifecycle.sh"
 
+  # audit P1-11: make configs/elasticsearch/roles/*.json the single source of truth
+  # for RBAC and actually APPLY it. The role JSONs were applied by nothing and had
+  # drifted from the bootstrap roles the `setup` service creates inline (e.g.
+  # logstash_writer's asset-inventory-* grant). This idempotent one-shot upserts
+  # every role JSON after setup (which already created the users that reference
+  # them), so the committed definitions win. scripts/setup/apply_roles.sh is the
+  # host-run equivalent over the same files. Uses --cacert (not -k).
+  roles:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
+    container_name: soc_roles
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    volumes:
+      - ../../configs/elasticsearch/roles:/roles:ro
+      - certs:/certs:ro
+    networks:
+      - soc-mesh-net
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        for f in /roles/*.json; do
+          role=$$(basename "$$f" .json)
+          code=$$(curl -s -o /dev/null -w '%{http_code}' --cacert /certs/ca/ca.crt \
+            -u "elastic:$${ELASTIC_PASSWORD}" -X PUT \
+            "https://elasticsearch:9200/_security/role/$$role" \
+            -H 'Content-Type: application/json' --data-binary "@$$f")
+          printf '    role %-26s -> HTTP %s\n' "$$role" "$$code"
+        done
+        echo "RBAC roles installed (audit P1-11)."
+
   logstash:
     image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-9.3.2}
     container_name: logstash
