@@ -65,6 +65,22 @@ M1–M6 are the completed MVP; M7–M10 follow the four phases of the
 | M9 | Operational Maturity (SOC-CMM Level 3) (Phase 2) | ✅ Complete (5/5) |
 | M10 | SOC 2 Type II Technical Control Readiness (Phase 3) | ✅ Complete — 7/7 (WS3.1–3.7) |
 
+> **What "✅ Complete" means here (scope note, audit P1-12/P1-13).** A milestone is
+> marked complete when its tracked issues/workstreams were implemented and merged —
+> it is **not** a claim of independent operational validation, sustained-period
+> evidence, or third-party certification. In particular:
+> - **SOC 2 Type II (M10)** here means the *technical control design is in place*
+>   ("readiness"), **not** that an audited Type II report exists — Type II requires
+>   controls operating over a defined period, and the change-evidence ledger
+>   ([`docs/deploy-changelog.md`](docs/deploy-changelog.md)) is not yet populated
+>   from real deploys.
+> - **SOC-CMM Level 3 (M9)** is a *self-assessed* maturity target, not an external
+>   rating.
+> - The [SOC Maturity Roadmap](docs/SOC-maturity-roadmap.md) is the design/target
+>   source of truth; where it, the wiki, or sprint notes disagree with this table,
+>   treat them as the more conservative current state and reconcile before citing
+>   "complete" externally.
+
 ### M7 — Phase 0 workstream breakdown
 
 Phase 0 ("secure the platform & lay the tenancy foundation") is the current focus —
@@ -89,12 +105,19 @@ IP-block dispatched to the broker, tenant-scoped, instead of a direct `isolate.s
 Individual improvements merged toward the in-progress Phase 0 (M7) and detection
 plane (M8) — these are work items within those milestones, not milestone completions:
 
-- **Detection framework enrichment (PR #112).** `configs/logstash.conf` classifies
-  detections into ECS `threat.technique.*` / `threat.tactic.*` and `nist.function`:
-  all **10 Sigma rules** (`rules/sigma/`) plus the Zeek network detections (port
-  scan `T1046`, SSH brute force `T1110`) — 12 techniques total. This powers the
-  Executive dashboard's MITRE ATT&CK heatmap and NIST CSF donut. A stdlib test
-  (`tests/pipeline/test_framework_enrichment.py`) keeps the rules and pipeline in sync.
+- **Detection framework enrichment (PR #112).** The detection plane spans
+  **21 ATT&CK techniques across 8 tactics** (see
+  [`docs/detections/attack-coverage.md`](docs/detections/attack-coverage.md)). The
+  **19 Sigma rules** (`rules/sigma/`) each carry their own ATT&CK technique tag and
+  convert to Elastic SIEM rules via pySigma (`deploy_detections.sh`) — the rules,
+  not the pipeline, are the single source of truth for endpoint detection. In
+  addition, `configs/logstash.conf` classifies the two Zeek **network** detections —
+  port scan `T1046`, SSH brute force `T1110` — into ECS `threat.technique.*` /
+  `threat.tactic.*` / `nist.function`. Together these power the Executive
+  dashboard's MITRE ATT&CK heatmap and NIST CSF donut. A stdlib test
+  (`tests/pipeline/test_framework_enrichment.py`) keeps the Zeek pipeline enrichment
+  in sync with the rule corpus (and asserts endpoint Sigma logic is *not* inlined in
+  the pipeline).
 - **SOAR response model (PR #113).** The AI agent now follows a human-in-the-loop
   posture (CDP §12.3/§12.4): the §12.4 **exclusion list** is checked first
   (protected infrastructure is never isolated *or* drafted); **autonomous

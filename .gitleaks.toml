@@ -31,6 +31,13 @@ paths = [
   '''AUDIT_REPORT\.md''',      # the audit documents (redacted) examples of the leak
   '''\.gitleaks\.toml''',      # this config necessarily contains the patterns
 ]
+regexes = [
+  # Env-var references, not secrets: `elastic:$VAR`, `elastic:${VAR}` and the
+  # docker-compose-escaped `elastic:$${VAR}` (the `$$` collapses to `$` at runtime,
+  # so the password is read from the container env, never inlined). Stops the stock
+  # curl-auth-user rule flagging the provisioning curls in docker-compose.yml.
+  '''elastic:\$+\{?[A-Za-z_][A-Za-z0-9_]*\}?''',
+]
 # audit P0-1: the `SuburbanSOC2026!` literal was committed in past history. It has
 # been ROTATED/INVALIDATED (the live elastic password is now the random .env value)
 # and scrubbed from the working tree, but by project decision history is NOT being

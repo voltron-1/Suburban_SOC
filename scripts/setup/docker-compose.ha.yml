@@ -1,15 +1,24 @@
 # =============================================================================
-# docker-compose.ha.yml — WS2.5: 3-node High-Availability Elasticsearch cluster.
+# docker-compose.ha.yml — WS2.5: 3-node Elasticsearch HA TOPOLOGY SKETCH.
 #
-# The single-node dev stack (docker-compose.yml) is not HA: one ES node, replicas 0.
-# This is the PRODUCTION topology — three master+data nodes with TLS, so a node loss
-# keeps the cluster green and serving (set index replicas >= 1; data survives).
+# ⚠️ NOT a turnkey HA deployment — this is a starting-point topology, not a drop-in
+#    replacement for docker-compose.yml. Before the "kill-a-node stays green" drill
+#    below actually holds, you MUST also:
+#      1. Set index replicas >= 1. The committed templates pin number_of_replicas:0
+#         (single-node green), so as-is a node loss LOSES primaries and goes
+#         red/yellow. Apply an HA override (e.g. PUT logstash-security-*/_settings
+#         {"index.number_of_replicas":1}) or a separate HA template.
+#      2. Provision certs/users/roles/snapshot repo — this file has NO `setup`
+#         service (the single-node stack's setup does all of that).
+#      3. Bring up the app tier separately — Kibana, Logstash, the AI agent and the
+#         broker are NOT defined here.
+#    Treat this as the ES-cluster scaffolding to build on, not a tested prod stack.
 #
 #   cp .env.example .env   # set ELASTIC_PASSWORD etc.
 #   docker compose -f docker-compose.ha.yml up -d
-#   # verify green 3-node cluster:
+#   # verify the 3-node cluster:
 #   curl -sk -u elastic:$ELASTIC_PASSWORD https://localhost:9200/_cluster/health
-#   # kill-a-node drill (cluster stays green if indices have a replica):
+#   # kill-a-node drill (stays green ONLY after step 1 above — replicas >= 1):
 #   docker compose -f docker-compose.ha.yml stop es02
 #
 # Snapshots: point path.repo at object storage in production (see the reliability

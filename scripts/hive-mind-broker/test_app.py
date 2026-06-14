@@ -202,3 +202,18 @@ def test_approve_invalid_signature_rejected(_no_real_ssh):
 
 def test_pending_unsigned_rejected():
     assert client.get("/pending").status_code == 401
+
+
+# --- audit P1-3: SSH host-key verification is strict by default -----------------
+def test_known_hosts_strict_by_default():
+    import dispatcher
+    with mock.patch.object(dispatcher, "INSECURE_SSH", False):
+        # Returns the known_hosts PATH (asyncssh then verifies), never None.
+        assert dispatcher._resolve_known_hosts() == dispatcher.KNOWN_HOSTS
+        assert dispatcher._resolve_known_hosts() is not None
+
+
+def test_known_hosts_insecure_opt_out_returns_none():
+    import dispatcher
+    with mock.patch.object(dispatcher, "INSECURE_SSH", True):
+        assert dispatcher._resolve_known_hosts() is None

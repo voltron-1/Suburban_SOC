@@ -228,6 +228,63 @@ services:
     networks:
       - soc-mesh-net
 
+  # audit P1-9: apply the data lifecycle (fs snapshot repo, SLM, ILM policies) and
+  # the data-stream index templates BEFORE Logstash writes. Without this, a fresh
+  # `up` lets Logstash create dynamically-mapped indices OUTSIDE ILM (the drift that
+  # reindex-existing.sh exists to clean up). Idempotent one-shot (every PUT is an
+  # upsert); logstash depends on it completing.
+  lifecycle:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
+    container_name: soc_lifecycle
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - ES_URL=https://elasticsearch:9200
+      - ES_USER=elastic
+    volumes:
+      - ../../configs/elasticsearch:/lifecycle:ro
+    networks:
+      - soc-mesh-net
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - "bash /lifecycle/apply-lifecycle.sh"
+
+  # audit P1-11: make configs/elasticsearch/roles/*.json the single source of truth
+  # for RBAC and actually APPLY it. The role JSONs were applied by nothing and had
+  # drifted from the bootstrap roles the `setup` service creates inline (e.g.
+  # logstash_writer's asset-inventory-* grant). This idempotent one-shot upserts
+  # every role JSON after setup (which already created the users that reference
+  # them), so the committed definitions win. scripts/setup/apply_roles.sh is the
+  # host-run equivalent over the same files. Uses --cacert (not -k).
+  roles:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
+    container_name: soc_roles
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    volumes:
+      - ../../configs/elasticsearch/roles:/roles:ro
+      - certs:/certs:ro
+    networks:
+      - soc-mesh-net
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        for f in /roles/*.json; do
+          role=$$(basename "$$f" .json)
+          code=$$(curl -s -o /dev/null -w '%{http_code}' --cacert /certs/ca/ca.crt \
+            -u "elastic:$${ELASTIC_PASSWORD}" -X PUT \
+            "https://elasticsearch:9200/_security/role/$$role" \
+            -H 'Content-Type: application/json' --data-binary "@$$f")
+          printf '    role %-26s -> HTTP %s\n' "$$role" "$$code"
+        done
+        echo "RBAC roles installed (audit P1-11)."
+
   logstash:
     image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-9.3.2}
     container_name: logstash
@@ -235,6 +292,8 @@ services:
       elasticsearch:
         condition: service_healthy
       cert_pkcs8:
+        condition: service_completed_successfully
+      lifecycle:
         condition: service_completed_successfully
     environment:
       - LS_JAVA_OPTS=-Xms512m -Xmx512m
@@ -327,6 +386,12 @@ services:
       - EXCLUSION_LIST=/governance/exclusion_list.txt
       # Legacy auto-block on /webhook/alert stays OFF; the agent owns approval.
       - AUTONOMOUS_BLOCK_ENABLED=${AUTONOMOUS_BLOCK_ENABLED:-false}
+      # SSH host-key verification (audit P1-3). Default strict: the broker verifies
+      # router host keys against /home/broker/.ssh/known_hosts (pin them with
+      # `ssh-keyscan -t ed25519 <router> >> ~/.ssh/known_hosts` on the host — it is
+      # mounted below). Set BROKER_INSECURE_SSH=true ONLY for a lab/first run to skip
+      # verification (logs loudly).
+      - BROKER_INSECURE_SSH=${BROKER_INSECURE_SSH:-false}
     volumes:
       # Host-specific secrets — mounted read-only, never baked into the image.
       # inventory.yaml is gitignored; copy it from inventory.example.yaml first.
