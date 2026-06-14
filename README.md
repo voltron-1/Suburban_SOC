@@ -244,7 +244,8 @@ This project encompasses the design, development, and testing of an advanced **n
 │   ├── /intel                  # Zeek threat intelligence feed (intel.dat, config.zeek)
 │   ├── /network                # Filebeat configuration (filebeat.yml)
 │   ├── /server                 # Kibana dashboard exports (.ndjson)
-│   └── /zeek_intel             # Zeek intel framework configs
+│   ├── /zeek                    # Zeek TLS/telemetry policy (local.zeek)
+│   └── /detections             # ECS field pipeline (suburban-soc-ecs.yml)
 ├── /docs                       # Technical documentation
 │   ├── SOP-001-pipeline-operations.md
 │   ├── Zeek_ELK_Pipeline.md
@@ -261,8 +262,8 @@ This project encompasses the design, development, and testing of an advanced **n
 │   ├── /agile                  # GitHub project board & issue management scripts
 │   └── /setup                  # Pipeline setup, capture, and AI agent scripts
 │       ├── /ai_agent           # SOC AI agent (Flask webhook, LLM triage, ntfy)
-│       ├── /configs/logstash   # Logstash pipeline config (Docker source of truth)
-│       ├── docker-compose.yml  # ELK + AI agent stack definition
+│       ├── /hive-mind-broker   # (../) HMAC router-block dispatcher (FastAPI)
+│       ├── docker-compose.yml  # ELK + AI agent stack (mounts ../../configs/logstash.conf)
 │       └── soc_pipeline.sh     # Interactive SOP automation menu
 └── /wiki-temp                  # GitHub Wiki source files (submodule)
 ```
@@ -281,7 +282,7 @@ Before you begin, ensure you have the following:
     cd Suburban_SOC
     ```
 2.  **Configure Agents:**
-    Review and modify `/configs/filebeat.yml` and `/configs/logstash.conf` to match your environment.
+    Review and modify `/configs/network/filebeat.yml` and `/configs/logstash.conf` to match your environment.
 3.  **Configure Secrets:**
     The stack runs with security + TLS enabled. Copy the env template and set strong values:
     ```bash
@@ -332,6 +333,11 @@ This project is licensed under the MIT License. (Make sure you include a `LICENS
 * Elasticsearch runs as a single node. User-data indices (`logstash-security-*`, `soar-actions-*`) are `green` via the index templates' `number_of_replicas: 0`; some Elastic-managed system indices remain `yellow` (replicas unassigned on one node). Single-node has no replica fault tolerance — not yet production-ready.
 * The pipeline cannot inspect the payload of HTTPS traffic without an active SSL/TLS decryption proxy.
 * OpenWrt gateway streaming throughput has not been stress-tested; performance under extreme load is unknown.
+* **Live threat-intel feed is empty until refreshed (audit P2-23).** `configs/intel/intel.dat` ships only two RFC-5737/`.invalid` TEST placeholders; real indicators (and the `T1105` C2 detection path) only populate after `configs/intel/refresh_intel.sh` runs (cron, 6h).
+* **Detection tests validate logic, not live firing (audit P2-21).** `tests/detections/` replays fixtures through a Sigma evaluator and CI converts every rule to Lucene — this proves rule *logic*, not that the compiled query fires against a live index. End-to-end firing is exercised by `tests/anomaly_simulation/` (manual).
+* **A few Sigma rules are coarse (P3, detection-tuning backlog).** e.g. `mshta_remote` matches any `http` substring and `whoami /all` is a standalone medium alert; they lack structured `filter` false-positive exclusions. Tuning is iterative.
+* **`wiki-temp` is an uninitialized gitlink (audit P2-17).** It tracks a wiki commit with no `.gitmodules`, so it shows perpetually "modified". Register it properly (`.gitmodules` + URL) or `git rm --cached wiki-temp` — a deliberate decision about the wiki workflow.
+* The default ntfy topic (`subsoc-alerts`) is guessable; ntfy topics are unauthenticated, so set a unique `NTFY_TOPIC` in `.env` (P3). Some docs still reference a fixed lab router IP — parameterize per environment.
 
 
 

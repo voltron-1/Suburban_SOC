@@ -34,8 +34,12 @@ ES_CA           = os.getenv("ES_CA",            "/certs/ca/ca.crt")
 ES_API_KEY      = os.getenv("ES_API_KEY",        "your_es_api_key")
 LLM_API_KEY     = os.getenv("LLM_API_KEY",       "your_api_key_here")   # shared with agent_app
 LLM_API_URL     = os.getenv("LLM_API_URL",       "https://api.openai.com/v1/chat/completions")
+# Egress control (audit P2-6, mirrors agent_app.py): only send metrics to a HOSTED
+# LLM when explicitly allowed. Default false => with the hosted default URL the
+# report degrades gracefully instead of leaking telemetry off-host.
+LLM_ALLOW_HOSTED = os.getenv("LLM_ALLOW_HOSTED",  "false").lower() == "true"
 LLM_MODEL       = os.getenv("LLM_MODEL",         "gpt-4")
-NTFY_TOPIC      = os.getenv("NTFY_TOPIC",        "uiw_lab_soc_alerts_tjlam_99")  # shared with agent_app
+NTFY_TOPIC      = os.getenv("NTFY_TOPIC",        "")  # shared with agent_app; set in .env (audit P2-6)
 SLACK_TOKEN     = os.getenv("SLACK_BOT_TOKEN",   "")
 SLACK_CHANNEL   = os.getenv("SLACK_CHANNEL_ID",  "")
 PDF_OUTPUT_DIR  = os.getenv("PDF_OUTPUT_DIR",    "/tmp")
@@ -157,6 +161,15 @@ def generate_executive_summary(metrics: dict) -> str:
     Calls the OpenAI-compatible LLM endpoint (shared with agent_app.py)
     to produce a 3-paragraph board-ready CISO narrative.
     """
+    # Egress gate (audit P2-6): never send metrics to a hosted LLM unless opted in.
+    hosted = not any(h in (LLM_API_URL or "")
+                     for h in ("localhost", "127.0.0.1", "ollama", "::1"))
+    if hosted and not LLM_ALLOW_HOSTED:
+        log.warning("Refusing to send metrics to hosted LLM %s (LLM_ALLOW_HOSTED not "
+                    "true) — set it or use a local model.", LLM_API_URL)
+        return ("Executive summary skipped: hosted-LLM egress is disabled by policy "
+                "(set LLM_ALLOW_HOSTED=true or point LLM_API_URL at a local model).")
+
     log.info("Generating executive summary via LLM (%s)...", LLM_MODEL)
 
     system_prompt = (

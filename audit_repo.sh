@@ -55,7 +55,7 @@ TOTAL_ISSUES=$(gh issue list --repo $REPO --state open --json id --jq 'length')
 echo "  Total Open Tasks: $TOTAL_ISSUES"
 
 # Find Unassigned Tasks
-UNASSIGNED=$(gh issue list --repo $REPO  "@none" --state open --json id --jq 'length')
+UNASSIGNED=$(gh issue list --repo $REPO --search "no:assignee" --state open --json id --jq 'length')
 if [ "$UNASSIGNED" -eq 0 ]; then
     echo -e "${GREEN}  [PASS] All tasks are assigned to a team member.${NC}"
 else

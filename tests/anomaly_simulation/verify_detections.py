@@ -6,6 +6,16 @@ Queries Elasticsearch for the three expected detections from the anomaly
 simulation suite and prints a pass/fail summary. Exits non-zero if any
 expected detection is missing within the lookback window.
 
+SCOPE (audit P2-22): these checks confirm the detection SIGNAL is present and
+indexed — the Zeek `Scan::Port_Scan` notice, the SSH brute-force *cadence*
+(5+ sessions from one source; Zeek's per-conn auth_success inference is
+unreliable over loopback, see the SSH check), and the malware file MIME type.
+They do NOT assert that the Elastic detection engine produced an alert. The
+end-to-end detection->SOAR loop (alert fires -> agent drafts a response) is
+validated separately by sim_intel_match.sh, which checks the agent's /pending
+count grows. Treat a pass here as "the detectable signal reached the SIEM,"
+not "an alert/quarantine fired."
+
 Usage:
     source .env && python3 verify_detections.py
 """

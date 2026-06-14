@@ -128,6 +128,7 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
     container_name: elasticsearch
+    mem_limit: 3g          # audit P2-3: cap so a noisy container can't starve the host
     depends_on:
       setup:
         condition: service_healthy
@@ -174,6 +175,7 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION:-9.3.2}
     container_name: kibana
+    mem_limit: 2g          # audit P2-3
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -288,6 +290,7 @@ services:
   logstash:
     image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-9.3.2}
     container_name: logstash
+    mem_limit: 1500m       # audit P2-3 (LS_JAVA_OPTS -Xmx512m + overhead)
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -320,6 +323,7 @@ services:
     build:
       context: ./ai_agent
     container_name: soc_ai_agent
+    mem_limit: 512m        # audit P2-3
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -379,6 +383,7 @@ services:
     build:
       context: ../hive-mind-broker
     container_name: hive_mind_broker
+    mem_limit: 256m        # audit P2-3
     environment:
       # Must equal the agent's HIVE_MIND_SECRET. Broker fails closed (503) if unset.
       - HIVE_MIND_SECRET=${HIVE_MIND_SECRET:-}

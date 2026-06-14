@@ -8,10 +8,13 @@
 # ==============================================================================
 
 # Variables
-KIBANA_URL="http://localhost:5601"
-# Change these if you changed your default elastic credentials!
-USER="elastic"
-PASS="changeme"
+KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+# Credentials come from scripts/setup/.env (audit P2-11) — never hardcoded.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+[ -f "$SCRIPT_DIR/.env" ] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
+USER="${ES_USER:-elastic}"
+PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
+[ -z "$PASS" ] && { echo "ERROR: set ELASTIC_PASSWORD in scripts/setup/.env" >&2; exit 1; }
 
 DASHBOARD_FILE="../../configs/server/suburban_soc_dashboard.ndjson"
 

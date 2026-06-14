@@ -154,7 +154,7 @@ sudo ./install_filebeat.sh
 ```
 
 **What it does:**  
-Adds the Elastic APT repository and installs Filebeat 8.x on Debian/Ubuntu (WSL).
+Adds the Elastic APT repository and installs Filebeat 9.x on Debian/Ubuntu (WSL).
 
 ### After Installation — Configure Filebeat
 

@@ -6,6 +6,12 @@ Evaluates a Sigma rule's `detection:` block against a single event (a dict of
 process_creation fields, e.g. {"Image": ..., "CommandLine": ...}) so detections can
 be unit-tested against fixtures in CI without a live Elasticsearch.
 
+SCOPE (audit P2-21): this is a re-implementation of Sigma matching for fast fixture
+tests — it validates rule *logic*, NOT the compiled Lucene query that actually
+deploys (tokenization, process.args array semantics, etc. can differ). The
+Detections CI also runs the real `sigma convert` (proving every rule compiles and
+targets process.args); live-fire firing against an index is not asserted here.
+
 Supports exactly what the Suburban-SOC rule corpus uses (asserted by
 test_sigma_detections.py, which fails if a rule introduces an unsupported feature):
   * field modifiers: contains, endswith, startswith, all (and bare equality)

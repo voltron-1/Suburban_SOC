@@ -13,159 +13,159 @@
     {
       "techniqueID": "T1105",
       "tactic": "command-and-control",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Malicious File Download via Bitsadmin \u2014 rules/sigma/proc_creation_win_bitsadmin_download.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Malicious File Download via Bitsadmin \u2014 rules/sigma/proc_creation_win_bitsadmin_download.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1140",
       "tactic": "defense-evasion",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Payload Decoding via Certutil \u2014 rules/sigma/proc_creation_win_certutil_decode.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Payload Decoding via Certutil \u2014 rules/sigma/proc_creation_win_certutil_decode.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1070.001",
       "tactic": "defense-evasion",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Clearing Windows Event Logs via Wevtutil \u2014 rules/sigma/proc_creation_win_clear_event_logs.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Clearing Windows Event Logs via Wevtutil \u2014 rules/sigma/proc_creation_win_clear_event_logs.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1562.001",
       "tactic": "defense-evasion",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Windows Defender Real-Time Protection Disabled \u2014 rules/sigma/proc_creation_win_defender_tamper.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Windows Defender Real-Time Protection Disabled \u2014 rules/sigma/proc_creation_win_defender_tamper.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1087.002",
       "tactic": "discovery",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Domain Group Discovery via Net.exe \u2014 rules/sigma/proc_creation_win_domain_group_discovery.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Domain Group Discovery via Net.exe \u2014 rules/sigma/proc_creation_win_domain_group_discovery.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1136.001",
       "tactic": "persistence",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Local User Account Creation via Net.exe \u2014 rules/sigma/proc_creation_win_local_acct_create.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Local User Account Creation via Net.exe \u2014 rules/sigma/proc_creation_win_local_acct_create.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1003.001",
       "tactic": "credential-access",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "LSASS Memory Dump via Comsvcs.dll \u2014 rules/sigma/proc_creation_win_lsass_dump.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "LSASS Memory Dump via Comsvcs.dll \u2014 rules/sigma/proc_creation_win_lsass_dump.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1218.005",
       "tactic": "defense-evasion",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Mshta Remote or Script Payload Execution \u2014 rules/sigma/proc_creation_win_mshta_remote.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Mshta Remote or Script Payload Execution \u2014 rules/sigma/proc_creation_win_mshta_remote.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1018",
       "tactic": "discovery",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Domain Controller Discovery via Nltest \u2014 rules/sigma/proc_creation_win_nltest_discovery.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Domain Controller Discovery via Nltest \u2014 rules/sigma/proc_creation_win_nltest_discovery.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1059.001",
       "tactic": "execution",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Suspicious PowerShell Encoded Command Execution \u2014 rules/sigma/proc_creation_win_powershell_encoded.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Suspicious PowerShell Encoded Command Execution \u2014 rules/sigma/proc_creation_win_powershell_encoded.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1574",
       "tactic": "privilege-escalation",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "RDP Session Hijacking via Tscon \u2014 rules/sigma/proc_creation_win_rdp_hijack_tscon.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "RDP Session Hijacking via Tscon \u2014 rules/sigma/proc_creation_win_rdp_hijack_tscon.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1003.002",
       "tactic": "credential-access",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "SAM Hive Dump via Reg.exe \u2014 rules/sigma/proc_creation_win_reg_save_sam.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "SAM Hive Dump via Reg.exe \u2014 rules/sigma/proc_creation_win_reg_save_sam.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1218.010",
       "tactic": "defense-evasion",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Regsvr32 Execution from Remote Server \u2014 rules/sigma/proc_creation_win_regsvr32_remote_sct.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Regsvr32 Execution from Remote Server \u2014 rules/sigma/proc_creation_win_regsvr32_remote_sct.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1547.001",
       "tactic": "persistence",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Registry Run Key Persistence via Reg.exe \u2014 rules/sigma/proc_creation_win_run_key_persistence.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Registry Run Key Persistence via Reg.exe \u2014 rules/sigma/proc_creation_win_run_key_persistence.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1053.005",
       "tactic": "execution",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Scheduled Task Creation via Schtasks \u2014 rules/sigma/proc_creation_win_scheduled_task.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Scheduled Task Creation via Schtasks \u2014 rules/sigma/proc_creation_win_scheduled_task.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1543.003",
       "tactic": "persistence",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Windows Service Creation via Sc.exe \u2014 rules/sigma/proc_creation_win_service_creation_sc.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Windows Service Creation via Sc.exe \u2014 rules/sigma/proc_creation_win_service_creation_sc.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1033",
       "tactic": "discovery",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Suspicious System Owner/User Discovery \u2014 rules/sigma/proc_creation_win_user_discovery.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Suspicious System Owner/User Discovery \u2014 rules/sigma/proc_creation_win_user_discovery.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1490",
       "tactic": "impact",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "Shadow Copy Deletion via Vssadmin \u2014 rules/sigma/proc_creation_win_vss_delete_shadows.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "Shadow Copy Deletion via Vssadmin \u2014 rules/sigma/proc_creation_win_vss_delete_shadows.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1047",
       "tactic": "execution",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
-      "comment": "WMI Process Call Create \u2014 rules/sigma/proc_creation_win_wmi_process_create.yml (test: Detections CI (sigma conversion) + Elastic Detection Engine)",
+      "comment": "WMI Process Call Create \u2014 rules/sigma/proc_creation_win_wmi_process_create.yml (test: Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/))",
       "enabled": true
     },
     {
       "techniqueID": "T1046",
       "tactic": "discovery",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
       "comment": "Network Service Discovery \u2014 configs/logstash.conf (Category 5 framework enrichment) (test: tests/pipeline/test_framework_enrichment.py)",
       "enabled": true
@@ -173,7 +173,7 @@
     {
       "techniqueID": "T1110",
       "tactic": "credential-access",
-      "score": 100,
+      "score": 75,
       "color": "#2ca02c",
       "comment": "Brute Force \u2014 configs/logstash.conf (Category 5 framework enrichment) (test: tests/pipeline/test_framework_enrichment.py)",
       "enabled": true

@@ -244,3 +244,15 @@ def test_missing_timestamp_rejected():
     r = client.post("/webhook/dispatch", data=body,
                     headers={"x-elastic-signature": sig})  # no timestamp
     assert r.status_code == 401
+
+
+# --- audit P2-7: exclusion list supports CIDR + IPv6 --------------------------
+def test_exclusion_supports_cidr_and_ipv6():
+    import dispatcher
+    with mock.patch.object(dispatcher, "load_excluded_ips",
+                           return_value={"10.0.0.0/24", "2001:db8::/32"}):
+        assert dispatcher.is_excluded_ip("10.0.0.5") is True      # inside the /24
+        assert dispatcher.is_excluded_ip("10.0.1.5") is False     # outside it
+        assert dispatcher.is_excluded_ip("2001:db8::1") is True   # IPv6 in the /32
+        assert dispatcher.is_excluded_ip("2001:dead::1") is False
+        assert dispatcher.is_excluded_ip("not-an-ip") is False

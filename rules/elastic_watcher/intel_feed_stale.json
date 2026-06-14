@@ -34,7 +34,7 @@
   },
   "condition": {
     "compare": {
-      "ctx.payload.hits.total": {
+      "ctx.payload.hits.total.value": {
         "lte": 0
       }
     }
