@@ -68,7 +68,7 @@ def harvest():
             "tactic": tactic_name,
             "source": "Sysmon/Winlogbeat (process_creation)",
             "rule": f"rules/sigma/{f.name}",
-            "test": "Detections CI (sigma conversion) + Elastic Detection Engine",
+            "test": "Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/)",
             "title": title.group(1).strip() if title else f.stem,
             "status": status.group(1) if status else "experimental",
         })
@@ -93,10 +93,15 @@ def harvest():
 def navigator_layer(rows):
     techs = []
     for r in rows:
+        # audit P2-18: score reflects the VALIDATION TIER, not a blanket 100. Every
+        # technique here is validated at the logic tier (Sigma->Lucene conversion +
+        # fixture replay, or the framework-enrichment test) — but NOT yet by live-fire
+        # replay against a running index, so 75 ("validated logic"), reserving 100 for
+        # a future live-fire tier rather than overstating confidence.
         techs.append({
             "techniqueID": r["technique"],
             "tactic": r["tactic"].lower().replace(" ", "-"),
-            "score": 100,
+            "score": 75,
             "color": "#2ca02c",
             "comment": f"{r['title']} — {r['rule']} (test: {r['test']})",
             "enabled": True,
