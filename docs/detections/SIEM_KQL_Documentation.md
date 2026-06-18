@@ -5,7 +5,31 @@
 > hand-edit — re-run the generator. Queries target **`process.args`** (this
 > stack's field), NOT the ECS-standard `process.command_line`.
 
-**19 rules.** Each query is the exact Lucene the Sigma rule compiles to.
+**22 rules.** Each query is the exact Lucene the Sigma rule compiles to.
+
+## Executable or Script Payload Downloaded Over HTTP (Zeek Files)
+
+- **Rule:** `net_zeek_executable_download.yml` · **level:** medium · **status:** experimental · **ATT&CK:** T1105
+
+```
+source:HTTP AND (mime_type:(application\/x\-dosexec OR application\/x\-msdownload OR application\/vnd.microsoft.portable\-executable OR application\/x\-elf OR application\/x\-executable OR application\/x\-sharedlib OR application\/x\-sh OR application\/x\-shellscript))
+```
+
+## Network Port or Address Scan Detected (Zeek Notice)
+
+- **Rule:** `net_zeek_port_scan.yml` · **level:** medium · **status:** experimental · **ATT&CK:** T1046
+
+```
+note:(Scan\:\:Port_Scan OR Scan\:\:Address_Scan OR Scan\:\:Random_Scan)
+```
+
+## SSH Password Guessing / Brute Force (Zeek Notice)
+
+- **Rule:** `net_zeek_ssh_bruteforce.yml` · **level:** high · **status:** experimental · **ATT&CK:** T1110
+
+```
+note:(SSH\:\:Password_Guessing OR SSH\:\:Login_By_Password_Guesser)
+```
 
 ## Malicious File Download via Bitsadmin
 

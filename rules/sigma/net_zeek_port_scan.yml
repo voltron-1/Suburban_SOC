@@ -1,0 +1,31 @@
+title: Network Port or Address Scan Detected (Zeek Notice)
+id: e9d07fe8-5d61-477a-a5fd-d24515a74d61
+status: experimental
+description: |
+    Detects host and port scanning activity reported by Zeek's scan-detection
+    policy through the notice.log channel. Pairs with the RECONNAISSANCE
+    emulation (tests/anomaly_simulation/sim_portscan.sh).
+    Requires a scan-detection policy loaded in local.zeek (e.g.
+    '@load policy/misc/scan' or an equivalent package) so the notes below fire.
+references:
+    - https://attack.mitre.org/techniques/T1046/
+    - https://docs.zeek.org/en/master/logs/notice.html
+author: Suburban-SOC
+date: 2026-06-18
+tags:
+    - attack.discovery
+    - attack.t1046
+logsource:
+    product: zeek
+    service: notice
+detection:
+    selection:
+        note:
+            - 'Scan::Port_Scan'
+            - 'Scan::Address_Scan'
+            - 'Scan::Random_Scan'
+    condition: selection
+falsepositives:
+    - Authorized vulnerability scanners and asset-discovery sweeps
+    - Network monitoring and availability checks
+level: medium

@@ -133,5 +133,26 @@
       {"Image": "C:\\Windows\\System32\\net.exe", "CommandLine": "net group"},
       {"Image": "C:\\Windows\\System32\\net.exe", "CommandLine": "net user administrator"}
     ]
+  },
+  "net_zeek_port_scan.yml": {
+    "true_positive": {"note": "Scan::Port_Scan"},
+    "true_negatives": [
+      {"note": "SSH::Watched_Country_Login"},
+      {"note": "Scan::Port_Scan_Allowed"}
+    ]
+  },
+  "net_zeek_ssh_bruteforce.yml": {
+    "true_positive": {"note": "SSH::Password_Guessing"},
+    "true_negatives": [
+      {"note": "SSH::Watched_Country_Login"},
+      {"note": "Scan::Port_Scan"}
+    ]
+  },
+  "net_zeek_executable_download.yml": {
+    "true_positive": {"source": "HTTP", "mime_type": "application/x-dosexec"},
+    "true_negatives": [
+      {"source": "HTTP", "mime_type": "text/html"},
+      {"source": "FTP_DATA", "mime_type": "application/x-dosexec"}
+    ]
   }
 }
