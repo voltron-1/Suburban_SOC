@@ -1,0 +1,30 @@
+title: SSH Password Guessing / Brute Force (Zeek Notice)
+id: c801fab3-5a62-440c-a4de-1a215af3a31a
+status: experimental
+description: |
+    Detects SSH brute-force / password-guessing activity reported by Zeek's
+    detect-bruteforcing policy through notice.log. Pairs with the
+    CREDENTIAL_ACCESS emulation (tests/anomaly_simulation/sim_brute_ssh.sh).
+    Requires '@load policy/protocols/ssh/detect-bruteforcing' in local.zeek
+    (loaded by default in most local.zeek setups).
+references:
+    - https://attack.mitre.org/techniques/T1110/
+    - https://docs.zeek.org/en/master/logs/notice.html
+author: Suburban-SOC
+date: 2026-06-18
+tags:
+    - attack.credential_access
+    - attack.t1110
+logsource:
+    product: zeek
+    service: notice
+detection:
+    selection:
+        note:
+            - 'SSH::Password_Guessing'
+            - 'SSH::Login_By_Password_Guesser'
+    condition: selection
+falsepositives:
+    - Misconfigured clients or automation retrying stale credentials
+    - Users repeatedly mistyping passwords
+level: high

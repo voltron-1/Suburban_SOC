@@ -79,3 +79,25 @@ node_modules/
 scripts/setup/.env
 scripts/setup/certs/
 **/approval_queue.jsonl
+
+# Python virtual environments
+.venv/
+.pdf_venv/
+tests/anomaly_simulation/.venv/
+
+# Python runtime caches
+__pycache__/
+*.pyc
+.pytest_cache/
+scripts/hive-mind-broker/.pytest_cache/
+
+# Local deployment configurations
+scripts/setup/.env
+scripts/hive-mind-broker/inventory.yaml
+.antigravitycli/
+
+# Local audit scratch / generated dumps — not deliverables, never commit.
+# (coverage_checklist.md IS a deliverable and stays tracked.)
+/AUDIT_REPORT.md
+/repo_audit_packet.md
+/generate_audit.py

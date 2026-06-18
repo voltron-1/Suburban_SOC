@@ -1,0 +1,163 @@
+# =============================================================================
+# SUBURBAN-SOC PLATFORM: EMULATION-TO-TELEMETRY MAPPING MATRIX
+# Two-lane coverage: NETWORK/LINUX (Zeek) + WINDOWS ENDPOINT (Sysmon/4688).
+# Each row is one coherent emulation -> detection -> telemetry triple.
+# =============================================================================
+
+# ----------------------------- NETWORK / LINUX LANE (Zeek) -----------------------------
+
+[EMULATION: RECONNAISSANCE]
+Execution_Vector  : tests/anomaly_simulation/sim_portscan.sh
+Log_Source        : configs/zeek/local.zeek -> notice.log
+ECS_Mapping       : threat.technique.id = "T1046" | threat.tactic.name = "Discovery"
+Target_Sigma_Rule : rules/sigma/net_zeek_port_scan.yml
+NIST_CSF_Control  : DE.CM-01 (Security Continuous Monitoring)
+
+[EMULATION: EXPLOITATION]
+Execution_Vector  : tests/anomaly_simulation/sim_malware_download.sh
+Log_Source        : configs/network/filebeat.yml -> files.log
+ECS_Mapping       : threat.technique.id = "T1105" | threat.tactic.name = "Command and Control"
+Target_Sigma_Rule : rules/sigma/net_zeek_executable_download.yml
+NIST_CSF_Control  : PR.IR-02 (Infrastructure Resilience)
+
+[EMULATION: CREDENTIAL_ACCESS_SSH]
+Execution_Vector  : tests/anomaly_simulation/sim_brute_ssh.sh
+Log_Source        : configs/zeek/local.zeek -> notice.log
+ECS_Mapping       : threat.technique.id = "T1110" | threat.tactic.name = "Credential Access"
+Target_Sigma_Rule : rules/sigma/net_zeek_ssh_bruteforce.yml
+NIST_CSF_Control  : DE.AE-02 (Detection and Anomaly Validation)
+
+# --------------------------- WINDOWS ENDPOINT LANE (Sysmon) ---------------------------
+
+[EMULATION: DELIVERY_BITSADMIN]
+Execution_Vector  : tests/anomaly_simulation/sim_win_bitsadmin_download.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1105" | threat.tactic.name = "Command and Control"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_bitsadmin_download.yml
+NIST_CSF_Control  : PR.IR-02
+
+[EMULATION: DEFENSE_EVASION_CERTUTIL]
+Execution_Vector  : tests/anomaly_simulation/sim_win_certutil_decode.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1140" | threat.tactic.name = "Defense Evasion"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_certutil_decode.yml
+NIST_CSF_Control  : DE.CM-09
+
+[EMULATION: DEFENSE_EVASION_CLEAR_LOGS]
+Execution_Vector  : tests/anomaly_simulation/sim_win_clear_event_logs.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1070.001" | threat.tactic.name = "Defense Evasion"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_clear_event_logs.yml
+NIST_CSF_Control  : DE.CM-09
+
+[EMULATION: DEFENSE_EVASION_DEFENDER_TAMPER]
+Execution_Vector  : tests/anomaly_simulation/sim_win_defender_tamper.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1562.001" | threat.tactic.name = "Defense Evasion"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_defender_tamper.yml
+NIST_CSF_Control  : DE.CM-09
+
+[EMULATION: DISCOVERY_DOMAIN_GROUPS]
+Execution_Vector  : tests/anomaly_simulation/sim_win_domain_group_discovery.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1087.002" | threat.tactic.name = "Discovery"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_domain_group_discovery.yml
+NIST_CSF_Control  : DE.CM-01
+
+[EMULATION: PERSISTENCE_LOCAL_ACCOUNT]
+Execution_Vector  : tests/anomaly_simulation/sim_win_local_acct_create.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1136.001" | threat.tactic.name = "Persistence"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_local_acct_create.yml
+NIST_CSF_Control  : DE.CM-01
+
+[EMULATION: CREDENTIAL_ACCESS_LSASS]
+Execution_Vector  : tests/anomaly_simulation/sim_win_lsass_dump.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1003.001" | threat.tactic.name = "Credential Access"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_lsass_dump.yml
+NIST_CSF_Control  : DE.AE-02
+
+[EMULATION: DEFENSE_EVASION_MSHTA]
+Execution_Vector  : tests/anomaly_simulation/sim_win_mshta_remote.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1218.005" | threat.tactic.name = "Defense Evasion"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_mshta_remote.yml
+NIST_CSF_Control  : DE.CM-09
+
+[EMULATION: DISCOVERY_DOMAIN_TRUST]
+Execution_Vector  : tests/anomaly_simulation/sim_win_nltest_discovery.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1018" | threat.tactic.name = "Discovery"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_nltest_discovery.yml
+NIST_CSF_Control  : DE.CM-01
+
+[EMULATION: EXECUTION_POWERSHELL_ENCODED]
+Execution_Vector  : tests/anomaly_simulation/sim_win_powershell_encoded.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1059.001" | threat.tactic.name = "Execution"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_powershell_encoded.yml
+NIST_CSF_Control  : DE.AE-02
+
+[EMULATION: LATERAL_MOVEMENT_RDP_HIJACK]
+Execution_Vector  : tests/anomaly_simulation/sim_win_rdp_hijack_tscon.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1574" | threat.tactic.name = "Lateral Movement"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_rdp_hijack_tscon.yml
+NIST_CSF_Control  : DE.CM-01
+
+[EMULATION: CREDENTIAL_ACCESS_SAM]
+Execution_Vector  : tests/anomaly_simulation/sim_win_reg_save_sam.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1003.002" | threat.tactic.name = "Credential Access"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_reg_save_sam.yml
+NIST_CSF_Control  : DE.AE-02
+
+[EMULATION: DEFENSE_EVASION_REGSVR32]
+Execution_Vector  : tests/anomaly_simulation/sim_win_regsvr32_remote_sct.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1218.010" | threat.tactic.name = "Defense Evasion"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_regsvr32_remote_sct.yml
+NIST_CSF_Control  : DE.CM-09
+
+[EMULATION: PERSISTENCE_RUN_KEY]
+Execution_Vector  : tests/anomaly_simulation/sim_win_run_key_persistence.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1547.001" | threat.tactic.name = "Persistence"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_run_key_persistence.yml
+NIST_CSF_Control  : DE.CM-01
+
+[EMULATION: PERSISTENCE_SCHEDULED_TASK]
+Execution_Vector  : tests/anomaly_simulation/sim_win_scheduled_task.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1053.005" | threat.tactic.name = "Persistence"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_scheduled_task.yml
+NIST_CSF_Control  : DE.CM-01
+
+[EMULATION: PERSISTENCE_SERVICE_CREATION]
+Execution_Vector  : tests/anomaly_simulation/sim_win_service_creation_sc.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1543.003" | threat.tactic.name = "Persistence"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_service_creation_sc.yml
+NIST_CSF_Control  : DE.CM-01
+
+[EMULATION: DISCOVERY_USER]
+Execution_Vector  : tests/anomaly_simulation/sim_win_user_discovery.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1033" | threat.tactic.name = "Discovery"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_user_discovery.yml
+NIST_CSF_Control  : DE.CM-01
+
+[EMULATION: IMPACT_DELETE_SHADOWS]
+Execution_Vector  : tests/anomaly_simulation/sim_win_vss_delete_shadows.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1490" | threat.tactic.name = "Impact"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_vss_delete_shadows.yml
+NIST_CSF_Control  : DE.AE-02
+
+[EMULATION: EXECUTION_WMI]
+Execution_Vector  : tests/anomaly_simulation/sim_win_wmi_process_create.ps1
+Log_Source        : configs/endpoint/winlogbeat.yml -> sysmon
+ECS_Mapping       : threat.technique.id = "T1047" | threat.tactic.name = "Execution"
+Target_Sigma_Rule : rules/sigma/proc_creation_win_wmi_process_create.yml
+NIST_CSF_Control  : DE.AE-02

@@ -1,0 +1,36 @@
+title: Executable or Script Payload Downloaded Over HTTP (Zeek Files)
+id: ffde19ce-a7f2-4637-a25d-eb839b694697
+status: experimental
+description: |
+    Detects transfer of executable or script payloads over HTTP as recorded in
+    Zeek's files.log (shipped via Filebeat). Pairs with the EXPLOITATION
+    emulation (tests/anomaly_simulation/sim_malware_download.sh).
+references:
+    - https://attack.mitre.org/techniques/T1105/
+    - https://docs.zeek.org/en/master/logs/files.html
+author: Suburban-SOC
+date: 2026-06-18
+tags:
+    - attack.command_and_control
+    - attack.t1105
+logsource:
+    product: zeek
+    service: files
+detection:
+    selection_transport:
+        source: 'HTTP'
+    selection_payload:
+        mime_type:
+            - 'application/x-dosexec'
+            - 'application/x-msdownload'
+            - 'application/vnd.microsoft.portable-executable'
+            - 'application/x-elf'
+            - 'application/x-executable'
+            - 'application/x-sharedlib'
+            - 'application/x-sh'
+            - 'application/x-shellscript'
+    condition: selection_transport and selection_payload
+falsepositives:
+    - Legitimate software distribution, installers, and update downloads
+    - Internal patch-management or deployment traffic
+level: medium
