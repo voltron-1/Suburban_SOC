@@ -38,6 +38,12 @@ fields:
 # Ship to the SOC Logstash beats input. Override host via env if needed.
 output.logstash:
   hosts: ["${LOGSTASH_HOST:localhost:5044}"]
+  # WS3.1 (audit P2-2): Logstash's Beats input (:5044) is TLS-only, so plaintext
+  # output fails the handshake. Verify the CA-signed Logstash cert against the stack
+  # CA — ship ca.crt to the endpoint and point WINLOGBEAT_CA at it.
+  ssl.enabled: true
+  ssl.certificate_authorities: ["${WINLOGBEAT_CA:C:/ProgramData/winlogbeat/certs/ca.crt}"]
+  ssl.verification_mode: "${WINLOGBEAT_SSL_VERIFY:full}"
 
 # Keep Winlogbeat's own logs local for troubleshooting.
 logging.level: info
