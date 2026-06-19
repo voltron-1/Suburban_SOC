@@ -419,20 +419,32 @@ run_sop_002() {
     info "Configuring Filebeat to watch Zeek logs and output to Logstash..."
     local FILEBEAT_CONFIG="/etc/filebeat/filebeat.yml"
     local AUTHORITATIVE_CONFIG="${SCRIPT_DIR}/../../configs/network/filebeat.yml"
-    local FILEBEAT_CA="/etc/filebeat/certs/ca.crt"
+    local FILEBEAT_CERT_DIR="/etc/filebeat/certs"
+    local SRC_CERTS="/usr/share/logstash/config/certs"
 
-    # Provision the stack CA so Filebeat can verify Logstash's TLS Beats input.
-    # Without it, ssl.enabled=true fails the handshake with EOF and no events ship.
-    if [ ! -f "$FILEBEAT_CA" ]; then
-        info "Provisioning stack CA to ${FILEBEAT_CA}"
-        sudo mkdir -p "$(dirname "$FILEBEAT_CA")"
-        if docker cp logstash:/usr/share/logstash/config/certs/ca/ca.crt /tmp/soc_ca.crt 2>/dev/null; then
-            sudo mv /tmp/soc_ca.crt "$FILEBEAT_CA"
-            pass "Stack CA installed at ${FILEBEAT_CA}"
-        else
-            warn "Could not copy CA from the 'logstash' container — place the stack ca.crt at ${FILEBEAT_CA} manually"
+    # Provision the stack CA + Filebeat client cert/key for the Logstash Beats mTLS
+    # handshake. Missing CA -> ssl.enabled fails with EOF; missing client cert ->
+    # Logstash rejects the batch with "tls: certificate required". All three live in
+    # the stack certs volume, reachable through the logstash container (docker cp runs
+    # as the daemon, so it reads them even though logstash runs as uid 1000).
+    info "Provisioning Filebeat TLS material to ${FILEBEAT_CERT_DIR}"
+    sudo mkdir -p "$FILEBEAT_CERT_DIR"
+    for f in ca/ca.crt filebeat/filebeat.crt filebeat/filebeat.key; do
+        local base; base="$(basename "$f")"
+        local dest="${FILEBEAT_CERT_DIR}/${base}"
+        if [ ! -f "$dest" ]; then
+            if docker cp "logstash:${SRC_CERTS}/${f}" "/tmp/soc_${base}" 2>/dev/null; then
+                sudo mv "/tmp/soc_${base}" "$dest"
+            else
+                warn "Could not copy ${f} from the 'logstash' container — place it at ${dest} manually"
+            fi
         fi
-    fi
+    done
+    # CA and client cert are public (644); the private key is root-only (600).
+    sudo chown root:root "${FILEBEAT_CERT_DIR}"/* 2>/dev/null || true
+    sudo chmod 644 "${FILEBEAT_CERT_DIR}/ca.crt" "${FILEBEAT_CERT_DIR}/filebeat.crt" 2>/dev/null || true
+    sudo chmod 600 "${FILEBEAT_CERT_DIR}/filebeat.key" 2>/dev/null || true
+    pass "Filebeat TLS material installed in ${FILEBEAT_CERT_DIR}"
 
     # Install the authoritative, TLS-enabled config by OVERWRITE (not append).
     # The old heredoc used `tee -a`, which on a second run duplicated the

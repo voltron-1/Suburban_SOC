@@ -71,6 +71,17 @@ services:
           bin/elasticsearch-certutil cert --silent --pem -out config/certs/ls.zip --in config/certs/ls-instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
           unzip config/certs/ls.zip -d config/certs;
         fi;
+        # WS3.1 mTLS: dedicated filebeat CLIENT cert (CA-signed PEM). The Beats input
+        # requires client auth (ssl_certificate_authorities is set), so Filebeat must
+        # present its own identity or Logstash rejects the batch with "tls: certificate
+        # required". certutil emits a PKCS1 key, which Filebeat (Go TLS) reads natively —
+        # no PKCS8 conversion needed (unlike the logstash server key).
+        if [ ! -f config/certs/filebeat/filebeat.crt ]; then
+          echo "Creating filebeat client cert (WS3.1 Beats mTLS)";
+          printf "instances:\n  - name: filebeat\n    dns:\n      - filebeat\n      - localhost\n" > config/certs/fb-instances.yml;
+          bin/elasticsearch-certutil cert --silent --pem -out config/certs/fb.zip --in config/certs/fb-instances.yml --ca-cert config/certs/ca/ca.crt --ca-key config/certs/ca/ca.key;
+          unzip config/certs/fb.zip -d config/certs;
+        fi;
         echo "Setting file permissions";
         chown -R root:root config/certs;
         find . -type d -exec chmod 750 \{\} \;;
