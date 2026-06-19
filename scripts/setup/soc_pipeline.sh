@@ -418,29 +418,33 @@ run_sop_002() {
     echo ""
     info "Configuring Filebeat to watch Zeek logs and output to Logstash..."
     local FILEBEAT_CONFIG="/etc/filebeat/filebeat.yml"
+    local AUTHORITATIVE_CONFIG="${SCRIPT_DIR}/../../configs/network/filebeat.yml"
+    local FILEBEAT_CA="/etc/filebeat/certs/ca.crt"
 
-    if [ -f "$FILEBEAT_CONFIG" ]; then
-        # Use a heredoc (<<'FBEOF') to safely append multiline YAML config
-        # Redirecting to /dev/null keeps terminal output clean
-        sudo tee -a "$FILEBEAT_CONFIG" > /dev/null <<'FBEOF'
+    # Provision the stack CA so Filebeat can verify Logstash's TLS Beats input.
+    # Without it, ssl.enabled=true fails the handshake with EOF and no events ship.
+    if [ ! -f "$FILEBEAT_CA" ]; then
+        info "Provisioning stack CA to ${FILEBEAT_CA}"
+        sudo mkdir -p "$(dirname "$FILEBEAT_CA")"
+        if docker cp logstash:/usr/share/logstash/config/certs/ca/ca.crt /tmp/soc_ca.crt 2>/dev/null; then
+            sudo mv /tmp/soc_ca.crt "$FILEBEAT_CA"
+            pass "Stack CA installed at ${FILEBEAT_CA}"
+        else
+            warn "Could not copy CA from the 'logstash' container — place the stack ca.crt at ${FILEBEAT_CA} manually"
+        fi
+    fi
 
-# --- Suburban-SOC Zeek Integration ---
-filebeat.inputs:
-  - type: filestream
-    id: zeek-logs
-    paths:
-      - /storage/PCAP/zeek_logs/*.log
-    parsers:
-      - ndjson:
-          target: ""
-          overwrite_keys: true
-
-output.logstash:
-  hosts: ["localhost:5044"]
-FBEOF
-        pass "Filebeat config updated"
+    # Install the authoritative, TLS-enabled config by OVERWRITE (not append).
+    # The old heredoc used `tee -a`, which on a second run duplicated the
+    # filebeat.inputs/output.logstash keys and broke Filebeat startup. The repo
+    # config at configs/network/filebeat.yml is the single source of truth.
+    if [ -f "$AUTHORITATIVE_CONFIG" ]; then
+        [ -f "$FILEBEAT_CONFIG" ] && sudo cp "$FILEBEAT_CONFIG" "${FILEBEAT_CONFIG}.stock.bak"
+        sudo cp "$AUTHORITATIVE_CONFIG" "$FILEBEAT_CONFIG"
+        sudo chmod 0644 "$FILEBEAT_CONFIG"
+        pass "Filebeat config installed from configs/network/filebeat.yml (TLS-enabled)"
     else
-        warn "filebeat.yml not found at $FILEBEAT_CONFIG - apply config manually"
+        warn "Authoritative config not found at $AUTHORITATIVE_CONFIG - apply config manually"
     fi
 
     # Enable at boot and start the service
