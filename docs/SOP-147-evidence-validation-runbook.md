@@ -104,9 +104,26 @@ WINDOW_END="$(date -u +%FT%TZ)"
 cd "$(git rev-parse --show-toplevel)"/scripts/setup   # repo-root-relative; safe to run from anywhere in the repo
 WINDOW_START="$(date -u +%FT%TZ)"
 ./stream_bat0_data.sh        # or stream_br_lan_data.sh / stream_raw_data.sh — note the interface
-# let it run a defined window, then drive a few Path-A sims against the live network
+# let it run a defined window, then drive traffic that ACTUALLY crosses the captured interface
 WINDOW_END="$(date -u +%FT%TZ)"
 ```
+
+> **Path B traffic must cross the captured interface — the local Path-A sims won't.**
+> `stream_bat0_data.sh` captures `bat0` *on the router* (over SSH); the SOC host is not a
+> mesh node, so `sim_portscan.sh` (which scans loopback/local) never appears. To exercise a
+> port scan on `bat0`, run it **from a mesh node against another host reached over the mesh**:
+> - **Pick a target across the mesh, not local to the capturing router.** Use the batman
+>   tables to confirm: `ssh root@<router> 'batctl tg; ip neigh'`. A host listed *Via* the peer
+>   mesh node (e.g. the peer AP itself, `10.18.81.14`) traverses `bat0`; a host on the router's
+>   own `br-lan` does not.
+> - **Stock OpenWrt ships without `nmap`.** Use a busybox `nc` sweep instead — the scan policy
+>   (`configs/zeek/scan-detection.zeek`) fires `Scan::Port_Scan` at **20+ distinct ports** from
+>   one source within 5 min, so ~100 ports is plenty:
+>   ```bash
+>   ssh root@<router> 'T=10.18.81.14; for p in $(seq 1 100); do nc -w1 $T $p </dev/null >/dev/null 2>&1; done'
+>   ```
+> - Verify: `docker exec "$(docker ps --filter ancestor=zeek/zeek -q)" grep -i Scan::Port_Scan /data/zeek_logs/notice.log`.
+
 ✅ **Done when:** you have recorded `WINDOW_START`, `WINDOW_END`, the **source IP(s)/host(s)**, and (Path B) the **capture interface**.
 
 ---
