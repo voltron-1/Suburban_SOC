@@ -83,7 +83,7 @@ This proves every sim, log-source config, and Sigma rule in `configs/detections/
 
 **Path A — Simulation harness (default, no special hardware):**
 ```bash
-cd tests/anomaly_simulation
+cd "$(git rev-parse --show-toplevel)"/tests/anomaly_simulation   # repo-root-relative; safe to run from anywhere in the repo
 cp -n .env.example .env && $EDITOR .env            # set TARGET_HOST, ES creds, agent URL
 ./preflight.sh                                     # every prereq must PASS
 # refresh real intel (shipped feed is TEST placeholders) OR use seeded 198.51.100.66
@@ -96,7 +96,7 @@ WINDOW_END="$(date -u +%FT%TZ)"
 
 **Path B — Real boundary capture (if an OpenWrt mesh / capture NIC is available):**
 ```bash
-cd scripts/setup
+cd "$(git rev-parse --show-toplevel)"/scripts/setup   # repo-root-relative; safe to run from anywhere in the repo
 WINDOW_START="$(date -u +%FT%TZ)"
 ./stream_bat0_data.sh        # or stream_br_lan_data.sh / stream_raw_data.sh — note the interface
 # let it run a defined window, then drive a few Path-A sims against the live network
