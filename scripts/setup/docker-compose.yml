@@ -142,7 +142,7 @@ services:
     mem_limit: 3g          # audit P2-3: cap so a noisy container can't starve the host
     depends_on:
       setup:
-        condition: service_healthy
+        condition: service_completed_successfully
     environment:
       - node.name=elasticsearch
       - cluster.name=${CLUSTER_NAME:-suburban-soc}
