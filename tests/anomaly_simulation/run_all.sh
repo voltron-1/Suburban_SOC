@@ -12,7 +12,17 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
-[[ -f .env ]] && set -a && source .env && set +a
+# Load .env for defaults, but let variables already set in the environment
+# (e.g. `TARGET_HOST=10.18.81.14 ./run_all.sh`) take precedence and propagate to
+# the sims — sourcing the file directly would clobber CLI/env overrides.
+if [[ -f .env ]]; then
+  while IFS='=' read -r _k _v; do
+    [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue   # skip comments / blank lines
+    [[ -n "${!_k+x}" ]] && continue                       # keep an existing env/CLI override
+    _v="${_v%\"}"; _v="${_v#\"}"                           # strip surrounding double-quotes
+    export "$_k=$_v"
+  done < .env
+fi
 
 INDEX_WAIT="${INDEX_WAIT:-45}"
 
