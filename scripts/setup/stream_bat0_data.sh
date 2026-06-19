@@ -4,7 +4,7 @@
 # Fallback defaults used when run standalone.
 
 ROUTER_USER="${ROUTER_USER:-root}"
-ROUTER_IP="${ROUTER_IP:-192.168.1.233}"
+ROUTER_IP="${ROUTER_IP:-10.18.81.1}"
 LOG_DIR="${LOG_DIR:-/storage/PCAP/zeek_logs}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
