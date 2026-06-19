@@ -47,10 +47,18 @@ def _resolve_known_hosts():
     return KNOWN_HOSTS
 
 
+class ExclusionListUnavailable(RuntimeError):
+    """The §12.4 exclusion list could not be read. Callers MUST fail closed —
+    refuse to dispatch a block — rather than proceed with an unverifiable list."""
+
+
 def load_excluded_ips() -> set:
     """Read IP/CIDR entries (IPv4 or IPv6, single address or network) from the
     canonical exclusion list (audit P2-7). MAC lines and junk are skipped — the
-    broker blocks by IP only."""
+    broker blocks by IP only.
+
+    Raises ExclusionListUnavailable if the list can't be read, so is_excluded_ip
+    fails CLOSED instead of silently returning an empty (block-everything) set."""
     ips = set()
     try:
         with open(EXCLUSION_LIST, "r", encoding="utf-8") as fh:
@@ -64,17 +72,25 @@ def load_excluded_ips() -> set:
                 except ValueError:
                     pass  # not an IP/CIDR (e.g. a MAC) — broker excludes by IP
     except OSError as e:
-        print(f"[-] EXCLUSION LIST UNREADABLE ({EXCLUSION_LIST}): {e}", file=sys.stderr)
+        print(f"[-] EXCLUSION LIST UNREADABLE ({EXCLUSION_LIST}): {e} — failing CLOSED", file=sys.stderr)
+        raise ExclusionListUnavailable(str(e)) from e
     return ips
 
 
 def is_excluded_ip(attacker_ip: str) -> bool:
-    """True if attacker_ip falls inside any excluded address/CIDR (v4 or v6)."""
+    """True if attacker_ip falls inside any excluded address/CIDR (v4 or v6).
+
+    Fails CLOSED: if the exclusion list can't be read, return True so the broker
+    refuses to dispatch a block for ANY asset until the list is restored (§12.4)."""
     try:
         addr = ipaddress.ip_address(attacker_ip)
     except ValueError:
         return False
-    for entry in load_excluded_ips():
+    try:
+        entries = load_excluded_ips()
+    except ExclusionListUnavailable:
+        return True
+    for entry in entries:
         try:
             if addr in ipaddress.ip_network(entry, strict=False):
                 return True
