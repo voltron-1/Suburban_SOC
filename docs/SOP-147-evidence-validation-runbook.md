@@ -112,17 +112,27 @@ WINDOW_END="$(date -u +%FT%TZ)"
 > `stream_bat0_data.sh` captures `bat0` *on the router* (over SSH); the SOC host is not a
 > mesh node, so `sim_portscan.sh` (which scans loopback/local) never appears. To exercise a
 > port scan on `bat0`, run it **from a mesh node against another host reached over the mesh**:
-> - **Pick a target across the mesh, not local to the capturing router.** Use the batman
->   tables to confirm: `ssh root@<router> 'batctl tg; ip neigh'`. A host listed *Via* the peer
->   mesh node (e.g. the peer AP itself, `10.18.81.14`) traverses `bat0`; a host on the router's
->   own `br-lan` does not.
-> - **Stock OpenWrt ships without `nmap`.** Use a busybox `nc` sweep instead — the scan policy
->   (`configs/zeek/scan-detection.zeek`) fires `Scan::Port_Scan` at **20+ distinct ports** from
->   one source within 5 min, so ~100 ports is plenty:
+> - **Pick a target across the mesh, then *prove* it crosses `bat0`.** The routing table is
+>   misleading: `bat0` is bridged into `br-lan`, so `ip route get <host>` says `dev br-lan` for
+>   *everything* — mesh and local alike. Confirm at L2 instead. Use the batman global
+>   translation table to find clients behind the peer node:
+>   `ssh root@<router> 'batctl tg; ip neigh'` — a client whose `Via` is the peer mesh MAC
+>   traverses `bat0`. Then verify directly by sniffing while you probe (this is the only
+>   reliable check):
 >   ```bash
->   ssh root@<router> 'T=10.18.81.14; for p in $(seq 1 100); do nc -w1 $T $p </dev/null >/dev/null 2>&1; done'
+>   ssh root@<router> 'tcpdump -i bat0 -n -c 5 host <target> & sleep 1; nc <target> 22 </dev/null; wait'
 >   ```
-> - Verify: `docker exec "$(docker ps --filter ancestor=zeek/zeek -q)" grep -i Scan::Port_Scan /data/zeek_logs/notice.log`.
+>   If `tcpdump` shows your SYNs, the target is good. (In our mesh, the peer AP's wireless
+>   client `10.18.81.59` works; `10.18.81.190` is local to `br-lan` and never hits `bat0`.)
+> - **Scan tooling on stock OpenWrt is minimal: no `nmap`, no `timeout`, and busybox `nc` has
+>   no `-w` flag.** So a `nc -w1` sweep silently sends nothing. Background each `nc` (the SYN
+>   leaves the instant it starts), collect PIDs, then `kill` them. 60 ports clears the policy's
+>   (`configs/zeek/scan-detection.zeek`) **20-distinct-port / 5-min** threshold 3×:
+>   ```bash
+>   ssh root@<router> 'T=<target>; pids=""; for p in $(seq 1 60); do nc $T $p </dev/null >/dev/null 2>&1 & pids="$pids $!"; done; sleep 3; kill $pids 2>/dev/null'
+>   ```
+> - Verify the notice (`src` = the scanning node's IP, current `ts`):
+>   `docker exec "$(docker ps --filter ancestor=zeek/zeek -q)" grep -i Scan::Port_Scan /data/zeek_logs/notice.log | tail -1`.
 
 ✅ **Done when:** you have recorded `WINDOW_START`, `WINDOW_END`, the **source IP(s)/host(s)**, and (Path B) the **capture interface**.
 
