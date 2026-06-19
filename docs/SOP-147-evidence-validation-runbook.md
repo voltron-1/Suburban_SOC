@@ -85,6 +85,11 @@ This proves every sim, log-source config, and Sigma rule in `configs/detections/
 ```bash
 cd "$(git rev-parse --show-toplevel)"/tests/anomaly_simulation   # repo-root-relative; safe to run from anywhere in the repo
 cp -n .env.example .env && $EDITOR .env            # set TARGET_HOST, ES creds, agent URL
+# One-time: create the venv (modern Debian/Ubuntu block system-wide pip — PEP 668).
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# IMPORTANT: source the venv in EVERY shell before running the sims, so the
+# `python3` that run_all.sh / verify_detections.py invoke is the venv's.
+source .venv/bin/activate
 ./preflight.sh                                     # every prereq must PASS
 # refresh real intel (shipped feed is TEST placeholders) OR use seeded 198.51.100.66
 ../../configs/intel/refresh_intel.sh

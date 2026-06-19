@@ -58,7 +58,7 @@ if python3 -c "import elasticsearch" 2>/dev/null; then
   ver=$(python3 -c "import elasticsearch; print(elasticsearch.__version__)")
   green "elasticsearch python client installed (${ver})"
 else
-  red "elasticsearch python client missing — pip install -r requirements.txt"
+  red "elasticsearch python client missing — create/activate the venv: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt"
 fi
 
 # --- Config file ---
