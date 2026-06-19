@@ -133,6 +133,29 @@ WINDOW_END="$(date -u +%FT%TZ)"
 >   ```
 > - Verify the notice (`src` = the scanning node's IP, current `ts`):
 >   `docker exec "$(docker ps --filter ancestor=zeek/zeek -q)" grep -i Scan::Port_Scan /data/zeek_logs/notice.log | tail -1`.
+>
+> **File-download detection (`files.log` mime type) needs cleartext HTTP, not browsing.**
+> A client behind the peer AP gets its traffic onto `bat0`, but ordinary web traffic is HTTPS —
+> Zeek logs `conn`/`ssl`/`dns` but **cannot type a file inside TLS**, so there is no `files.log`
+> `mime_type`. Public sites (EICAR included) force HTTP→HTTPS, so serve the sample yourself over
+> plain HTTP:
+> - **Server and client must straddle `bat0`:** client **behind the peer AP** (e.g. a host on
+>   `10.18.81.14`), HTTP server on the **main-router side** (the router itself, or a box wired to
+>   it). Two hosts behind the *same* AP stay local and never cross `bat0`.
+>   ```bash
+>   # on a main-router-side host, in a dir holding eicar_com.zip:
+>   python3 -m http.server 8000
+>   # from the client behind the peer AP:
+>   curl -o /tmp/x.zip http://<server-ip>:8000/eicar_com.zip
+>   ```
+> - The ZIP bytes cross `bat0` in cleartext → Zeek types them. The client logs with its own
+>   `10.18.81.x` IP (bridged L2 mesh — no NAT, unlike a SOC-host-driven sim). Verify:
+>   `docker exec "$(docker ps --filter ancestor=zeek/zeek -q)" grep -i application/zip /data/zeek_logs/files.log | tail -1`.
+> - Quick path-only sanity check (cleartext, but `text/html` not zip):
+>   `curl http://testmynids.org/uid/index.html` from the client → appears in `http.log` on `bat0`.
+>
+> NB: `sim_malware_download.sh` itself stays Path-A-only — it fetches EICAR over HTTPS to the
+> internet, which neither crosses `bat0` nor exposes the file to Zeek.
 
 ✅ **Done when:** you have recorded `WINDOW_START`, `WINDOW_END`, the **source IP(s)/host(s)**, and (Path B) the **capture interface**.
 
