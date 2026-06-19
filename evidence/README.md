@@ -12,14 +12,14 @@
 
 ## Evidence Log
 
-| # | Description | Type | SHA-256 Hash | Links |
-|---|---|---|---|---|
-| 1 | Kibana GeoIP Map — live network traffic origins plotted by geographic location, confirming Logstash GeoIP enrichment is working end-to-end | Screenshot | `3a8527bd2bd17150b7cbff04bdf95d53ea268f3ba43704580eab9ff3c9ba68db` | [Repo](screenshots/kibana-geoip-map.png) · [Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki/kibana-geoip-map) |
-| 2 | Kibana Pie Chart — protocol and traffic distribution breakdown, confirming Zeek JSON logs are indexed and queryable in Elasticsearch | Screenshot | `168ba0532de146713b0fee27dbfb537b5c9aa2f29a8b7183472a2406306679a8` | [Repo](screenshots/kibana-pie-chart.png) · [Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki/kibana-pie-chart) |
-| 3 | Kibana Threat Intelligence Panel — security notice visualization confirming Zeek notice logs are flowing through the full pipeline into Kibana dashboards | Screenshot | `d5971c97d3c75253613d1da44887a0e55eb11350f477e6bce3edddc8d36ee70f` | [Repo](screenshots/kibana-intel-panel.png) · [Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki/kibana-intel-panel) |
-| 4 | Kibana Network Analysis Overview — dashboard displaying source IPs, MAC addresses, and network bytes, confirming custom Logstash ECS mapping | Screenshot | `[Pending User Upload]` | [Repo](screenshots/kibana-network-analysis.png) |
-| 5 | Logstash Pipeline Configuration — documents the Filebeat→Logstash→Elasticsearch connection with GeoIP enrichment, ECS field mapping, and daily index routing | Config File | `04793dccd031899c00d76e768ba7eb59ce997f9255a3e26a76d133d58a81d08a` | [Repo](../configs/logstash.conf) |
-| 6 | Architecture Diagram — full pipeline diagram (OpenWrt → Zeek → Logstash → Elasticsearch → Kibana) with runtime environments and port numbers labeled | Diagram | `e2a59fc5c07432719a484aa7773bda166b46b90634925235fac07bce8064b40f` | [Repo](../docs/architecture-diagram.png) · [Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki/Architecture) |
+| # | Status | Description | Type | SHA-256 Hash | Links |
+|---|---|---|---|---|---|
+| 1 | ⚠️ **PENDING RE-CAPTURE** | Kibana GeoIP Map — live network traffic origins plotted by geographic location, confirming Logstash GeoIP enrichment is working end-to-end | Screenshot | `3a8527bd2bd17150b7cbff04bdf95d53ea268f3ba43704580eab9ff3c9ba68db` | [Repo](screenshots/kibana-geoip-map.png) · [Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki/kibana-geoip-map) |
+| 2 | ⚠️ **PENDING RE-CAPTURE** | Kibana Pie Chart — protocol and traffic distribution breakdown, confirming Zeek JSON logs are indexed and queryable in Elasticsearch | Screenshot | `168ba0532de146713b0fee27dbfb537b5c9aa2f29a8b7183472a2406306679a8` | [Repo](screenshots/kibana-pie-chart.png) · [Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki/kibana-pie-chart) |
+| 3 | ⚠️ **PENDING RE-CAPTURE** | Kibana Threat Intelligence Panel — security notice visualization confirming Zeek notice logs are flowing through the full pipeline into Kibana dashboards | Screenshot | `d5971c97d3c75253613d1da44887a0e55eb11350f477e6bce3edddc8d36ee70f` | [Repo](screenshots/kibana-intel-panel.png) · [Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki/kibana-intel-panel) |
+| 4 | ⚠️ **PENDING RE-CAPTURE** | Kibana Network Analysis Overview — dashboard displaying source IPs, MAC addresses, and network bytes, confirming custom Logstash ECS mapping | Screenshot | `[Pending User Upload]` | [Repo](screenshots/kibana-network-analysis.png) |
+| 5 | N/A (config file) | Logstash Pipeline Configuration — documents the Filebeat→Logstash→Elasticsearch connection with GeoIP enrichment, ECS field mapping, and daily index routing | Config File | `04793dccd031899c00d76e768ba7eb59ce997f9255a3e26a76d133d58a81d08a` | [Repo](../configs/logstash.conf) |
+| 6 | N/A (diagram) | Architecture Diagram — full pipeline diagram (OpenWrt → Zeek → Logstash → Elasticsearch → Kibana) with runtime environments and port numbers labeled | Diagram | `e2a59fc5c07432719a484aa7773bda166b46b90634925235fac07bce8064b40f` | [Repo](../docs/architecture-diagram.png) · [Wiki](https://github.com/sterlinggarnett/Suburban_SOC/wiki/Architecture) |
 
 ---
 
