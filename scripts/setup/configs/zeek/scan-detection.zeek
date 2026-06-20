@@ -64,10 +64,16 @@ event new_connection(c: connection)
         # Reset the port set so the next sweep is counted as a fresh episode
         # once suppression lifts, rather than re-firing on a single connection.
         delete ports_per_src[src];
+        # Suppress at the Notice framework for exactly port_scan_resuppress, not
+        # the framework default (1 h). Without $suppress_for the default wins and
+        # silently overrides the 1-min re-fire this script documents — so a single
+        # source can never re-trigger within an hour, breaking re-validation and
+        # leaving notice.log a single static line.
         NOTICE([$note = Scan::Port_Scan,
                 $conn = c,
                 $src = src,
                 $msg = fmt("%s probed %d+ distinct ports", src, port_scan_threshold),
-                $identifier = cat(src)]);
+                $identifier = cat(src),
+                $suppress_for = port_scan_resuppress]);
         }
     }
