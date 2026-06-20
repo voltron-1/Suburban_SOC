@@ -13,6 +13,21 @@ filebeat.inputs:
           target: ""
           overwrite_keys: true
           add_error_key: true
+    # Zeek detection logs are tiny and volatile: a single Scan::Port_Scan in
+    # notice.log is ~336 B, and the live capture stream rewrites it in place with
+    # the SAME size on every restart. Two failure modes to avoid:
+    #   * fingerprint default length (1024 B) skips files smaller than that, so
+    #     detection logs never ship while bulky conn/dns/ssl logs do;
+    #   * native (inode/offset) identity is content-blind — a same-size rewrite
+    #     leaves the offset at EOF, so the NEW notice is silently never re-read.
+    # Use fingerprint identity with the 64 B floor: it hashes the first 64 bytes,
+    # so it both harvests small files (>=64 B) AND detects content changes (a
+    # different notice => different fingerprint => re-read from 0 => ships), which
+    # native cannot. Changing file_identity invalidates the registry — deploy with
+    # `systemctl stop filebeat && rm -rf /var/lib/filebeat/registry && start`.
+    prospector.scanner.fingerprint.enabled: true
+    prospector.scanner.fingerprint.length: 64
+    file_identity.fingerprint: ~
 
 # ============================== Tenant attribution ===========================
 # Edge-stamping (WS0.3): each deployment sets TENANT_ID so every shipped event
