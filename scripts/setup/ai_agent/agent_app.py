@@ -292,13 +292,20 @@ def _normalize_mac(value: str) -> str:
     return re.sub(r"[:\-]", "", (value or "").strip().upper())
 
 
+class ExclusionListUnavailable(RuntimeError):
+    """The §12.4 exclusion list could not be read. Callers MUST fail closed —
+    refuse to act — rather than proceed with an unverifiable allowlist."""
+
+
 def _load_exclusions():
     """Returns (set_of_ips, set_of_normalized_macs) from EXCLUSION_LIST.
 
-    Fails CLOSED is not appropriate here (a missing list must not silently
-    permit blocking core infra), so a missing/unreadable list is logged loudly
-    and treated as 'exclude nothing' ONLY for IPs/MACs — callers still default
-    to drafting-for-approval, so no autonomous action occurs regardless.
+    Fails CLOSED on an unreadable/missing list (raises ExclusionListUnavailable).
+    The earlier 'log loudly and exclude nothing' posture was unsafe: with
+    AUTONOMOUS_ISOLATION enabled, this check is the ONLY thing between a spoofed
+    or critical alert and auto-isolation of core infra, and §12.4 forbids even
+    *drafting* an action against a protected asset. A missing list must therefore
+    block all action (see is_excluded), not silently permit it.
     """
     ips, macs = set(), set()
     try:
@@ -312,7 +319,8 @@ def _load_exclusions():
                 else:
                     ips.add(entry)
     except OSError as e:
-        app.logger.error("EXCLUSION LIST UNREADABLE (%s): %s", EXCLUSION_LIST, e)
+        app.logger.critical("EXCLUSION LIST UNREADABLE (%s): %s — failing CLOSED", EXCLUSION_LIST, e)
+        raise ExclusionListUnavailable(str(e)) from e
     return ips, macs
 
 
@@ -334,9 +342,22 @@ def _ip_excluded(ip: str, entries) -> bool:
     return False
 
 
+# Sentinel returned when the allowlist can't be read: every asset is treated as
+# protected so the SOAR refuses to isolate anything until the list is restored.
+EXCLUSION_UNVERIFIABLE = "exclusion-list-unavailable"
+
+
 def is_excluded(ip: str = "", mac: str = ""):
-    """Return the matching exclusion entry if ip/mac is protected, else None."""
-    ips, macs = _load_exclusions()
+    """Return the matching exclusion entry if ip/mac is protected, else None.
+
+    Fails CLOSED: if the exclusion list cannot be read, return the
+    EXCLUSION_UNVERIFIABLE sentinel (truthy) so every caller treats the target as
+    protected and takes no isolating action (§12.4) until the list is restored.
+    """
+    try:
+        ips, macs = _load_exclusions()
+    except ExclusionListUnavailable:
+        return EXCLUSION_UNVERIFIABLE
     if ip and _ip_excluded(ip, ips):
         return ip
     if mac and _normalize_mac(mac) in macs:

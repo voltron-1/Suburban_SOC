@@ -26,16 +26,16 @@
 ## Screenshots
 
 ### 1. GeoIP Map — Live Traffic Origins
-![Kibana GeoIP Map](screenshots/kibana-geoip-map.png)
+PENDING RE-CAPTURE
 
 ### 2. Traffic Distribution Pie Chart
-![Kibana Pie Chart](screenshots/kibana-pie-chart.png)
+PENDING RE-CAPTURE
 
 ### 3. Threat Intelligence Panel
-![Kibana Intel Panel](screenshots/kibana-intel-panel.png)
+PENDING RE-CAPTURE
 
 ### 4. Network Analysis Overview (ECS Mapping Verified)
-![Kibana Network Analysis](screenshots/kibana-network-analysis.png)
+PENDING RE-CAPTURE
 
 ---
 

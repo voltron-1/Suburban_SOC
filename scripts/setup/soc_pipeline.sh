@@ -418,29 +418,45 @@ run_sop_002() {
     echo ""
     info "Configuring Filebeat to watch Zeek logs and output to Logstash..."
     local FILEBEAT_CONFIG="/etc/filebeat/filebeat.yml"
+    local AUTHORITATIVE_CONFIG="${SCRIPT_DIR}/../../configs/network/filebeat.yml"
+    local FILEBEAT_CERT_DIR="/etc/filebeat/certs"
+    local SRC_CERTS="/usr/share/logstash/config/certs"
 
-    if [ -f "$FILEBEAT_CONFIG" ]; then
-        # Use a heredoc (<<'FBEOF') to safely append multiline YAML config
-        # Redirecting to /dev/null keeps terminal output clean
-        sudo tee -a "$FILEBEAT_CONFIG" > /dev/null <<'FBEOF'
+    # Provision the stack CA + Filebeat client cert/key for the Logstash Beats mTLS
+    # handshake. Missing CA -> ssl.enabled fails with EOF; missing client cert ->
+    # Logstash rejects the batch with "tls: certificate required". All three live in
+    # the stack certs volume, reachable through the logstash container (docker cp runs
+    # as the daemon, so it reads them even though logstash runs as uid 1000).
+    info "Provisioning Filebeat TLS material to ${FILEBEAT_CERT_DIR}"
+    sudo mkdir -p "$FILEBEAT_CERT_DIR"
+    for f in ca/ca.crt filebeat/filebeat.crt filebeat/filebeat.key; do
+        local base; base="$(basename "$f")"
+        local dest="${FILEBEAT_CERT_DIR}/${base}"
+        if [ ! -f "$dest" ]; then
+            if docker cp "logstash:${SRC_CERTS}/${f}" "/tmp/soc_${base}" 2>/dev/null; then
+                sudo mv "/tmp/soc_${base}" "$dest"
+            else
+                warn "Could not copy ${f} from the 'logstash' container — place it at ${dest} manually"
+            fi
+        fi
+    done
+    # CA and client cert are public (644); the private key is root-only (600).
+    sudo chown root:root "${FILEBEAT_CERT_DIR}"/* 2>/dev/null || true
+    sudo chmod 644 "${FILEBEAT_CERT_DIR}/ca.crt" "${FILEBEAT_CERT_DIR}/filebeat.crt" 2>/dev/null || true
+    sudo chmod 600 "${FILEBEAT_CERT_DIR}/filebeat.key" 2>/dev/null || true
+    pass "Filebeat TLS material installed in ${FILEBEAT_CERT_DIR}"
 
-# --- Suburban-SOC Zeek Integration ---
-filebeat.inputs:
-  - type: filestream
-    id: zeek-logs
-    paths:
-      - /storage/PCAP/zeek_logs/*.log
-    parsers:
-      - ndjson:
-          target: ""
-          overwrite_keys: true
-
-output.logstash:
-  hosts: ["localhost:5044"]
-FBEOF
-        pass "Filebeat config updated"
+    # Install the authoritative, TLS-enabled config by OVERWRITE (not append).
+    # The old heredoc used `tee -a`, which on a second run duplicated the
+    # filebeat.inputs/output.logstash keys and broke Filebeat startup. The repo
+    # config at configs/network/filebeat.yml is the single source of truth.
+    if [ -f "$AUTHORITATIVE_CONFIG" ]; then
+        [ -f "$FILEBEAT_CONFIG" ] && sudo cp "$FILEBEAT_CONFIG" "${FILEBEAT_CONFIG}.stock.bak"
+        sudo cp "$AUTHORITATIVE_CONFIG" "$FILEBEAT_CONFIG"
+        sudo chmod 0644 "$FILEBEAT_CONFIG"
+        pass "Filebeat config installed from configs/network/filebeat.yml (TLS-enabled)"
     else
-        warn "filebeat.yml not found at $FILEBEAT_CONFIG - apply config manually"
+        warn "Authoritative config not found at $AUTHORITATIVE_CONFIG - apply config manually"
     fi
 
     # Enable at boot and start the service

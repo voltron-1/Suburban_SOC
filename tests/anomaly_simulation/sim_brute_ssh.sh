@@ -8,7 +8,18 @@
 
 set -euo pipefail
 
-[[ -f "$(dirname "$0")/.env" ]] && set -a && source "$(dirname "$0")/.env" && set +a
+# Load .env for defaults, but let variables already set in the environment
+# (e.g. `TARGET_HOST=10.18.81.14 ./sim_brute_ssh.sh`) take precedence — sourcing
+# the file directly would clobber CLI/env overrides.
+ENV_FILE="$(dirname "$0")/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  while IFS='=' read -r _k _v; do
+    [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue   # skip comments / blank lines
+    [[ -n "${!_k+x}" ]] && continue                       # keep an existing env/CLI override
+    _v="${_v%\"}"; _v="${_v#\"}"                           # strip surrounding double-quotes
+    export "$_k=$_v"
+  done < "$ENV_FILE"
+fi
 
 TARGET_HOST="${TARGET_HOST:-127.0.0.1}"
 BRUTE_USER="${BRUTE_USER:-bogususer}"

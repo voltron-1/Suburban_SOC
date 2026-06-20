@@ -83,8 +83,13 @@ This proves every sim, log-source config, and Sigma rule in `configs/detections/
 
 **Path A — Simulation harness (default, no special hardware):**
 ```bash
-cd tests/anomaly_simulation
+cd "$(git rev-parse --show-toplevel)"/tests/anomaly_simulation   # repo-root-relative; safe to run from anywhere in the repo
 cp -n .env.example .env && $EDITOR .env            # set TARGET_HOST, ES creds, agent URL
+# One-time: create the venv (modern Debian/Ubuntu block system-wide pip — PEP 668).
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# IMPORTANT: source the venv in EVERY shell before running the sims, so the
+# `python3` that run_all.sh / verify_detections.py invoke is the venv's.
+source .venv/bin/activate
 ./preflight.sh                                     # every prereq must PASS
 # refresh real intel (shipped feed is TEST placeholders) OR use seeded 198.51.100.66
 ../../configs/intel/refresh_intel.sh
@@ -96,12 +101,62 @@ WINDOW_END="$(date -u +%FT%TZ)"
 
 **Path B — Real boundary capture (if an OpenWrt mesh / capture NIC is available):**
 ```bash
-cd scripts/setup
+cd "$(git rev-parse --show-toplevel)"/scripts/setup   # repo-root-relative; safe to run from anywhere in the repo
 WINDOW_START="$(date -u +%FT%TZ)"
 ./stream_bat0_data.sh        # or stream_br_lan_data.sh / stream_raw_data.sh — note the interface
-# let it run a defined window, then drive a few Path-A sims against the live network
+# let it run a defined window, then drive traffic that ACTUALLY crosses the captured interface
 WINDOW_END="$(date -u +%FT%TZ)"
 ```
+
+> **Path B traffic must cross the captured interface — the local Path-A sims won't.**
+> `stream_bat0_data.sh` captures `bat0` *on the router* (over SSH); the SOC host is not a
+> mesh node, so `sim_portscan.sh` (which scans loopback/local) never appears. To exercise a
+> port scan on `bat0`, run it **from a mesh node against another host reached over the mesh**:
+> - **Pick a target across the mesh, then *prove* it crosses `bat0`.** The routing table is
+>   misleading: `bat0` is bridged into `br-lan`, so `ip route get <host>` says `dev br-lan` for
+>   *everything* — mesh and local alike. Confirm at L2 instead. Use the batman global
+>   translation table to find clients behind the peer node:
+>   `ssh root@<router> 'batctl tg; ip neigh'` — a client whose `Via` is the peer mesh MAC
+>   traverses `bat0`. Then verify directly by sniffing while you probe (this is the only
+>   reliable check):
+>   ```bash
+>   ssh root@<router> 'tcpdump -i bat0 -n -c 5 host <target> & sleep 1; nc <target> 22 </dev/null; wait'
+>   ```
+>   If `tcpdump` shows your SYNs, the target is good. (In our mesh, the peer AP's wireless
+>   client `10.18.81.59` works; `10.18.81.190` is local to `br-lan` and never hits `bat0`.)
+> - **Scan tooling on stock OpenWrt is minimal: no `nmap`, no `timeout`, and busybox `nc` has
+>   no `-w` flag.** So a `nc -w1` sweep silently sends nothing. Background each `nc` (the SYN
+>   leaves the instant it starts), collect PIDs, then `kill` them. 60 ports clears the policy's
+>   (`configs/zeek/scan-detection.zeek`) **20-distinct-port / 5-min** threshold 3×:
+>   ```bash
+>   ssh root@<router> 'T=<target>; pids=""; for p in $(seq 1 60); do nc $T $p </dev/null >/dev/null 2>&1 & pids="$pids $!"; done; sleep 3; kill $pids 2>/dev/null'
+>   ```
+> - Verify the notice (`src` = the scanning node's IP, current `ts`):
+>   `docker exec "$(docker ps --filter ancestor=zeek/zeek -q)" grep -i Scan::Port_Scan /data/zeek_logs/notice.log | tail -1`.
+>
+> **File-download detection (`files.log` mime type) needs cleartext HTTP, not browsing.**
+> A client behind the peer AP gets its traffic onto `bat0`, but ordinary web traffic is HTTPS —
+> Zeek logs `conn`/`ssl`/`dns` but **cannot type a file inside TLS**, so there is no `files.log`
+> `mime_type`. Public sites (EICAR included) force HTTP→HTTPS, so serve the sample yourself over
+> plain HTTP:
+> - **Server and client must straddle `bat0`:** client **behind the peer AP** (e.g. a host on
+>   `10.18.81.14`), HTTP server on the **main-router side** (the router itself, or a box wired to
+>   it). Two hosts behind the *same* AP stay local and never cross `bat0`.
+>   ```bash
+>   # on a main-router-side host, in a dir holding eicar_com.zip:
+>   python3 -m http.server 8000
+>   # from the client behind the peer AP:
+>   curl -o /tmp/x.zip http://<server-ip>:8000/eicar_com.zip
+>   ```
+> - The ZIP bytes cross `bat0` in cleartext → Zeek types them. The client logs with its own
+>   `10.18.81.x` IP (bridged L2 mesh — no NAT, unlike a SOC-host-driven sim). Verify:
+>   `docker exec "$(docker ps --filter ancestor=zeek/zeek -q)" grep -i application/zip /data/zeek_logs/files.log | tail -1`.
+> - Quick path-only sanity check (cleartext, but `text/html` not zip):
+>   `curl http://testmynids.org/uid/index.html` from the client → appears in `http.log` on `bat0`.
+>
+> NB: `sim_malware_download.sh` itself stays Path-A-only — it fetches EICAR over HTTPS to the
+> internet, which neither crosses `bat0` nor exposes the file to Zeek.
+
 ✅ **Done when:** you have recorded `WINDOW_START`, `WINDOW_END`, the **source IP(s)/host(s)**, and (Path B) the **capture interface**.
 
 ---
