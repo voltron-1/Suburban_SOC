@@ -1,0 +1,13 @@
+{
+  "name": "suburban-soc-evidence-capture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Headless Kibana screenshot harness for issue #147 evidence capture (reproducible, windowed PNGs).",
+  "scripts": {
+    "capture": "node capture_kibana.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.49.0"
+  }
+}
