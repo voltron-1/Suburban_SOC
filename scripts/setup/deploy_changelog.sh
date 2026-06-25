@@ -33,9 +33,9 @@ printf '| %s | %s | `%s` | %s | %s |\n' "$TS" "$COMPONENT" "$GITREV" "$ACTOR" "$
 echo "    changelog: recorded $COMPONENT @ $GITREV"
 
 # 2. Immutable ES record (best-effort).
-if [[ -n "$ES_PASS" ]]; then
+if [[ -n "$ES_PASS" && -f "$HERE/lib/es_common.sh" ]]; then
   # Shared ES creds + TLS + es helpers (issue #156); sourced inside the if so the
-  # markdown changelog still writes without ES creds.
+  # markdown changelog still writes without ES creds (and without the lib present).
   source "$HERE/lib/es_common.sh"
   esj -m 6 -o /dev/null -X POST "$ES_URL/soc-deploys/_doc" \
     -d "{\"@timestamp\":\"$TS\",\"component\":\"$COMPONENT\",\"commit\":\"$GITREV\",\"actor\":\"$ACTOR\",\"summary\":\"$SUMMARY\"}" 2>/dev/null || true

@@ -156,6 +156,8 @@ fi
 blue "==> [6/7] Installing data lifecycle (ILM + snapshots + data-stream templates)"
 LIFECYCLE_SCRIPT="$REPO_ROOT/configs/elasticsearch/apply-lifecycle.sh"
 if [[ -f "$LIFECYCLE_SCRIPT" ]]; then
+  # Pass creds explicitly: apply-lifecycle.sh runs as a child (and in-container,
+  # un-migrated) so it can't rely on this shell's lib-set, non-exported vars.
   if ES_URL="$ES_URL" ES_USER="$ES_USER" ES_PASS="$ES_PASS" bash "$LIFECYCLE_SCRIPT"; then
     green "    Data lifecycle installed."
   else

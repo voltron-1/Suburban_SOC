@@ -23,8 +23,14 @@
 #   ES_CA    if set AND the file exists -> curl --cacert <ca>; else -> curl -k
 #
 # Fails fast (exit 1) when no password resolves, instead of emitting an
-# unauthenticated request that returns a confusing 401.
+# unauthenticated request that returns a confusing 401. Set ES_REQUIRE_CREDS=0
+# before sourcing to downgrade that to a warning (for health monitors that must
+# keep checking other components when ES is down / creds are absent).
 # =============================================================================
+
+# Idempotent: if already sourced in this shell, skip re-resolving creds.
+[[ -n "${_ES_COMMON_LOADED:-}" ]] && return 0
+_ES_COMMON_LOADED=1
 
 ES_URL="${ES_URL:-https://localhost:9200}"
 ES_USER="${ES_USER:-elastic}"

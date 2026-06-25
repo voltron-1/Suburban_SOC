@@ -42,6 +42,7 @@ es_status="$(es -m 6 "$ES_URL/_cluster/health" | grep -o '"status":"[a-z]*"' | c
 [[ "$es_status" == "green" || "$es_status" == "yellow" ]] && check elasticsearch 0 "$es_status" || check elasticsearch 1 "${es_status:-unreachable}"
 
 # Kibana — overall status level.
+# es()'s ES_TLS flags (-k/--cacert) are no-ops against the http:// Kibana URL.
 kb_level="$(es -m 6 "$KIBANA_URL/api/status" | grep -o '"level":"[a-z]*"' | head -1 | cut -d'"' -f4)"
 [[ "$kb_level" == "available" ]] && check kibana 0 "$kb_level" || check kibana 1 "${kb_level:-unreachable}"
 
