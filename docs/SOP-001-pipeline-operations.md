@@ -258,10 +258,35 @@ Follow this order when starting the full pipeline from scratch:
 |---|---|---|
 | SSH connection refused | Router unreachable | Verify you are on the mesh network and router IP is `10.18.81.1` |
 | Zeek container exits immediately | Docker not running | Run `docker ps` and start Docker |
-| No logs in Zeek output dir | Permissions issue | Run with `sudo` or check `/storage/PCAP/zeek_logs/` permissions |
-| Filebeat not shipping | Config error or Logstash down | Check `sudo journalctl -u filebeat -f` and verify Logstash port 5044 |
-| No data in Kibana | Wrong index pattern | Ensure index pattern is `logstash-*` in Kibana Data Views |
-| Elasticsearch 401 error | Wrong password | Re-export `ELASTIC_PASSWORD` environment variable |
+| No logs in Zeek output dir | Permissions, or capturing the wrong interface | Check `/storage/PCAP/zeek_logs/` perms; then see §11.4 |
+| Filebeat not shipping | Config error, Logstash down, or stale CA after a `certs`-volume reset | `sudo journalctl -u filebeat -f`; verify Logstash :5044; see §11.3 |
+| No data in Kibana | Wrong index pattern, or no fresh capture | Data view = `logstash-*`; confirm capture is live (§11.4) |
+| Elasticsearch 401 | Unset/stale creds or a duplicate `es()` helper | Define creds once in the shell; see §11.5 |
+
+### Detailed entries — reconciled against the live stack (2026-06-24)
+
+These supersede the external runbook §11.2–11.5, which had drifted from the deployed system.
+
+#### §11.2 — Dependent service starts before Elasticsearch is ready ✅ resolved
+**Status:** no longer reproducible. Every Elasticsearch-dependent service (`kibana`, `logstash`, `lifecycle`, `ai-agent`) gates on `depends_on → elasticsearch: condition: service_healthy`, and `elasticsearch` has a healthcheck against `:9200`. The remaining gap — `elasticsearch` depending on `setup: service_completed_successfully`, a `compose up` deadlock because `setup` waits on ES — was changed to `service_healthy` in PR #153.
+**Verify:** `grep -A2 depends_on scripts/setup/docker-compose.yml` shows `service_healthy` for every ES consumer; `docker inspect -f '{{.State.Health.Status}}' elasticsearch` is `healthy` before consumers start.
+
+#### §11.3 — Filebeat TLS handshake / certificate-verification failure
+**Symptom:** Filebeat logs a TLS handshake or certificate-verification error talking to Logstash.
+**Corrected cause:** *not* "Logstash generates a new CA." The CA is minted once by the `setup` one-shot (`elasticsearch-certutil ca`) into the `certs` named volume; generation is idempotent and **a Logstash rebuild does not rotate it**. The CA changes only when the **`certs` volume is deleted/recreated** — `setup` then issues a new CA and reissues every node/client cert. The host-side Filebeat (certs under `/etc/filebeat/certs/`, provisioned out-of-band) is **not** refreshed by `docker compose up`, so it keeps the stale CA/client cert → handshake fails.
+**Resolution:** after any `certs`-volume reset, re-provision the host Filebeat CA + client cert from the new CA, then `sudo systemctl restart filebeat`. Tracking: #154.
+
+#### §11.4 — Stack healthy but no documents in the Zeek indices
+**Symptom:** ES + Kibana healthy, Filebeat shows no errors, but no new `zeek.*` docs.
+**Cause:** Zeek is capturing the wrong/inactive interface. `bat0` no longer exists on this host — capture moved to host `eth0` via `zeek-host-capture.service`. Two live variants:
+- **Docker Desktop `--network host` trap:** a containerized `zeek -i eth0 --network host` attaches to the Docker Desktop VM netns (`192.168.65.0/24`), not the WSL `eth0`, so it captures only Docker-internal traffic. Tell-tale: recent `conn.log` dest IPs are all `192.168.65.x`. Fix = host-native `tcpdump -i eth0 -U -w - | docker run -i … zeek -r -` (the `zeek-host-capture.service` / `stream_raw_data.sh` pattern).
+- **Loopback sims:** traffic to `127.0.0.1` traverses `lo` and is never seen by an `eth0` capture — sims must target an address that crosses `eth0` (e.g. the gateway).
+**Diagnostics:** `systemctl is-active zeek-host-capture`; `pgrep -a tcpdump`; `ls -lt /storage/PCAP/zeek_logs/conn.log` (fresh mtime?); confirm `conn.log` dest IPs aren't all `192.168.65.x`. Tracking: #155.
+
+#### §11.5 — Elasticsearch API returns HTTP 401 despite credentials
+**Symptom:** calls to `:9200` return 401 even with a password supplied.
+**Causes (still valid):** the password env/var is unset or stale; **multiple `es()` helper definitions** are active in the shell and a later one overwrote an earlier one (many scripts each define their own `es()`); or the password changed after a container rebuild.
+**Resolution:** define credentials once in the current shell and test `curl -sS --cacert <ca> -u elastic:"$ELASTIC_PASSWORD" https://localhost:9200`. Consolidating the per-script `es()` helpers + credential loading into one sourced lib is tracked in #156.
 
 ---
 
@@ -271,4 +296,4 @@ Follow this order when starting the full pipeline from scratch:
 - [Logstash Config](../configs/logstash.conf)
 - [Zeek ELK Pipeline Docs](../docs/Zeek_ELK_Pipeline.md)
 - [Network Topology](../docs/network_topology.md)
-- [Wiki: Architecture](https://github.com/sterlinggarnett/Suburban_SOC/wiki/Architecture)
+- [Wiki: Architecture](https://github.com/voltron-1/Suburban_SOC/wiki/Architecture)
