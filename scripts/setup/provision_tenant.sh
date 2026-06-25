@@ -38,14 +38,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
 
-ES_URL="${ES_URL:-https://localhost:9200}"
 KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[[ -z "$ES_PASS" ]] && { red "ERROR: ES_PASS / ELASTIC_PASSWORD required."; exit 1; }
-
-AUTH=(-u "${ES_USER}:${ES_PASS}")
-if [[ -n "${ES_CA:-}" && -f "${ES_CA}" ]]; then TLS=(--cacert "${ES_CA}"); else TLS=(-k); fi
+# Shared ES creds + TLS + helpers (issue #156).
+source "$SCRIPT_DIR/lib/es_common.sh"
+AUTH=("${ES_AUTH[@]}"); TLS=("${ES_TLS[@]}")
 
 ROLE="tenant_${TENANT//-/_}_viewer"
 USER="tenant_${TENANT//-/_}"

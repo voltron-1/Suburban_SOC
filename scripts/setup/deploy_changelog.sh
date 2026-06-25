@@ -34,7 +34,9 @@ echo "    changelog: recorded $COMPONENT @ $GITREV"
 
 # 2. Immutable ES record (best-effort).
 if [[ -n "$ES_PASS" ]]; then
-  curl -sk -m 6 -u "${ES_USER}:${ES_PASS}" -o /dev/null -X POST "$ES_URL/soc-deploys/_doc" \
-    -H 'Content-Type: application/json' \
+  # Shared ES creds + TLS + es helpers (issue #156); sourced inside the if so the
+  # markdown changelog still writes without ES creds.
+  source "$HERE/lib/es_common.sh"
+  esj -m 6 -o /dev/null -X POST "$ES_URL/soc-deploys/_doc" \
     -d "{\"@timestamp\":\"$TS\",\"component\":\"$COMPONENT\",\"commit\":\"$GITREV\",\"actor\":\"$ACTOR\",\"summary\":\"$SUMMARY\"}" 2>/dev/null || true
 fi

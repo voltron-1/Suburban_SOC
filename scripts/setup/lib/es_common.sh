@@ -30,12 +30,19 @@ ES_URL="${ES_URL:-https://localhost:9200}"
 ES_USER="${ES_USER:-elastic}"
 ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
 
+# Fail fast on missing creds by default. Health monitors that must keep checking
+# other components when ES is down / creds are absent can set ES_REQUIRE_CREDS=0 to
+# downgrade this to a warning (es() then goes out unauthenticated and surfaces 401).
 if [[ -z "${ES_PASS:-}" ]]; then
-  echo "ERROR: ES_PASS / ELASTIC_PASSWORD is not set." >&2
-  echo "       Set it in scripts/setup/.env or export it, then retry." >&2
-  # exit (not return): this must abort the sourcing SCRIPT. `return` would only end
-  # the source and let the script run on credential-less, defeating the fail-fast.
-  exit 1
+  if [[ "${ES_REQUIRE_CREDS:-1}" == "0" ]]; then
+    echo "WARNING: ES_PASS / ELASTIC_PASSWORD not set — ES calls will be unauthenticated." >&2
+  else
+    echo "ERROR: ES_PASS / ELASTIC_PASSWORD is not set." >&2
+    echo "       Set it in scripts/setup/.env or export it, then retry." >&2
+    # exit (not return): this must abort the sourcing SCRIPT. `return` would only end
+    # the source and let the script run credential-less, defeating the fail-fast.
+    exit 1
+  fi
 fi
 
 # Auth + TLS built once. Prefer verifying against the stack CA; fall back to -k

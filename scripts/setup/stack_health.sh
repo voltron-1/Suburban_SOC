@@ -15,11 +15,12 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$HERE/.env" ]] && { set -a; . "$HERE/.env"; set +a; }
-ES_URL="${ES_URL:-https://localhost:9200}"
 KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
 NTFY_TOPIC="${NTFY_TOPIC:-}"
+# Shared ES creds + TLS + es helpers (issue #156). Soft mode: a health monitor must
+# keep checking other components even when ES creds are absent, so don't fail-fast.
+ES_REQUIRE_CREDS=0
+source "$HERE/lib/es_common.sh"
 
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -37,11 +38,11 @@ check() {  # $1=name  $2=ok(0/1)  $3=detail
 echo "==> SOC stack health $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Elasticsearch — cluster health (red counts as down).
-es_status="$(curl -sk -m 6 -u "${ES_USER}:${ES_PASS}" "$ES_URL/_cluster/health" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4)"
+es_status="$(es -m 6 "$ES_URL/_cluster/health" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4)"
 [[ "$es_status" == "green" || "$es_status" == "yellow" ]] && check elasticsearch 0 "$es_status" || check elasticsearch 1 "${es_status:-unreachable}"
 
 # Kibana — overall status level.
-kb_level="$(curl -s -m 6 -u "${ES_USER}:${ES_PASS}" "$KIBANA_URL/api/status" | grep -o '"level":"[a-z]*"' | head -1 | cut -d'"' -f4)"
+kb_level="$(es -m 6 "$KIBANA_URL/api/status" | grep -o '"level":"[a-z]*"' | head -1 | cut -d'"' -f4)"
 [[ "$kb_level" == "available" ]] && check kibana 0 "$kb_level" || check kibana 1 "${kb_level:-unreachable}"
 
 # Logstash — node stats (:9600) if reachable, else container state.
@@ -60,8 +61,7 @@ container_up hive_mind_broker && check broker 0 "container up" || check broker 1
 now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 status="$([[ ${#DOWN[@]} -eq 0 ]] && echo healthy || echo degraded)"
 # Record to soc-health for the dashboard (best-effort; needs ES up).
-curl -sk -m 6 -u "${ES_USER}:${ES_PASS}" -o /dev/null -X POST "$ES_URL/soc-health/_doc" \
-  -H 'Content-Type: application/json' \
+esj -m 6 -o /dev/null -X POST "$ES_URL/soc-health/_doc" \
   -d "{\"@timestamp\":\"$now\",\"status\":\"$status\",\"down_count\":${#DOWN[@]},\"down\":[$(printf '"%s",' "${DOWN[@]}" | sed 's/,$//')]}" 2>/dev/null
 
 echo

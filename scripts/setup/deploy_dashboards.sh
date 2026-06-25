@@ -37,28 +37,12 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
 fi
 
 # Security is always on (WS0.1): ES is HTTPS + authenticated.
-ES_URL="${ES_URL:-https://localhost:9200}"
 KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-
-if [[ -z "$ES_PASS" ]]; then
-  red "ERROR: ES_PASS (or ELASTIC_PASSWORD in scripts/setup/.env) is required — the stack is secured."
-  exit 1
-fi
-
-# Basic-auth applied to every ES + Kibana API call.
-AUTH=(-u "${ES_USER}:${ES_PASS}")
-
-# TLS to Elasticsearch: use the CA when provided, else fall back to -k for a
-# local self-signed cert (acceptable only against localhost).
-if [[ -n "${ES_CA:-}" && -f "${ES_CA}" ]]; then
-  TLS=(--cacert "${ES_CA}")
-else
-  TLS=(-k)
-fi
-# Combined options for Elasticsearch calls (auth + TLS).
-ES_CURL=("${AUTH[@]}" "${TLS[@]}")
+# Shared ES creds + TLS + helpers (issue #156).
+source "$SCRIPT_DIR/lib/es_common.sh"
+# Basic-auth (ES + Kibana) and combined ES auth+TLS, from the shared lib's arrays.
+AUTH=("${ES_AUTH[@]}")
+ES_CURL=("${ES_AUTH[@]}" "${ES_TLS[@]}")
 
 DASHBOARDS=(
   "executive_dashboard.ndjson"

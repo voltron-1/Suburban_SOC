@@ -15,15 +15,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 [[ -f "$HERE/.env" ]] && { set -a; . "$HERE/.env"; set +a; }
-ES_URL="${ES_URL:-https://localhost:9200}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[[ -z "$ES_PASS" ]] && { echo "ERROR: ES_PASS / ELASTIC_PASSWORD required"; exit 1; }
+# Shared ES creds + TLS + es helpers (issue #156).
+source "$HERE/lib/es_common.sh"
 
 for f in "$REPO_ROOT"/configs/elasticsearch/roles/*.json; do
   role="$(basename "$f" .json)"
-  code=$(curl -sk -o /dev/null -w '%{http_code}' -u "${ES_USER}:${ES_PASS}" \
-    -X PUT "$ES_URL/_security/role/$role" -H 'Content-Type: application/json' --data-binary "@$f")
+  code=$(es_code -X PUT "$ES_URL/_security/role/$role" \
+    -H 'Content-Type: application/json' --data-binary "@$f")
   printf '    role %-26s -> HTTP %s\n' "$role" "$code"
 done
 echo "Done. RBAC roles installed."
