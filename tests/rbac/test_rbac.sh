@@ -9,12 +9,11 @@ set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVF="$HERE/../../scripts/setup/.env"
 [[ -f "$ENVF" ]] && { set -a; . "$ENVF"; set +a; }
-ES_URL="${ES_URL:-https://localhost:9200}"; ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[[ -z "$ES_PASS" ]] && { echo "ERR: ES_PASS required" >&2; exit 2; }
+# Shared ES creds + TLS + es() (issue #156).
+source "$HERE/../../scripts/setup/lib/es_common.sh"
 
 PW="RbacTest123!"; fails=0
-admin() { curl -sk -u "${ES_USER}:${ES_PASS}" "$@"; }
+admin() { es "$@"; }   # admin uses the shared es() helper (issue #156)
 as() { local u="$1"; shift; curl -sk -o /dev/null -w '%{http_code}' -u "$u:$PW" "$@"; }
 mkuser() { admin -o /dev/null -X PUT "$ES_URL/_security/user/$1" -H 'Content-Type: application/json' -d "{\"password\":\"$PW\",\"roles\":[\"$2\"]}"; }
 rmuser() { admin -o /dev/null -X DELETE "$ES_URL/_security/user/$1"; }

@@ -18,15 +18,9 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
-ES_URL="${ES_URL:-https://localhost:9200}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
 NTFY_TOPIC="${NTFY_TOPIC:-subsoc-alerts}"
-[[ -z "$ES_PASS" ]] && { echo "ERR: ES_PASS / ELASTIC_PASSWORD required" >&2; exit 2; }
-AUTH=(-u "${ES_USER}:${ES_PASS}")
-if [[ -n "${ES_CA:-}" && -f "${ES_CA}" ]]; then TLS=(--cacert "${ES_CA}"); else TLS=(-k); fi
-es()   { curl -s "${AUTH[@]}" "${TLS[@]}" "$@"; }
-codeof(){ curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "${TLS[@]}" "$@"; }
+# Shared ES creds + TLS + es()/es_code() (issue #156).
+source "$SCRIPT_DIR/lib/es_common.sh"
 
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 BULK=""; fails=0; failed_ctrls=""
@@ -51,7 +45,7 @@ fi
 
 # C2 — RBAC least privilege (WS3.2): all expected roles present.
 missing=""; for r in soc_analyst soc_detection_engineer soc_admin logstash_writer soc_agent_cases soc_audit_appender; do
-  [[ "$(codeof "${ES_URL}/_security/role/${r}")" == "200" ]] || missing+="${r} "
+  [[ "$(es_code "${ES_URL}/_security/role/${r}")" == "200" ]] || missing+="${r} "
 done
 [[ -z "$missing" ]] && record "C2-rbac" "RBAC least privilege" pass "6/6 roles present" \
                      || record "C2-rbac" "RBAC least privilege" fail "missing roles: ${missing}"
@@ -66,7 +60,7 @@ else
 fi
 
 # C4 — Retention / ILM (WS0.5): the security data-stream ILM policy exists.
-[[ "$(codeof "${ES_URL}/_ilm/policy/logstash-security-ilm")" == "200" ]] \
+[[ "$(es_code "${ES_URL}/_ilm/policy/logstash-security-ilm")" == "200" ]] \
   && record "C4-retention-ilm" "Retention (ILM)" pass "logstash-security-ilm present" \
   || record "C4-retention-ilm" "Retention (ILM)" fail "logstash-security-ilm missing"
 
@@ -89,7 +83,7 @@ fi
   || record "C6-vuln-scanning" "Vulnerability scanning" fail "security-scan.yml missing"
 
 # C7 — Change management (WS3.5): deploys are being recorded to soc-deploys.
-dc=$(codeof "${ES_URL}/soc-deploys")
+dc=$(es_code "${ES_URL}/soc-deploys")
 if [[ "$dc" == "200" ]]; then record "C7-change-mgmt" "Change management" pass "soc-deploys index present"
 else record "C7-change-mgmt" "Change management" no_data "no deploys recorded yet (soc-deploys absent)"; fi
 

@@ -29,9 +29,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 # Canonical stack secrets (TLS ES URL + HMAC secret) — same source the other sims use.
 [[ -f "$HERE/../../scripts/setup/.env" ]] && { set -a; . "$HERE/../../scripts/setup/.env"; set +a; }
 
-ES_URL="${ES_URL:-https://localhost:9200}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
+# ES_URL/ES_USER/ES_PASS are resolved once by es_common.sh (sourced after arg parsing).
 AGENT_URL="${AGENT_URL:-http://127.0.0.1:5000}"
 TENANT="${TENANT:-home-smith}"
 PROTECTED_IP="${PROTECTED_IP:-192.168.1.1}"   # governance exclusion (governance/exclusion_list.txt)
@@ -45,10 +43,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -z "$ES_PASS" ]] && { echo "[ERR] ES_PASS/ELASTIC_PASSWORD required (check scripts/setup/.env)" >&2; exit 2; }
+# Shared ES creds fail-fast + es()/TLS (issue #156).
+source "$HERE/../../scripts/setup/lib/es_common.sh"
 [[ -z "${SOC_AGENT_HMAC_SECRET:-}" ]] && { echo "[ERR] SOC_AGENT_HMAC_SECRET required (check scripts/setup/.env)" >&2; exit 2; }
-
-es() { curl -sk -u "${ES_USER}:${ES_PASS}" "$@"; }
 
 # Sign "<ts>." + raw_body with SOC_AGENT_HMAC_SECRET (the agent's HMAC scheme,
 # audit P0-2/P1-1: ±300s window, single-use nonce). Empty body => signs "<ts>.".

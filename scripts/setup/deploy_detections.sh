@@ -33,12 +33,11 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
 
 KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
+# Shared ES creds + TLS + helpers (issue #156).
+source "$SCRIPT_DIR/lib/es_common.sh"
 DETECTION_INDEX="${DETECTION_INDEX:-logstash-*}"
 RULES_DIR="$REPO_ROOT/rules/sigma"
 PIPELINE="$REPO_ROOT/configs/detections/suburban-soc-ecs.yml"
-[[ -z "$ES_PASS" ]] && { red "ERROR: ES_PASS / ELASTIC_PASSWORD required."; exit 1; }
 
 NO_BUILD=0; ENABLE=1
 for a in "$@"; do case "$a" in
@@ -112,9 +111,9 @@ green "    converted $count rules (index=$DETECTION_INDEX, enabled=$([[ $ENABLE 
 # --- 4. Import into the Kibana Detection Engine (idempotent) -----------------
 blue "==> Importing detection rules into the Kibana Detection Engine"
 # Ensure the signals/alerts index exists first (no-op if already created).
-curl -s -o /dev/null -u "${ES_USER}:${ES_PASS}" -X POST \
+es -o /dev/null -X POST \
   "${KIBANA_URL}/api/detection_engine/index" -H 'kbn-xsrf: true' || true
-resp=$(curl -s -u "${ES_USER}:${ES_PASS}" -X POST \
+resp=$(es -X POST \
   "${KIBANA_URL}/api/detection_engine/rules/_import?overwrite=true" \
   -H 'kbn-xsrf: true' --form "file=@${NDJSON};type=application/ndjson" || true)
 

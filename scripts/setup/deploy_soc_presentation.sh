@@ -12,9 +12,8 @@ KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
 # Credentials come from scripts/setup/.env (audit P2-11) — never hardcoded.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$SCRIPT_DIR/.env" ] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
-USER="${ES_USER:-elastic}"
-PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[ -z "$PASS" ] && { echo "ERROR: set ELASTIC_PASSWORD in scripts/setup/.env" >&2; exit 1; }
+# Shared ES creds + helpers (issue #156). Kibana uses the same basic-auth creds.
+source "$SCRIPT_DIR/lib/es_common.sh"
 
 DASHBOARD_FILE="../../configs/server/suburban_soc_dashboard.ndjson"
 
@@ -26,14 +25,14 @@ echo "[1/2] Forcing global Dark Mode aesthetic..."
 curl -s -X POST "$KIBANA_URL/api/kibana/settings" \
   -H "kbn-xsrf: true" \
   -H "Content-Type: application/json" \
-  -u "$USER:$PASS" \
+  "${ES_AUTH[@]}" \
   -d '{"changes":{"theme:darkMode":true}}' > /dev/null
 
 echo "[2/2] Importing Master NDJSON Dashboard..."
 if [ -f "$DASHBOARD_FILE" ]; then
   curl -s -X POST "$KIBANA_URL/api/saved_objects/_import?overwrite=true" \
     -H "kbn-xsrf: true" \
-    -u "$USER:$PASS" \
+    "${ES_AUTH[@]}" \
     --form file=@"$DASHBOARD_FILE" | grep -q '"success":true' && echo "-> Dashboard uploaded successfully!" || echo "-> Upload completed (Check Kibana to verify)"
 else
   echo "[ERROR] Could not find the dashboard file at $DASHBOARD_FILE"

@@ -18,15 +18,13 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$HERE/.env" ]] && { set -a; . "$HERE/.env"; set +a; }
-ES_URL="${ES_URL:-https://localhost:9200}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
 REPO="${REPO:-suburban-soc-snapshots}"
-[[ -z "$ES_PASS" ]] && { echo "ERROR: ES_PASS / ELASTIC_PASSWORD required"; exit 1; }
+# Shared ES creds + TLS + es helpers (issue #156).
+source "$HERE/lib/es_common.sh"
 
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
-es() { curl -sk -u "${ES_USER}:${ES_PASS}" -H 'Content-Type: application/json' "$@"; }
+es() { esj "$@"; }   # json content-type via shared helper (issue #156)
 # python-free count (works on minimal images): pull "count":N from the JSON.
 count() { es "$ES_URL/$1/_count" | grep -o '"count":[0-9]*' | head -1 | cut -d: -f2; }
 
@@ -50,10 +48,9 @@ if [[ "$SRC" == "soc-restore-canary" ]]; then
   for i in $(seq 1 25); do
     bulk+='{"index":{}}\n{"@timestamp":"2026-01-01T00:00:00Z","canary":'"$i"'}\n'
   done
-  # Dedicated curl with ONLY the ndjson content-type (es() hardcodes json; two
-  # Content-Type headers => ES rejects the bulk).
-  printf "$bulk" | curl -sk -u "${ES_USER}:${ES_PASS}" -o /dev/null -X POST \
-    "$ES_URL/$SRC/_bulk" -H 'Content-Type: application/x-ndjson' --data-binary @-
+  # es_bulk sends ONLY the x-ndjson content-type (shared helper, issue #156) and
+  # uses the lib's TLS args — no silent -sk downgrade when ES_CA is set.
+  printf "$bulk" | es_bulk -o /dev/null -X POST "$ES_URL/$SRC/_bulk" --data-binary @-
   es -o /dev/null -X POST "$ES_URL/$SRC/_refresh"
 fi
 SRC_N="$(count "$SRC")"
