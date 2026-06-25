@@ -4,12 +4,21 @@
 # Computes MTTD/MTTR/coverage/FP/ingest-lag/parse-error vs targets, indexes them to
 # soc-slo-metrics (SLO dashboard), and raises an ntfy alert on breach.
 #
+# PREFERRED: use the systemd timer instead — configs/systemd/slo-metrics.{service,timer}.
+# It is reboot-surviving, extracts the ES CA automatically, and treats exit 2 (an SLO
+# breaching) as success. This cron is the fallback for hosts without systemd.
+#
 # Install on the SOC host (adjust the repo path):
 #   crontab -l 2>/dev/null | cat - configs/slo/slo-metrics.cron | crontab -
 #
-# ES creds + NTFY_TOPIC are read from scripts/setup/.env by the script.
+# ES creds + NTFY_TOPIC are read from scripts/setup/.env by the script. ES_CA must point
+# to a HOST-readable copy of the stack CA — it defaults to the container-only path
+# /certs/ca/ca.crt, so a host cron without ES_CA set fails TLS (this is why the dashboard
+# silently froze). Extract it once:
+#   mkdir -p ~/.config/suburban-soc && docker cp elasticsearch:/usr/share/elasticsearch/config/certs/ca/ca.crt ~/.config/suburban-soc/ca.crt
 # Targets are overridable via SLO_* env (see slo_metrics.py header).
 # =============================================================================
 
-# Every 15 minutes.
-*/15 * * * * cd "$HOME/projects/Suburban-SOC" && python3 scripts/setup/ai_agent/slo_metrics.py >> /var/log/suburban-soc-slo.log 2>&1
+# Every 15 minutes. ES_URL reaches ES over the host-mapped port; ES_CA is the host-readable
+# CA from the one-time extraction above; ES_USER defaults to elastic, password from .env.
+*/15 * * * * cd "$HOME/projects/Suburban-SOC" && ES_URL=https://localhost:9200 ES_CA="$HOME/.config/suburban-soc/ca.crt" python3 scripts/setup/ai_agent/slo_metrics.py >> /var/log/suburban-soc-slo.log 2>&1

@@ -1,0 +1,50 @@
+# Suburban-SOC — persistent host live capture (SOP-001-C).
+# Captures the host interface with native tcpdump (correct net namespace) and pipes the
+# pcap stream into a containerized Zeek (-r -) with the threat-intel feed + scan-detection
+# policy loaded, writing JSON logs to /storage/PCAP/zeek_logs (tailed by Filebeat).
+# systemd keeps it alive across crashes/reboots — closing the recurrence gap that left
+# ingest lag unbounded after the Jun-2026 host restart.
+#
+# IMPORTANT (Docker Desktop / WSL): do NOT capture with `docker run --network host -i eth0`.
+# Under Docker Desktop, --network host is the Docker Desktop *utility VM's* namespace
+# (192.168.65.0/24), NOT the WSL distro's eth0 — so Zeek would see only Docker-internal
+# traffic and miss all real host/LAN traffic (and every sim). Capturing with host-native
+# tcpdump and feeding Zeek over stdin is the only approach that sees the real interface
+# (this is exactly what scripts/setup/stream_raw_data.sh does).
+#
+# Install:
+#   sudo cp configs/systemd/zeek-host-capture.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now zeek-host-capture
+# Change interface:
+#   echo 'CAPTURE_IFACE=ethX' | sudo tee /etc/default/zeek-host-capture && sudo systemctl restart zeek-host-capture
+[Unit]
+Description=Suburban-SOC Zeek host live capture (tcpdump -> Zeek; iface from CAPTURE_IFACE, default eth0)
+Documentation=https://github.com/voltron-1/Suburban-SOC
+# Under Docker Desktop + WSL there is NO host docker.service systemd unit, so we do not
+# Requires=/After= it; we order after the network and let Restart=always wait for the
+# Docker engine (Docker Desktop) to become reachable after boot.
+After=network-online.target
+Wants=network-online.target
+# Don't let the restart rate-limiter give up while waiting for the Docker engine.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Default interface; override via /etc/default/zeek-host-capture (optional).
+Environment=CAPTURE_IFACE=eth0
+EnvironmentFile=-/etc/default/zeek-host-capture
+# Refresh threat-intel configs into the host volume Zeek reads (mirrors the scripts).
+ExecStartPre=/bin/mkdir -p /storage/PCAP/zeek_logs /storage/PCAP/intel
+ExecStartPre=/bin/bash -c 'cp -r /home/tjlam/projects/Suburban-SOC/configs/intel/* /storage/PCAP/intel/ 2>/dev/null || true'
+# Clear any stale container left by a hard kill (the run uses --rm for clean exit).
+ExecStartPre=-/usr/bin/docker rm -f zeek-host-capture
+# tcpdump captures in the host (WSL) net namespace; Zeek parses the live pcap from stdin.
+# Runs as root under systemd, so tcpdump needs no separate sudo.
+ExecStart=/bin/bash -c '/usr/bin/tcpdump -i ${CAPTURE_IFACE} -s 0 -U -w - | /usr/bin/docker run -i --rm --name zeek-host-capture -v /storage/PCAP/zeek_logs:/data/zeek_logs -v /storage/PCAP/intel:/data/intel -v /home/tjlam/projects/Suburban-SOC/scripts/setup/configs/zeek:/data/policy:ro -w /data/zeek_logs zeek/zeek zeek -C -r - LogAscii::use_json=T /data/intel/config.zeek /data/policy/scan-detection.zeek'
+ExecStop=-/usr/bin/docker stop -t 10 zeek-host-capture
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

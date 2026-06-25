@@ -55,6 +55,12 @@ LOWER_BETTER = {
     "mttd_minutes": True, "mttr_minutes": True, "coverage_techniques": False,
     "false_positive_pct": True, "ingest_lag_seconds": True, "parse_error_pct": True,
 }
+# Fail closed: for these metrics an unmeasurable value (None) is itself a breach,
+# not a benign "n/a". A dead/unreachable pipeline produces no fresh docs, so
+# metric_ingest_lag_seconds() returns None — the single loudest failure must alarm,
+# not register as silence. (WS2.4 observability gap: a total ingest outage was being
+# scored breach=False because lag could not be read.)
+BREACH_IF_NA = {"ingest_lag_seconds"}
 
 
 # FAIL CLOSED (audit P1-2): verify TLS against the stack CA instead of verify=False.
@@ -184,7 +190,9 @@ def main():
         target = TARGETS[name]
         lower = LOWER_BETTER[name]
         if val is None:
-            status, breach = "n/a", False
+            # Fail closed for liveness-critical metrics: unmeasurable == breach.
+            breach = name in BREACH_IF_NA
+            status = "BREACH(no-data)" if breach else "n/a"
         else:
             breach = (val > target) if lower else (val < target)
             status = "BREACH" if breach else "ok"

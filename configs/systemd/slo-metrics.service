@@ -1,0 +1,40 @@
+# Suburban-SOC — compute SOC SLO metrics and index them to soc-slo-metrics (the index
+# the SLO dashboard reads). Triggered by slo-metrics.timer every 15 min. This closes the
+# "monitoring-of-the-monitor" gap where the dashboard silently froze because the job was
+# never scheduled (and a host run failed on the container-only ES_CA path).
+#
+# Install:
+#   sudo cp configs/systemd/slo-metrics.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now slo-metrics.timer
+# Run once now / check:  sudo systemctl start slo-metrics.service ; journalctl -u slo-metrics -n 30
+[Unit]
+Description=Suburban-SOC SLO metrics -> soc-slo-metrics (SLO dashboard data)
+Documentation=https://github.com/voltron-1/Suburban_SOC
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as the repo owner so it can read scripts/setup/.env (ELASTIC_PASSWORD) and use the
+# user's Docker Desktop context for the CA extraction below.
+User=tjlam
+# slo_metrics.py needs broad READ (.alerts-security.alerts-*, soar-actions-*,
+# logstash-security-*) plus WRITE to soc-slo-metrics, so it runs as the `elastic`
+# superuser — NOT the agent's least-privilege logstash_internal user. ELASTIC_PASSWORD is
+# auto-loaded by the script from scripts/setup/.env; ES_USER defaults to elastic.
+Environment=ES_URL=https://localhost:9200
+Environment=ES_USER=elastic
+Environment=ES_CA=/run/suburban-soc-slo/ca.crt
+# /run/suburban-soc-slo, owned by the service user; auto-removed when the unit stops.
+RuntimeDirectory=suburban-soc-slo
+# The stack CA lives only in a docker volume (no stable host path under Docker Desktop/WSL),
+# so pull it from the ES container each run. Idempotent.
+ExecStartPre=/usr/bin/docker cp elasticsearch:/usr/share/elasticsearch/config/certs/ca/ca.crt /run/suburban-soc-slo/ca.crt
+ExecStart=/usr/bin/python3 /home/tjlam/projects/Suburban-SOC/scripts/setup/ai_agent/slo_metrics.py
+# slo_metrics.py exits 2 when an SLO is breaching — that's a successful run reporting a
+# breach, not a job failure. Treat 0 and 2 as success so the timer isn't marked failed.
+SuccessExitStatus=0 2
+
+[Install]
+WantedBy=multi-user.target
