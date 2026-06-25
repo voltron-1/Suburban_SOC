@@ -40,15 +40,9 @@ DRY=0; ASSUME_YES=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
-ES_URL="${ES_URL:-https://localhost:9200}"
 KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[[ -z "$ES_PASS" ]] && { red "ERROR: ES_PASS / ELASTIC_PASSWORD required."; exit 1; }
-AUTH=(-u "${ES_USER}:${ES_PASS}")
-if [[ -n "${ES_CA:-}" && -f "${ES_CA}" ]]; then TLS=(--cacert "${ES_CA}"); else TLS=(-k); fi
-es()  { curl -s "${AUTH[@]}" "${TLS[@]}" "$@"; }
-code(){ curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" "${TLS[@]}" "$@"; }
+# Shared ES creds + TLS + es()/es_code() (issue #156).
+source "$SCRIPT_DIR/lib/es_common.sh"
 
 ROLE="tenant_${TENANT//-/_}_viewer"
 USER="tenant_${TENANT//-/_}"
@@ -91,7 +85,7 @@ done
 
 blue "==> [1/4] Deleting per-tenant data streams"
 for s in "${STREAMS[@]}"; do
-  echo "    DELETE _data_stream/${s} -> HTTP $(code -X DELETE "${ES_URL}/_data_stream/${s}")"
+  echo "    DELETE _data_stream/${s} -> HTTP $(es_code -X DELETE "${ES_URL}/_data_stream/${s}")"
 done
 
 blue "==> [2/4] Purging tenant docs from shared indices (delete_by_query)"
@@ -104,12 +98,12 @@ for idx in "${SHARED[@]}"; do
 done
 
 blue "==> [3/4] Deleting the tenant audit index"
-echo "    DELETE ${AUDIT_IDX} -> HTTP $(code -X DELETE "${ES_URL}/${AUDIT_IDX}")"
+echo "    DELETE ${AUDIT_IDX} -> HTTP $(es_code -X DELETE "${ES_URL}/${AUDIT_IDX}")"
 
 blue "==> [4/4] Removing access artifacts (role / user / space / data view)"
-echo "    user  -> HTTP $(code -X DELETE "${ES_URL}/_security/user/${USER}")"
-echo "    role  -> HTTP $(code -X DELETE "${ES_URL}/_security/role/${ROLE}")"
-KARGS=(-s -H 'kbn-xsrf: true' "${AUTH[@]}")
+echo "    user  -> HTTP $(es_code -X DELETE "${ES_URL}/_security/user/${USER}")"
+echo "    role  -> HTTP $(es_code -X DELETE "${ES_URL}/_security/role/${ROLE}")"
+KARGS=(-s -H 'kbn-xsrf: true' "${ES_AUTH[@]}")
 echo "    space -> HTTP $(curl "${KARGS[@]}" -o /dev/null -w '%{http_code}' -X DELETE "${KIBANA_URL}/api/spaces/space/${TENANT}" || echo "n/a")"
 
 # Final erasure receipt to the shared audit trail.

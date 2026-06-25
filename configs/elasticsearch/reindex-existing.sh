@@ -38,10 +38,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$HERE/../../scripts/setup/.env"
 [[ -f "$ENV_FILE" ]] && { set -a; . "$ENV_FILE"; set +a; }
 
-ES_URL="${ES_URL:-https://localhost:9200}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[[ -z "$ES_PASS" ]] && { echo "ERROR: set ES_PASS or ELASTIC_PASSWORD"; exit 1; }
+# Shared ES creds + TLS + es helpers (issue #156).
+source "$HERE/../../scripts/setup/lib/es_common.sh"
 
 REPLACE=0; INCLUDE_MOCK=0; DRY_RUN=0; EXPLICIT=()
 for arg in "$@"; do
@@ -54,7 +52,7 @@ for arg in "$@"; do
   esac
 done
 
-es() { curl -sk --max-time 600 -u "${ES_USER}:${ES_PASS}" -H 'Content-Type: application/json' "$@"; }
+es() { esj --max-time 600 "$@"; }   # json + long timeout for _reindex (shared helper, issue #156)
 # Count docs in an index/pattern; prints an integer (0 if absent). The `tr -d` strips
 # any CR — some python builds (e.g. Windows python on WSL) emit CRLF, which would
 # otherwise contaminate string comparisons below.

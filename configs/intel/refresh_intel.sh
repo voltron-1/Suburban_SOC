@@ -24,6 +24,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$HERE/../../scripts/setup/.env"
 [[ -f "$ENV_FILE" ]] && { set -a; . "$ENV_FILE"; set +a; }
 
+# These serve the no-ES path: the if-block below only indexes when ES_PASS is set,
+# and es_common.sh (sourced inside that block) re-resolves the same three vars.
 ES_URL="${ES_URL:-https://localhost:9200}"
 ES_USER="${ES_USER:-elastic}"
 ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
@@ -87,7 +89,9 @@ fi
 if [[ -n "$ES_PASS" ]]; then
   # No hardcoded Content-Type — each call sets its own (bulk=x-ndjson, doc=json),
   # so we never send two Content-Type headers (ES rejects that).
-  es() { curl -sk -u "${ES_USER}:${ES_PASS}" "$@"; }
+  # Shared ES creds + TLS + es()/es_bulk() (issue #156). Sourced inside the
+  # `if [[ -n "$ES_PASS" ]]` block so the feed refresh still runs without ES creds.
+  source "$HERE/../../scripts/setup/lib/es_common.sh"
   # 3a. Upsert each indicator (_id = indicator) into threat-intel-indicators so
   #     re-runs don't duplicate; ECS threat.indicator.* + threat.feed.name.
   bulk="$(mktemp)"

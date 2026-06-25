@@ -24,10 +24,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$HERE/.env" ]] && { set -a; . "$HERE/.env"; set +a; }
 
-ES_URL="${ES_URL:-https://localhost:9200}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[[ -z "$ES_PASS" ]] && { echo "ERROR: set ES_PASS or ELASTIC_PASSWORD"; exit 1; }
+# Shared ES creds + TLS + es/esj/es_bulk helpers (issue #156).
+source "$HERE/lib/es_common.sh"
 
 KEEP=0
 [[ "${1:-}" == "--keep" ]] && KEEP=1
@@ -40,10 +38,7 @@ red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 blue()  { printf '\033[34m%s\033[0m\n' "$*"; }
 
-es() { curl -sk -u "${ES_USER}:${ES_PASS}" -H 'Content-Type: application/json' "$@"; }
-# Bulk needs application/x-ndjson; keep it on its own curl so it never collides
-# with the application/json header in es() (ES rejects two Content-Type headers).
-es_bulk() { curl -sk -u "${ES_USER}:${ES_PASS}" -H 'Content-Type: application/x-ndjson' "$@"; }
+es() { esj "$@"; }   # json content-type; es_bulk (x-ndjson) is from the shared helper (issue #156)
 jget() { python3 -c "import sys,json;d=json.load(sys.stdin);print(eval('d$1'))" 2>/dev/null | tr -d '\r'; }
 
 FAIL=0
