@@ -113,6 +113,38 @@ services:
         mkdir -p /usr/share/elasticsearch/snapshots;
         chown 1000:0 /usr/share/elasticsearch/snapshots;
         chmod 770 /usr/share/elasticsearch/snapshots;
+        echo "Setup complete (certs only). Password/role/user provisioning runs in soc_provision after ES is healthy (WS2.4 deadlock+race fix).";
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "[ -f config/certs/elasticsearch/elasticsearch.crt ]"]
+      interval: 5s
+      timeout: 5s
+      retries: 120
+
+  # WS2.4: post-ES provisioning — set the kibana_system password and bootstrap the
+  # least-privilege roles/users. Split out of `setup` so setup (cert-gen) finishes
+  # WITHOUT waiting on ES; that circular wait was the `docker compose up` deadlock, and
+  # gating ES on setup HEALTHY then caused a one-shot race ("exited (0)"). With the split,
+  # ES depends on setup COMPLETED (certs present) and this runs once ES is healthy.
+  # Idempotent (every PUT is an upsert); kibana/logstash/roles/ai-agent depend on it.
+  provision:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
+    container_name: soc_provision
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    environment:
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+      - KIBANA_PASSWORD=${KIBANA_PASSWORD}
+      - LOGSTASH_PASSWORD=${LOGSTASH_PASSWORD}
+      - SOC_AGENT_KIBANA_PASSWORD=${SOC_AGENT_KIBANA_PASSWORD:-}
+    volumes:
+      - certs:/usr/share/elasticsearch/config/certs
+    working_dir: /usr/share/elasticsearch
+    networks:
+      - soc-mesh-net
+    command: >
+      bash -c '
         echo "Waiting for Elasticsearch";
         until curl -s --cacert config/certs/ca/ca.crt https://elasticsearch:9200 | grep -q "missing authentication credentials"; do sleep 5; done;
         echo "Setting kibana_system password";
@@ -128,13 +160,8 @@ services:
           curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/role/soc_agent_cases -d "{\"applications\":[{\"application\":\"kibana-.kibana\",\"privileges\":[\"feature_generalCases.all\"],\"resources\":[\"*\"]}]}" > /dev/null;
           curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/soc_agent -d "{\"password\":\"${SOC_AGENT_KIBANA_PASSWORD}\",\"roles\":[\"soc_agent_cases\"],\"full_name\":\"SOC AI agent (Kibana Cases)\"}" > /dev/null;
         fi;
-        echo "Setup complete.";
+        echo "Provisioning complete.";
       '
-    healthcheck:
-      test: ["CMD-SHELL", "[ -f config/certs/elasticsearch/elasticsearch.crt ]"]
-      interval: 5s
-      timeout: 5s
-      retries: 120
 
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
@@ -145,14 +172,11 @@ services:
     mem_limit: 3g          # audit P2-3: cap so a noisy container can't starve the host
     depends_on:
       setup:
-        # WS2.4 (deadlock fix): gate on setup HEALTHY (certs present), not COMPLETED.
-        # setup's own script waits on ES (`until curl https://elasticsearch:9200`) to
-        # provision users/roles, so requiring setup to EXIT before ES starts is a
-        # circular `docker compose up` deadlock — the stack could not be restarted
-        # cleanly after a full stop. setup still runs to completion (roles/lifecycle
-        # depend on it); ES just no longer waits for it to exit. (Elastic's reference
-        # compose uses service_healthy here for the same reason.)
-        condition: service_healthy
+        # WS2.4: setup does CERT GEN ONLY and exits (no ES wait), so gating on its clean
+        # completion is safe — no circular deadlock, and no service_healthy race on a
+        # one-shot that exits (which broke `up` with "dependency failed to start:
+        # exited (0)"). ES-dependent provisioning moved to the soc_provision service.
+        condition: service_completed_successfully
     environment:
       - node.name=elasticsearch
       - cluster.name=${CLUSTER_NAME:-suburban-soc}
@@ -201,6 +225,8 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+      provision:                              # WS2.4: needs the kibana_system password
+        condition: service_completed_successfully
     environment:
       - SERVERNAME=kibana
       - ELASTICSEARCH_HOSTS=https://elasticsearch:9200
@@ -286,7 +312,7 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
     container_name: soc_roles
     depends_on:
-      setup:
+      provision:                              # WS2.4: ES + bootstrap roles/users exist first
         condition: service_completed_successfully
     environment:
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
@@ -317,6 +343,8 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+      provision:                              # WS2.4: needs the logstash_internal user
+        condition: service_completed_successfully
       cert_pkcs8:
         condition: service_completed_successfully
       lifecycle:
@@ -350,6 +378,8 @@ services:
     depends_on:
       elasticsearch:
         condition: service_healthy
+      provision:                              # WS2.4: needs the logstash_internal user
+        condition: service_completed_successfully
       hive-mind-broker:
         condition: service_started
     environment:
