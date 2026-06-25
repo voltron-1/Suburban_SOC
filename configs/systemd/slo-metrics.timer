@@ -1,0 +1,15 @@
+# Fires slo-metrics.service every 15 minutes (matches the SLO dashboard's 15-min cadence).
+# Persistent=true catches up a missed run after downtime, so a reboot/outage doesn't leave
+# the dashboard stale until the next interval.
+[Unit]
+Description=Run Suburban-SOC SLO metrics every 15 minutes
+Documentation=https://github.com/voltron-1/Suburban_SOC
+
+[Timer]
+# First run shortly after boot (give the stack time to come healthy), then every 15 min.
+OnBootSec=3min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
