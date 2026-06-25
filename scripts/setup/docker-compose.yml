@@ -139,10 +139,20 @@ services:
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:${STACK_VERSION:-9.3.2}
     container_name: elasticsearch
+    # WS2.4: survive host/Docker restarts. Without a policy the pipeline stays dead
+    # after a reboot (only restart-enabled services recover) -> unbounded ingest lag.
+    restart: unless-stopped
     mem_limit: 3g          # audit P2-3: cap so a noisy container can't starve the host
     depends_on:
       setup:
-        condition: service_completed_successfully
+        # WS2.4 (deadlock fix): gate on setup HEALTHY (certs present), not COMPLETED.
+        # setup's own script waits on ES (`until curl https://elasticsearch:9200`) to
+        # provision users/roles, so requiring setup to EXIT before ES starts is a
+        # circular `docker compose up` deadlock — the stack could not be restarted
+        # cleanly after a full stop. setup still runs to completion (roles/lifecycle
+        # depend on it); ES just no longer waits for it to exit. (Elastic's reference
+        # compose uses service_healthy here for the same reason.)
+        condition: service_healthy
     environment:
       - node.name=elasticsearch
       - cluster.name=${CLUSTER_NAME:-suburban-soc}
@@ -186,6 +196,7 @@ services:
   kibana:
     image: docker.elastic.co/kibana/kibana:${STACK_VERSION:-9.3.2}
     container_name: kibana
+    restart: unless-stopped   # WS2.4: recover after host/Docker restart
     mem_limit: 2g          # audit P2-3
     depends_on:
       elasticsearch:
@@ -301,7 +312,8 @@ services:
   logstash:
     image: docker.elastic.co/logstash/logstash:${STACK_VERSION:-9.3.2}
     container_name: logstash
-    mem_limit: 1500m       # audit P2-3 (LS_JAVA_OPTS -Xmx512m + overhead)
+    restart: unless-stopped   # WS2.4: recover after host/Docker restart
+    mem_limit: 2g          # WS2.4: raised from 1500m to fit a 1g heap + overhead (host has ample RAM)
     depends_on:
       elasticsearch:
         condition: service_healthy
@@ -310,7 +322,7 @@ services:
       lifecycle:
         condition: service_completed_successfully
     environment:
-      - LS_JAVA_OPTS=-Xms512m -Xmx512m
+      - LS_JAVA_OPTS=-Xms1g -Xmx1g   # WS2.4: raised from 512m to reduce GC pressure / backpressure under burst
       # Least-privilege ES credentials consumed by configs/logstash.conf output.
       - LOGSTASH_ES_USER=logstash_internal
       - LOGSTASH_ES_PASS=${LOGSTASH_PASSWORD}
