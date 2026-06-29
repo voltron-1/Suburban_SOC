@@ -74,7 +74,11 @@
 
         "destination": { "properties": {
           "ip":   { "type": "ip" },
-          "port": { "type": "long" }
+          "port": { "type": "long" },
+          "geo":  { "properties": {
+            "location":     { "type": "geo_point" },
+            "country_name": { "type": "keyword" }
+          }}
         }},
 
         "network": { "properties": {
