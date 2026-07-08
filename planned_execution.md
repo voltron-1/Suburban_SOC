@@ -11,26 +11,30 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 **Phase: SOP-147 dashboard validation — final panel fixes (data-quality cleanup)**
 
-Next unstarted item: none after the two below. Once #160/#161 merge, the open-issue
-backlog is empty — next phase is TBD (define with owner).
+- [~] **#160** — zeek.ssl SNI/Cipher panels. Pipeline fix + dashboard `.keyword` fix in
+  **PR #162**; historical backfill done live (**5,711 docs** carry `tls.*`); Network
+  dashboard redeployed — SNI/Cipher panels render live. **Blockers to close:** merge #162;
+  activate pipeline on running Logstash (needs restart to reload config).
+- [~] **#161** — Failed SSH by Country. Pipeline geoip/grok fix (+ HIGH spoof hardening) in
+  **PR #162**; mock `country_name` backfilled (**800 docs**) — panel renders China/NK/Russia
+  live. **Blocker to close:** merge #162.
 
-- [~] **#160** — zeek.ssl SNI/cipher ECS-normalized (`tls.*`) — fix applied, in review,
-  live verification pending stack.
-- [~] **#161** — auth.log source geoip + grok ECS fix (Failed SSH by Country) — fix applied
-  (incl. HIGH source.ip-spoof hardening from review), in review, live verification pending.
-
-Both land in one branch off `main` (currently on stale merged `fix/ingest-lag-slo-recovery`).
+After #162 merges the open-issue backlog is empty — next phase TBD (define with owner).
+PR: https://github.com/voltron-1/Suburban_SOC/pull/162 ·
 Evidence: `findings/20260707-160-161-logstash-ecs-geoip.md`.
 
 ---
 
-## LAST SESSION — 2026-07-07
+## LAST SESSION — 2026-07-08
 
-- Opened work on #160 + #161 (last two open issues, both SOP-147 leftovers).
-- Applied ECS normalization (#160) and source-geoip + grok hardening (#161) to
-  `configs/logstash.conf`; parallel code-reviewer + security-auditor pass; fixed a HIGH
-  source.ip-spoof regression + MEDIUM backtracking/PII findings. Not yet committed
-  (awaiting approval) or live-verified (stack down).
+- #160/#161: shipped pipeline ECS fixes + HIGH source.ip-spoof hardening (parallel
+  code-reviewer + security-auditor) in PR #162 off fresh branch. Live investigation found two
+  extra root causes the issues missed: (1) panels bucket on `.keyword` subfields absent on the
+  keyword-mapped real data (fixed net-sni/net-cipher, like be95698); (2) #161 is ~entirely
+  mock-data-driven. Backfilled tls.* (5,711 real docs, via approved ILM write-block
+  lift+restore) and mock `country_name` (800 docs); redeployed the Network dashboard. Both
+  panels verified rendering via live aggregations. Pipeline config not yet reloaded on running
+  Logstash (needs restart / host docker access).
 
 Prior session (per merged PR history):
 
@@ -52,5 +56,11 @@ Prior session (per merged PR history):
   (`source.port`, `process.pid`) land as keyword not `long`; add `tls.*`/`process.pid` to
   the index template; `::ffff:` IPv4-mapped-IPv6 gap + 3×-duplicated geoip guard regex.
   Reason: non-blocking enhancements; core acceptance is met by the current fix.
-- [ ] Live verification + historical reindex/rollover for #160/#161 — **blocked on stack up**
-  (ES down locally; needs sudo restart per the ingest-pipeline-restart runbook).
+- [ ] Real-telemetry gap ticket (to file) — "Failed SSH by Country" + TLS panels currently
+  demo on mock/recent data; live SSH brute-force telemetry is ~absent (2 real failure docs).
+  If these must reflect real attacks, the auth.log Filebeat→pipeline shipping path needs to
+  actually deliver events. Separate from the ECS fix.
+- [!] Activate the PR #162 pipeline config on the **running Logstash** — needs a Logstash
+  restart to reload bind-mounted `configs/logstash.conf` (host docker access; not reachable
+  from this WSL distro). Until then, forward enrichment of *new* docs is inactive; historical
+  docs already backfilled.
