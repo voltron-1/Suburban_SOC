@@ -42,6 +42,9 @@ jobs:
       - name: AI agent — HMAC auth, exclusion list, approval flow (WS0.2 / §12.3 / §12.4 / P0-2)
         run: python tests/ai_agent/test_alert_auth.py
 
+      - name: SLO metrics — measurement-error visibility (audit #165 / NIST SI-11)
+        run: python tests/ai_agent/test_slo_metrics.py
+
       - name: Hive-mind broker — HMAC, dispatch, tenant scoping (P0-2)
         working-directory: scripts/hive-mind-broker
         run: |
