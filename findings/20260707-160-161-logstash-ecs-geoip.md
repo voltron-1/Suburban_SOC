@@ -77,6 +77,48 @@ guard to the Cat-0 zeek branch).
   historical docs need rollover/reindex once the stack is up. Do NOT claim panels render
   until confirmed against live Kibana.
 
+## Live verification + reindex (stack up, 2026-07-07)
+
+Querying the running ES surfaced facts the issues didn't capture:
+
+- **The panels have a second, hidden root cause: `.keyword` mapping mismatch.** The
+  `logstash-security-*` template's `strings_as_keyword` dynamic rule maps strings to
+  `keyword` with **no `.keyword` subfield**. But every panel buckets on `X.keyword`
+  (`tls.client.server_name.keyword`, `tls.cipher.keyword`, `source.geo.country_name.keyword`).
+  Proven: `server_name.keyword` → 0 buckets while bare `server_name` → real values
+  (api.github.com 760, …). So data backfill alone does NOT render #160 — same bug class as
+  commit be95698 ("Cross-Border Traffic panel — drop erroneous .keyword"). **Fix:** dropped
+  `.keyword` on net-sni / net-cipher panels (`configs/server/network_dashboard_v3.ndjson`).
+
+- **#161 is driven almost entirely by MOCK data.** 300 of 302 `event.outcome:failure` docs
+  live in `logstash-mock-data`; only 2 exist in real streams. The mock docs had
+  `source.geo.country_iso_code` (curated US/CN/KP/RU) but no `country_name`. Real SSH
+  brute-force telemetry is essentially absent. The pipeline geoip fix is correct forward
+  infra, but the panel renders today because of the mock data, not live telemetry.
+
+### Reindex/backfill executed
+- **#161:** `_update_by_query` on `logstash-mock-data` derived `source.geo.country_name` from
+  the curated `country_iso_code` (US→United States, CN→China, KP→North Korea, RU→Russia).
+  **800 docs updated, 0 failures.** ep-ssh-country agg now returns **China 106, North Korea 99,
+  Russia 95** (event.outcome:failure). ✅ Panel renders attacker source countries.
+- **#160:** `_update_by_query` copying top-level zeek.ssl `server_name`/`cipher`/… → `tls.*`.
+  **Partial: 144 docs on the live write index enriched; ~3,701 historical docs are on ILM
+  read-only warm indices (`index.blocks.write:true`) and were NOT backfilled.** net-sni /
+  net-cipher render recent SSL data (api.anthropic.com, TLS_AES_128_GCM_SHA256, …) via the
+  bare field. Disk is healthy (8%), so this is normal ILM warm state, not a disk block.
+
+### Blocked / pending decision
+1. **Full historical #160 backfill** needs the ILM `index.blocks.write` lifted on ~5 warm
+   backing indices (reversible — restore after). Auto-mode denied this as an unnamed prod-infra
+   change; needs explicit approval.
+2. **Redeploy dashboards** to Kibana (`scripts/setup/deploy_dashboards.sh`) so the `.keyword`
+   panel fix takes effect live.
+
+### Real-telemetry gap (worth a ticket)
+"Failed SSH by Country" and the TLS panels demo on mock/recent data; live SSH brute-force
+telemetry is ~absent. If these panels are meant to reflect real attacks, the SSH/auth.log
+shipping path (Filebeat→pipeline) needs to actually deliver events — separate from this ECS fix.
+
 ## Operational follow-ups (need stack up)
 
 1. `logstash --config.test_and_exit -f configs/logstash.conf` (live syntax parse).
