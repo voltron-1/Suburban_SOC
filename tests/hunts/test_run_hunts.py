@@ -55,17 +55,17 @@ class _FakeResponse:
 
 class EsCountTests(unittest.TestCase):
     def test_raises_on_request_exception(self):
-        with mock.patch.object(run_hunts.requests, "post", side_effect=ConnectionError("refused")):
+        with mock.patch.object(run_hunts.SESSION, "post", side_effect=ConnectionError("refused")):
             with self.assertRaises(run_hunts.HuntQueryUnavailable):
                 run_hunts.es_count("logstash-security-*", "*")
 
     def test_raises_on_non_200(self):
-        with mock.patch.object(run_hunts.requests, "post", return_value=_FakeResponse(503)):
+        with mock.patch.object(run_hunts.SESSION, "post", return_value=_FakeResponse(503)):
             with self.assertRaises(run_hunts.HuntQueryUnavailable):
                 run_hunts.es_count("logstash-security-*", "*")
 
     def test_returns_real_zero_when_es_is_healthy(self):
-        with mock.patch.object(run_hunts.requests, "post",
+        with mock.patch.object(run_hunts.SESSION, "post",
                                return_value=_FakeResponse(200, {"count": 0})):
             self.assertEqual(run_hunts.es_count("logstash-security-*", "*"), 0)
 
@@ -91,7 +91,7 @@ class MainExitCodeTests(unittest.TestCase):
         return None
 
     def test_all_hunts_healthy_exits_0(self):
-        with mock.patch.object(run_hunts.requests, "post") as post:
+        with mock.patch.object(run_hunts.SESSION, "post") as post:
             post.side_effect = [
                 _FakeResponse(200, {"count": 0}),   # HUNT-TEST-A query
                 _FakeResponse(200, {"count": 0}),   # HUNT-TEST-B query
@@ -101,7 +101,7 @@ class MainExitCodeTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
     def test_one_hunt_query_failure_exits_2_and_skips_that_hunt(self):
-        with mock.patch.object(run_hunts.requests, "post") as post:
+        with mock.patch.object(run_hunts.SESSION, "post") as post:
             post.side_effect = [
                 ConnectionError("refused"),         # HUNT-TEST-A query fails
                 _FakeResponse(200, {"count": 0}),   # HUNT-TEST-B query succeeds
@@ -117,7 +117,7 @@ class MainExitCodeTests(unittest.TestCase):
         self.assertNotIn("HUNT-TEST-A", sent)
 
     def test_bulk_index_failure_exits_3(self):
-        with mock.patch.object(run_hunts.requests, "post") as post:
+        with mock.patch.object(run_hunts.SESSION, "post") as post:
             post.side_effect = [
                 _FakeResponse(200, {"count": 0}),
                 _FakeResponse(200, {"count": 0}),
