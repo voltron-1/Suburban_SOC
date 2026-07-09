@@ -9,13 +9,15 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 ## NEXT UP
 
-**Phase: Structural Health Review Remediation — Priority 1 (Critical).**
+**Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
+Priority 2 not yet started.**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177) and linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#167** — Unhardened systemd units + `elastic` superuser
-default in host automation (AC-6, CM-7).
+Next unstarted item: define P2 order with the owner (#168-#172 — CI lint
+gate, Logstash DLQ, ES client consolidation, broker logging, reporting-plane
+tests).
 
 - [x] **#164** — Broker: unvalidated `attacker_ip` reached the `nft`/SSH command
   sink (NIST SP 800-53 Rev.5 SI-10 / CSF 2.0 PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178)
@@ -32,16 +34,24 @@ default in host automation (AC-6, CM-7).
   CA mounted and would have broken stack startup once the fail-closed default
   landed. Operator note: any host script relying on the old implicit `-k`
   fallback now needs `ES_CA=<path>` or `ES_INSECURE=true`.
-- [ ] **#167** — Unhardened systemd units + `elastic` superuser default in host
+- [x] **#167** — Unhardened systemd units + `elastic` superuser default in host
   automation (AC-6, CM-7). [PR #181](https://github.com/voltron-1/Suburban_SOC/pull/181)
-  open, verified end-to-end against the live stack — awaiting merge. Template-only;
-  operator must redeploy both systemd units to apply. Follow-up filed: #182
-  (zeek-host-capture.service capability scoping, deferred — needs live-tested sudo
-  access not available this session).
+  merged; issue closed. New least-privilege `slo_metrics_reader` ES role +
+  `slo_metrics` user, live-created and verified end-to-end against the running
+  stack. `zeek-host-capture.service` hardened conservatively only (no
+  capability/`User=` changes — actively capturing real traffic, no safe way to
+  live-test a narrower capability set this session; does not reach the ≤6.0
+  target). `es_common.sh`'s shared `elastic` default deliberately left alone
+  (~15 other legitimate admin-tooling consumers depend on it). **Template-only
+  change — operator must redeploy both systemd units to apply**
+  (`sudo cp configs/systemd/{slo-metrics,zeek-host-capture}.service
+  /etc/systemd/system/ && sudo systemctl daemon-reload`, then restart each;
+  see redeploy runbook). Follow-up filed: #182 (zeek-host-capture.service
+  capability scoping).
 
 P2 (next sprint, #168-#172) and P3 (backlog, #173-#177) are tracked on
 [Project Board #17](https://github.com/users/voltron-1/projects/17); not
-individually sequenced here until the remaining P1 PR (#181) merges.
+yet individually sequenced here — define order with the owner next session.
 
 Also filed this session (unrelated to the P1 fixes themselves, surfaced while
 investigating CI failures): #183 — `weasyprint==68.0` pinned in
@@ -59,15 +69,14 @@ CSS injection/SSRF via `presentational_hints`); a fix is available upstream
   (#164-#177: P1 critical ×4, P2 medium ×5, P3 low ×5) with evidence, control
   mappings, and acceptance criteria; labeled by priority/nist-compliance/
   tech-debt/security; linked to [Project Board #17](https://github.com/users/voltron-1/projects/17).
-- **#164 merged** (PR #178): unvalidated `attacker_ip` in hive-mind-broker
-  reaching the `nft`/SSH sink — SI-10/PR.PS-06.
-- **#165 merged** (PR #179): SLO metrics/threat hunts silent ES-failure
-  swallowing — SI-11.
-- **#166 merged** (PR #180): bash tooling `curl -k` TLS skip — SC-8, plus a
-  `lifecycle` compose fix.
-- #167 fixed and PR'd (#181), verified end-to-end against the live stack, not
-  yet merged. Two follow-up issues filed: #182 (zeek-host-capture capability
-  scoping) and #183 (weasyprint CVE).
+- **All four P1 (critical) items fixed, tested, PR'd, and merged this
+  session**: #164 (PR #178, SI-10), #165 (PR #179, SI-11), #166 (PR #180,
+  SC-8), #167 (PR #181, AC-6/CM-7). Each PR includes end-to-end verification
+  against the live running stack where no CI path existed to lean on instead.
+- Two follow-up issues filed: #182 (zeek-host-capture.service capability
+  scoping — needs live-tested sudo access) and #183 (weasyprint CVE
+  unrelated to the P1 work, surfaced while investigating pip-audit CI
+  failures on the four PRs).
 - #160/#161: shipped pipeline ECS fixes + HIGH source.ip-spoof hardening (parallel
   code-reviewer + security-auditor); **PR #162 merged, both issues closed.** Live investigation
   found two extra root causes the issues missed: (1) panels bucket on `.keyword` subfields

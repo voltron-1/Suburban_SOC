@@ -16,15 +16,18 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-# Runs as the repo owner so it can read scripts/setup/.env (ELASTIC_PASSWORD) and use the
-# user's Docker Desktop context for the CA extraction below.
+# Runs as the repo owner so it can read scripts/setup/.env and use the user's Docker
+# Desktop context for the CA extraction below.
 User=tjlam
-# slo_metrics.py needs broad READ (.alerts-security.alerts-*, soar-actions-*,
-# logstash-security-*) plus WRITE to soc-slo-metrics, so it runs as the `elastic`
-# superuser — NOT the agent's least-privilege logstash_internal user. ELASTIC_PASSWORD is
-# auto-loaded by the script from scripts/setup/.env; ES_USER defaults to elastic.
+# audit #167 / NIST AC-6: slo_metrics.py needs READ on .alerts-security.alerts-*,
+# soar-actions-*, logstash-security-* plus WRITE to soc-slo-metrics — it now runs as
+# the least-privilege `slo_metrics` user (role: slo_metrics_reader), not the `elastic`
+# superuser. EnvironmentFile loads SLO_METRICS_PASSWORD from .env; ES_PASS below
+# resolves it via systemd's ${VAR} expansion (systemd >= 246).
+EnvironmentFile=/home/tjlam/projects/Suburban-SOC/scripts/setup/.env
 Environment=ES_URL=https://localhost:9200
-Environment=ES_USER=elastic
+Environment=ES_USER=slo_metrics
+Environment=ES_PASS=${SLO_METRICS_PASSWORD}
 Environment=ES_CA=/run/suburban-soc-slo/ca.crt
 # /run/suburban-soc-slo, owned by the service user; auto-removed when the unit stops.
 RuntimeDirectory=suburban-soc-slo
@@ -35,6 +38,28 @@ ExecStart=/usr/bin/python3 /home/tjlam/projects/Suburban-SOC/scripts/setup/ai_ag
 # slo_metrics.py exits 2 when an SLO is breaching — that's a successful run reporting a
 # breach, not a job failure. Treat 0 and 2 as success so the timer isn't marked failed.
 SuccessExitStatus=0 2
+
+# --- Sandboxing (audit #167 / NIST CM-7) ---------------------------------------
+# This unit only makes outbound HTTPS calls (requests) and reads the repo/.env —
+# it needs no special Linux capabilities, kernel access, or namespace privileges.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectClock=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+ProtectHostname=true
+RestrictNamespaces=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RemoveIPC=true
+UMask=0077
+CapabilityBoundingSet=
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
