@@ -10,8 +10,7 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 ## NEXT UP
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
-Priority 2: #164-#169 merged; #170 fixed, PR #191 pending merge; #171-#172
-not yet started.**
+Priority 2: #164-#170 merged; #171-#172 not yet started.**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
@@ -19,7 +18,7 @@ Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 
 Next unstarted item: **#171** — broker security events logged via bare
 `print()`, no persisted record of denied/replayed/invalid-signature attempts
-(AU-2/3/12). PR #191 (#170) still awaiting merge.
+(AU-2/3/12).
 
 - [x] **#164** — Broker: unvalidated `attacker_ip` reached the `nft`/SSH command
   sink (SI-10/PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178) merged; issue closed.
@@ -99,8 +98,8 @@ Next unstarted item: **#171** — broker security events logged via bare
   [#190](https://github.com/voltron-1/Suburban_SOC/issues/190)
   (`reindex-existing.sh`'s local `es()` override recurses infinitely
   through `esj()` — script is currently non-functional).
-  [PR #191](https://github.com/voltron-1/Suburban_SOC/pull/191) open —
-  awaiting merge.
+  [PR #191](https://github.com/voltron-1/Suburban_SOC/pull/191) merged;
+  issue closed.
 
 P2 remaining (#171-#172) and P3 (backlog, #173-#177) are tracked on
 [Project Board #17](https://github.com/users/voltron-1/projects/17); working
