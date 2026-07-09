@@ -46,26 +46,12 @@ ExecStop=-/usr/bin/docker stop -t 10 zeek-host-capture
 Restart=always
 RestartSec=5
 
-# --- Sandboxing (audit #167 / NIST CM-7) ---------------------------------------
-# CONSERVATIVE by design: tcpdump needs raw packet capture and this unit needs
-# the Docker socket, both effectively root-equivalent — User=/CapabilityBoundingSet=
-# are intentionally NOT touched here (see #167 PR discussion: narrowing capabilities
-# blind, with no safe way to live-test against a running capture, risks silently
-# blacking out the only network telemetry source). These directives restrict
-# unrelated attack surface only and don't affect capture or Docker access.
-NoNewPrivileges=true
-ProtectSystem=full
-ProtectHome=read-only
-PrivateTmp=true
-ProtectClock=true
-ProtectKernelLogs=true
-ProtectKernelModules=true
-ProtectKernelTunables=true
-ProtectControlGroups=true
-ProtectHostname=true
-RestrictSUIDSGID=true
-RestrictRealtime=true
-LockPersonality=true
+# audit #167 / NIST CM-7: a sandboxing directive block was added here and then
+# REVERTED (2026-07-09) — it broke live capture in production (crash-loop,
+# ExecStart exit 1) on this Docker Desktop/WSL2 host despite being deliberately
+# conservative (no capability/User= changes). Root cause not yet isolated; see
+# issue #182, which now also covers finding which directive(s) are actually
+# safe here via careful one-at-a-time live testing, not a blind reapply.
 
 [Install]
 WantedBy=multi-user.target
