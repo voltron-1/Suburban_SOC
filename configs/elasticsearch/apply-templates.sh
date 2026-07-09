@@ -15,6 +15,8 @@
 #   ES_URL=https://localhost:9200 ES_USER=elastic ES_PASS=... ./apply-templates.sh
 # Env (auto-loaded from scripts/setup/.env if present):
 #   ES_URL (default https://localhost:9200), ES_USER (elastic), ES_PASS/ELASTIC_PASSWORD
+#   ES_CA (default /certs/ca/ca.crt) — FAILS CLOSED if unreadable; set
+#   ES_INSECURE=true to explicitly skip TLS verification (lab only).
 # =============================================================================
 set -euo pipefail
 
@@ -22,27 +24,23 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$HERE/../../scripts/setup/.env"
 [[ -f "$ENV_FILE" ]] && { set -a; . "$ENV_FILE"; set +a; }
 
-ES_URL="${ES_URL:-https://localhost:9200}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[[ -z "$ES_PASS" ]] && { echo "ERROR: set ES_PASS or ELASTIC_PASSWORD"; exit 1; }
-
-curl_es() { curl -sk -u "${ES_USER}:${ES_PASS}" -H 'Content-Type: application/json' "$@"; }
+# Shared ES creds + TLS + es() (issue #156; audit #166 — no local -k downgrade).
+source "$HERE/../../scripts/setup/lib/es_common.sh"
 
 echo "==> Installing logstash-security-template"
-curl_es -o /dev/null -w '    -> HTTP %{http_code}\n' -X PUT \
+esj -o /dev/null -w '    -> HTTP %{http_code}\n' -X PUT \
   "$ES_URL/_index_template/logstash-security-template" \
   --data-binary "@$HERE/logstash-security-template.json"
 
 echo "==> Installing soar-actions-template"
-curl_es -o /dev/null -w '    -> HTTP %{http_code}\n' -X PUT \
+esj -o /dev/null -w '    -> HTTP %{http_code}\n' -X PUT \
   "$ES_URL/_index_template/soar-actions-template" \
   --data-binary "@$HERE/soar-actions-template.json"
 
 echo "==> Dropping replicas to 0 on existing indices (single-node -> clears yellow)"
-curl_es -o /dev/null -w '    logstash-security-* -> HTTP %{http_code}\n' -X PUT \
+esj -o /dev/null -w '    logstash-security-* -> HTTP %{http_code}\n' -X PUT \
   "$ES_URL/logstash-security-*/_settings" -d '{"index":{"number_of_replicas":0}}'
-curl_es -o /dev/null -w '    soar-actions-*      -> HTTP %{http_code}\n' -X PUT \
+esj -o /dev/null -w '    soar-actions-*      -> HTTP %{http_code}\n' -X PUT \
   "$ES_URL/soar-actions-*/_settings" -d '{"index":{"number_of_replicas":0}}'
 
 echo "Done."
