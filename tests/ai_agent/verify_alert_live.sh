@@ -27,7 +27,10 @@ AGENT_URL="${AGENT_URL:-http://localhost:5000}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="${ENV_FILE:-$SCRIPT_DIR/../../scripts/setup/.env}"
 if [[ -f "$ENV_FILE" ]]; then
-  set -a; . "$ENV_FILE"; set +a
+  set -a
+  # shellcheck disable=SC1090  # .env is gitignored, no static file to point at
+  . "$ENV_FILE"
+  set +a
 fi
 SECRET="${SOC_AGENT_HMAC_SECRET:-}"
 if [[ -z "$SECRET" ]]; then

@@ -4,15 +4,10 @@ name: SOAR Tests
 # breaks fail-closed HMAC auth, the §12.4 exclusion list, the §12.3 approval flow,
 # or WS0.3 tenant scoping on the destructive /alert,/approve,/dispatch path would
 # otherwise merge green — these endpoints execute real router isolation.
-# Runs on any change to the agent/broker code or their tests.
+# audit #168: runs on EVERY PR, no path filter — a change that looks unrelated
+# (e.g. a shared lib, CI config, or docs) must not silently skip this gate.
 on:
   pull_request:
-    paths:
-      - "scripts/setup/ai_agent/**"
-      - "scripts/hive-mind-broker/**"
-      - "tests/ai_agent/**"
-      - "governance/exclusion_list.txt"
-      - ".github/workflows/soar-tests.yml"
   workflow_dispatch:
 
 permissions:

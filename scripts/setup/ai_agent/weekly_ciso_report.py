@@ -96,7 +96,7 @@ def fetch_and_calculate_metrics() -> dict:
 
     try:
         es = Elasticsearch(ES_HOST, api_key=ES_API_KEY,
-                           verify_certs=True, ca_certs=(ES_CA or None))
+                           verify_certs=True, ca_certs=(ES_CA or None))  # type: ignore[arg-type]  # elasticsearch-py stub wants DefaultType, not None
         res = es.search(index=".alerts-security.alerts-*", body=query)
         hits = res["hits"]["hits"]
         log.info("Retrieved %d alerts from ES.", len(hits))
@@ -196,7 +196,7 @@ def generate_executive_summary(metrics: dict) -> str:
     }
 
     try:
-        resp = requests.post(LLM_API_URL, json=payload, headers=headers, timeout=30)
+        resp = requests.post(LLM_API_URL, json=payload, headers=headers, timeout=30)  # type: ignore[arg-type]  # requests stub JsonType is stricter than our dict[str, object]
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"].strip()
     except Exception as exc:
@@ -342,7 +342,7 @@ def send_to_slack(pdf_path: str) -> bool:
     url_resp = requests.get(
         "https://slack.com/api/files.getUploadURLExternal",
         headers=headers_auth,
-        params={"filename": os.path.basename(pdf_path), "length": file_size},
+        params={"filename": os.path.basename(pdf_path), "length": file_size},  # type: ignore[arg-type]  # requests stub is stricter about mixed-type dict values than needed here
         timeout=15,
     )
     url_data = url_resp.json()
