@@ -117,6 +117,20 @@ def test_excluded_ip_refused(_no_real_ssh):
     assert _get_pending().json()["count"] == 0
 
 
+# --- audit #164: attacker_ip must be a valid IP before it reaches nft/SSH ------
+def test_alert_injection_string_rejected(_no_real_ssh):
+    r = _post({"attacker_ip": "1.1.1.1 drop; reboot #", "tenant_id": TENANT})
+    assert r.status_code == 400
+    _no_real_ssh.assert_not_awaited()
+    assert _get_pending().json()["count"] == 0
+
+
+def test_alert_hostname_rejected(_no_real_ssh):
+    r = _post({"attacker_ip": "not-an-ip.example.com", "tenant_id": TENANT})
+    assert r.status_code == 400
+    _no_real_ssh.assert_not_awaited()
+
+
 def _post_dispatch(payload, sign=True, tamper=False, ts=None):
     body = json.dumps(payload).encode("utf-8")
     return client.post("/webhook/dispatch", data=body,
@@ -154,6 +168,27 @@ def test_dispatch_excluded_ip_refused(_no_real_ssh):
     assert r.json()["executed"] is False
     assert "exclusion list" in r.json()["message"].lower()
     _no_real_ssh.assert_not_awaited()
+
+
+# --- audit #164: attacker_ip must be a valid IP before it reaches nft/SSH ------
+def test_dispatch_injection_string_rejected(_no_real_ssh):
+    r = _post_dispatch({"attacker_ip": "1.1.1.1 drop; reboot #", "tenant_id": TENANT})
+    assert r.status_code == 400
+    _no_real_ssh.assert_not_awaited()
+
+
+def test_dispatch_hostname_rejected(_no_real_ssh):
+    r = _post_dispatch({"attacker_ip": "not-an-ip.example.com", "tenant_id": TENANT})
+    assert r.status_code == 400
+    _no_real_ssh.assert_not_awaited()
+
+
+def test_dispatch_valid_ipv6_still_dispatches(_no_real_ssh):
+    # Regression guard: the #164 validation must not break legitimate IPv6 input.
+    r = _post_dispatch({"attacker_ip": "2001:db8::dead:beef", "tenant_id": TENANT})
+    assert r.status_code == 200
+    assert r.json()["executed"] is True
+    _no_real_ssh.assert_awaited_once()
 
 
 def test_dispatch_unknown_tenant_is_no_op(_no_real_ssh):
@@ -195,6 +230,20 @@ def test_approve_invalid_signature_rejected(_no_real_ssh):
                  if a["attacker_ip"] == "9.9.9.9"][0]["id"]
     r = _approve({"id": action_id, "approver": "attacker"}, tamper=True)
     assert r.status_code == 401
+    _no_real_ssh.assert_not_awaited()
+
+
+# --- audit #164: a corrupted queue entry must not crash /approve --------------
+def test_approve_corrupted_queue_entry_rejected(_no_real_ssh):
+    # Simulate a drafted action whose attacker_ip was never validated (e.g. a
+    # manually-edited or pre-#164 queue file) rather than relying on _post,
+    # which now validates at draft time and could never produce this state.
+    broker_app._append_action({
+        "id": "deadbeef0001", "ts": time.time(), "status": "pending",
+        "tenant": TENANT, "attacker_ip": "not-an-ip", "router_count": 1,
+    })
+    r = _approve({"id": "deadbeef0001", "approver": "analyst1"})
+    assert r.status_code == 422
     _no_real_ssh.assert_not_awaited()
 
 
@@ -255,4 +304,8 @@ def test_exclusion_supports_cidr_and_ipv6():
         assert dispatcher.is_excluded_ip("10.0.1.5") is False     # outside it
         assert dispatcher.is_excluded_ip("2001:db8::1") is True   # IPv6 in the /32
         assert dispatcher.is_excluded_ip("2001:dead::1") is False
-        assert dispatcher.is_excluded_ip("not-an-ip") is False
+        # audit #164: a malformed address must be REJECTED, not silently
+        # treated as "not excluded" (which previously let it flow on to
+        # build_nft_command / an SSH-executed command).
+        with pytest.raises(ValueError):
+            dispatcher.is_excluded_ip("not-an-ip")

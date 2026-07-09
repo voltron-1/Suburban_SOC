@@ -10,7 +10,7 @@ import re
 import threading
 
 from inventory import Inventory
-from dispatcher import dispatch_block_to_all, is_excluded_ip
+from dispatcher import dispatch_block_to_all, is_excluded_ip, validate_ip
 
 app = FastAPI(title="Hive-Mind Broker")
 
@@ -128,6 +128,10 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     attacker_ip = payload.get("attacker_ip")
     if not attacker_ip:
         raise HTTPException(status_code=400, detail="Payload missing attacker_ip")
+    try:
+        validate_ip(attacker_ip)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="attacker_ip is not a valid IP address")
 
     # §12.4: refuse to act against protected infrastructure, signed or not.
     if is_excluded_ip(attacker_ip):
@@ -187,6 +191,10 @@ async def dispatch_block(request: Request):
     attacker_ip = payload.get("attacker_ip")
     if not attacker_ip:
         raise HTTPException(status_code=400, detail="Payload missing attacker_ip")
+    try:
+        validate_ip(attacker_ip)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="attacker_ip is not a valid IP address")
     approver = str(payload.get("approver", "soc-ai-agent"))
 
     # §12.4: refuse protected infrastructure, signed or not.
@@ -249,7 +257,14 @@ async def approve(request: Request):
         raise HTTPException(status_code=404, detail=f"no pending action {action_id}")
 
     attacker_ip = action["attacker_ip"]
-    if is_excluded_ip(attacker_ip):  # re-check at execution time
+    try:
+        excluded = is_excluded_ip(attacker_ip)  # re-check at execution time
+    except ValueError:
+        _append_action({"id": action_id, "ts": time.time(), "status": "denied",
+                        "approver": approver, "result": "invalid attacker_ip"})
+        raise HTTPException(status_code=422,
+                            detail=f"invalid attacker_ip in drafted action {action_id}")
+    if excluded:
         _append_action({"id": action_id, "ts": time.time(), "status": "denied",
                         "approver": approver, "result": "exclusion list"})
         raise HTTPException(status_code=422, detail=f"{attacker_ip} is excluded")
