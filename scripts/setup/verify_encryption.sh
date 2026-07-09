@@ -13,7 +13,9 @@
 # =============================================================================
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENVF="$HERE/.env"; [[ -f "$ENVF" ]] && { set -a; . "$ENVF"; set +a; }
+ENVF="$HERE/.env"
+# shellcheck disable=SC1090  # .env is gitignored, no static file to point at
+[[ -f "$ENVF" ]] && { set -a; . "$ENVF"; set +a; }
 ES_PASS="${ELASTIC_PASSWORD:-${ES_PASS:-}}"
 NET="${SOC_NET:-setup_soc-mesh-net}"
 CERTVOL="${SOC_CERT_VOL:-setup_certs}"

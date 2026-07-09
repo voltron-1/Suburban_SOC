@@ -1,0 +1,29 @@
+# =============================================================================
+# logstash.yml — Logstash node settings (audit #169 / NIST SC-24, CP-10).
+#
+# Mounted into the container at /usr/share/logstash/config/logstash.yml
+# (scripts/setup/docker-compose.yml). Previously absent entirely, so the
+# container ran Logstash's baked-in defaults: queue.type: memory (nothing
+# survives a crash/restart) and dead_letter_queue.enable: false (an
+# output-stage failure, e.g. Elasticsearch rejecting a document, is dropped
+# silently instead of being captured).
+#
+# Both queue.page_capacity below and path.data need the durable
+# `logstash_data` named volume (docker-compose.yml) — without it these
+# survive a process crash within the same container but not a
+# `docker compose down`/`up` container recreation.
+# =============================================================================
+
+# Persisted queue: acked-but-unprocessed events survive a process crash or
+# restart instead of being lost in memory.
+queue.type: persisted
+queue.max_bytes: 1gb
+
+# Dead-letter queue: an event that fails at the OUTPUT stage (e.g. ES rejects
+# the document) is captured to disk instead of silently dropped. This is a
+# different failure class from the grok/JSON parse-failure quarantine index
+# (configs/logstash.conf) — that one catches malformed INPUT before it's
+# even sent to Elasticsearch; this one catches ES itself refusing a
+# well-formed-looking document.
+dead_letter_queue.enable: true
+dead_letter_queue.max_bytes: 1gb

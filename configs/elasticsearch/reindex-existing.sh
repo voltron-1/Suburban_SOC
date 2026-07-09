@@ -36,9 +36,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$HERE/../../scripts/setup/.env"
+# shellcheck disable=SC1090  # .env is gitignored, no static file to point at
 [[ -f "$ENV_FILE" ]] && { set -a; . "$ENV_FILE"; set +a; }
 
 # Shared ES creds + TLS + es helpers (issue #156).
+# shellcheck source=../../scripts/setup/lib/es_common.sh
 source "$HERE/../../scripts/setup/lib/es_common.sh"
 
 REPLACE=0; INCLUDE_MOCK=0; DRY_RUN=0; EXPLICIT=()

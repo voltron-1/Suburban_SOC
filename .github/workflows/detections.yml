@@ -3,21 +3,12 @@ name: Detections CI
 # WS1.2 detection-as-code gate: validate that the Sigma rules are the single source
 # of truth and convert cleanly to Elastic detection rules. (Full experimental->stable
 # promotion gating on replayable fixtures is WS2.1.)
+# audit #168: runs on EVERY PR, no path filter — a change that looks unrelated
+# must not silently skip this gate. Known tradeoff: this also means the
+# pysigma MITRE-ATT&CK-data-fetch flakiness (external, rate-limited) can now
+# surface on any PR, not just detection-focused ones — not fixable from here.
 on:
   pull_request:
-    paths:
-      - "rules/sigma/**"
-      - "configs/detections/**"
-      - "configs/logstash.conf"
-      - "tests/pipeline/**"
-      - "tests/detections/**"
-      - "docs/detections/**"
-      - "hunts/**"
-      - "scripts/setup/build_attack_coverage.py"
-      - "scripts/setup/build_kql_docs.py"
-      - "tests/anomaly_simulation/**"
-      - "tests/validate_emulation_map.py"
-      - ".github/workflows/detections.yml"
   workflow_dispatch:
 
 jobs:
