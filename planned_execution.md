@@ -10,14 +10,14 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 ## NEXT UP
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
-Priority 2 not yet started.**
+Priority 2 in progress.**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177) and linked to
-[Project Board #17](https://github.com/users/voltron-1/projects/17).
+[Project Board #17](https://github.com/users/voltron-1/projects/17). Plus
+follow-ups #182-#185 filed during remediation itself (see below).
 
-Next unstarted item: define P2 order with the owner (#168-#172 — CI lint
-gate, Logstash DLQ, ES client consolidation, broker logging, reporting-plane
-tests).
+Next unstarted item: **#168** — CI has no linter and functional tests are
+path-filtered (SA-11/CM-3).
 
 - [x] **#164** — Broker: unvalidated `attacker_ip` reached the `nft`/SSH command
   sink (NIST SP 800-53 Rev.5 SI-10 / CSF 2.0 PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178)
@@ -27,7 +27,7 @@ tests).
   merged; issue closed. 20 new tests, all passing (real CI confirmed via
   `soar-tests.yml` for the slo_metrics half — `run_hunts.py` has no CI path yet,
   tracked under #168). Deferred `agent_app.py:696` (audit-write visibility) to a
-  follow-up — no metrics/health surface to hook a counter into yet.
+  follow-up — filed as #184.
 - [x] **#166** — Bash admin tooling skipped TLS verification (`curl -k`) while
   sending ES credentials (SC-8). [PR #180](https://github.com/voltron-1/Suburban_SOC/pull/180)
   merged; issue closed. Also fixed the `lifecycle` compose one-shot, which had no
@@ -38,20 +38,36 @@ tests).
   automation (AC-6, CM-7). [PR #181](https://github.com/voltron-1/Suburban_SOC/pull/181)
   merged; issue closed. New least-privilege `slo_metrics_reader` ES role +
   `slo_metrics` user, live-created and verified end-to-end against the running
-  stack. `zeek-host-capture.service` hardened conservatively only (no
-  capability/`User=` changes — actively capturing real traffic, no safe way to
-  live-test a narrower capability set this session; does not reach the ≤6.0
-  target). `es_common.sh`'s shared `elastic` default deliberately left alone
-  (~15 other legitimate admin-tooling consumers depend on it). **Template-only
-  change — operator must redeploy both systemd units to apply**
-  (`sudo cp configs/systemd/{slo-metrics,zeek-host-capture}.service
-  /etc/systemd/system/ && sudo systemctl daemon-reload`, then restart each;
-  see redeploy runbook). Follow-up filed: #182 (zeek-host-capture.service
-  capability scoping).
+  stack — this part is holding. `slo-metrics.service` sandboxing (empty
+  CapabilityBoundingSet, ProtectSystem=strict, etc.) deployed and confirmed
+  working. **`zeek-host-capture.service` sandboxing was deployed, broke live
+  capture in production (crash-loop), and was reverted same-day** — root cause
+  turned out to be the WSL2 `eth0` interface being administratively down
+  (unrelated to the hardening directives, confirmed via journalctl), but the
+  unhardened unit file is what's currently live. Follow-up #182 (capability
+  scoping) now also covers re-attempting sandboxing safely. `es_common.sh`'s
+  shared `elastic` default deliberately left alone (~15 other legitimate
+  admin-tooling consumers depend on it).
+- [x] **#185** (unplanned, discovered this session) — `deploy_detections.sh`
+  silently no-op'd on every run since its introduction (#93, 2026-06-12):
+  competing `< "$RAW"` / `<<'PY'` stdin redirects meant the heredoc always won,
+  so the transformed rule payload was always empty, and Kibana's import API
+  returns `success:true` for an empty file — a silent false-positive matching
+  the SI-11 pattern (CM-3, SI-11). Surfaced while investigating shellcheck
+  findings for #168. Fixed via `RAW_PATH` env var + explicit `open()` instead of
+  `sys.stdin`; verified with synthetic + realistic-data transform tests (20
+  real rules exported from live Kibana, all transformed correctly). Live
+  end-to-end import round-trip intentionally deferred (would mutate production
+  rules without further sign-off). Branch `remediation/p1-issue-185-nist`
+  (commit `add02c9`). [PR #186](https://github.com/voltron-1/Suburban_SOC/pull/186)
+  open — awaiting merge.
+- [ ] **#168** — CI has no linter and functional tests are path-filtered,
+  leaving bash/reporting code ungated (SA-11/CM-3). Next up.
 
-P2 (next sprint, #168-#172) and P3 (backlog, #173-#177) are tracked on
-[Project Board #17](https://github.com/users/voltron-1/projects/17); not
-yet individually sequenced here — define order with the owner next session.
+P2 remaining (#169-#172, #182, #183) and P3 (#173-#177, #184) tracked on
+[Project Board #17](https://github.com/users/voltron-1/projects/17); working
+sequentially in descending priority order per the remediation protocol, one
+item at a time with explicit approval before each file change.
 
 Also filed this session (unrelated to the P1 fixes themselves, surfaced while
 investigating CI failures): #183 — `weasyprint==68.0` pinned in
