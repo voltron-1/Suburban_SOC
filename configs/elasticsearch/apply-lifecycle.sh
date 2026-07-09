@@ -18,7 +18,8 @@
 #   ES_URL=https://localhost:9200 ES_USER=elastic ES_PASS=... ./apply-lifecycle.sh
 #   ./apply-lifecycle.sh --snapshot-now   # also trigger an immediate SLM snapshot
 # Env: ES_URL (default https://localhost:9200), ES_USER (elastic),
-#      ES_PASS / ELASTIC_PASSWORD.
+#      ES_PASS / ELASTIC_PASSWORD, ES_CA (default /certs/ca/ca.crt — FAILS
+#      CLOSED if unreadable; set ES_INSECURE=true to skip verification, lab only).
 # =============================================================================
 set -euo pipefail
 
@@ -26,10 +27,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$HERE/../../scripts/setup/.env"
 [[ -f "$ENV_FILE" ]] && { set -a; . "$ENV_FILE"; set +a; }
 
-ES_URL="${ES_URL:-https://localhost:9200}"
-ES_USER="${ES_USER:-elastic}"
-ES_PASS="${ES_PASS:-${ELASTIC_PASSWORD:-}}"
-[[ -z "$ES_PASS" ]] && { echo "ERROR: set ES_PASS or ELASTIC_PASSWORD"; exit 1; }
+# Shared ES creds + TLS + es() (issue #156; audit #166 — no local -k downgrade).
+source "$HERE/../../scripts/setup/lib/es_common.sh"
 
 SNAPSHOT_NOW=0
 for arg in "$@"; do
@@ -42,9 +41,8 @@ done
 REPO="suburban-soc-snapshots"
 SLM="suburban-soc-daily-snapshots"
 
-curl_es() { curl -sk -u "${ES_USER}:${ES_PASS}" -H 'Content-Type: application/json' "$@"; }
 put() {  # $1=label  $2=path  $3=json-file
-  curl_es -o /dev/null -w "    ${1} -> HTTP %{http_code}\n" -X PUT \
+  esj -o /dev/null -w "    ${1} -> HTTP %{http_code}\n" -X PUT \
     "$ES_URL$2" --data-binary "@$3"
 }
 
@@ -69,7 +67,7 @@ bash "$HERE/apply-templates.sh"
 
 if [[ $SNAPSHOT_NOW -eq 1 ]]; then
   echo "==> Triggering an immediate snapshot via SLM '${SLM}'"
-  curl_es -o /dev/null -w '    execute -> HTTP %{http_code}\n' -X POST "$ES_URL/_slm/policy/${SLM}/_execute"
+  esj -o /dev/null -w '    execute -> HTTP %{http_code}\n' -X POST "$ES_URL/_slm/policy/${SLM}/_execute"
 fi
 
 echo "Done. Data lifecycle installed (ILM + snapshots + data-stream templates)."

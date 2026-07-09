@@ -20,7 +20,10 @@
 #   ES_URL   default https://localhost:9200
 #   ES_USER  default elastic
 #   ES_PASS  from $ES_PASS, else $ELASTIC_PASSWORD
-#   ES_CA    if set AND the file exists -> curl --cacert <ca>; else -> curl -k
+#   ES_CA    default /certs/ca/ca.crt; if readable -> curl --cacert <ca>.
+#            FAIL CLOSED (audit #166 / NIST SC-8): if no readable CA and
+#            ES_INSECURE isn't "true", this script exits rather than
+#            silently falling back to curl -k.
 #
 # Fails fast (exit 1) when no password resolves, instead of emitting an
 # unauthenticated request that returns a confusing 401. Set ES_REQUIRE_CREDS=0
@@ -51,13 +54,21 @@ if [[ -z "${ES_PASS:-}" ]]; then
   fi
 fi
 
-# Auth + TLS built once. Prefer verifying against the stack CA; fall back to -k
-# only when no readable CA is available (preserves existing localhost behavior).
+# Auth + TLS built once. Prefer verifying against the stack CA. FAIL CLOSED
+# (audit #166 / NIST SC-8): a missing/unreadable CA no longer silently
+# downgrades to -k — set ES_INSECURE=true to explicitly opt out (lab/
+# first-run only), mirroring dispatcher.py's BROKER_INSECURE_SSH pattern.
 ES_AUTH=(-u "${ES_USER}:${ES_PASS}")
-if [[ -n "${ES_CA:-}" && -f "${ES_CA}" ]]; then
+ES_CA="${ES_CA:-/certs/ca/ca.crt}"
+if [[ -f "${ES_CA}" ]]; then
   ES_TLS=(--cacert "${ES_CA}")
-else
+elif [[ "${ES_INSECURE:-false}" == "true" ]]; then
+  echo "WARNING: ES_INSECURE=true and no readable CA at ES_CA=${ES_CA} — TLS verification is DISABLED for ES calls (lab/first-run only; do not use in production)." >&2
   ES_TLS=(-k)
+else
+  echo "ERROR: no readable CA at ES_CA=${ES_CA} — refusing to skip TLS verification." >&2
+  echo "       Set ES_CA to the stack CA path, or ES_INSECURE=true to explicitly accept unverified TLS (lab only)." >&2
+  exit 1
 fi
 
 # Base helper: auth + TLS, NO Content-Type — callers add -H as needed so json

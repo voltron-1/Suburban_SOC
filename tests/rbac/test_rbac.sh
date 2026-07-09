@@ -14,7 +14,8 @@ source "$HERE/../../scripts/setup/lib/es_common.sh"
 
 PW="RbacTest123!"; fails=0
 admin() { es "$@"; }   # admin uses the shared es() helper (issue #156)
-as() { local u="$1"; shift; curl -sk -o /dev/null -w '%{http_code}' -u "$u:$PW" "$@"; }
+# audit #166: reuse the shared helper's TLS args instead of hardcoded -sk.
+as() { local u="$1"; shift; curl -s "${ES_TLS[@]}" -o /dev/null -w '%{http_code}' -u "$u:$PW" "$@"; }
 mkuser() { admin -o /dev/null -X PUT "$ES_URL/_security/user/$1" -H 'Content-Type: application/json' -d "{\"password\":\"$PW\",\"roles\":[\"$2\"]}"; }
 rmuser() { admin -o /dev/null -X DELETE "$ES_URL/_security/user/$1"; }
 expect() { # $1=label $2=actual $3=expected

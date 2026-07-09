@@ -299,8 +299,13 @@ services:
       - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
       - ES_URL=https://elasticsearch:9200
       - ES_USER=elastic
+      # audit #166 / NIST SC-8: apply-lifecycle.sh/apply-templates.sh now fail
+      # closed without a readable CA (see scripts/setup/lib/es_common.sh) —
+      # mount + point at the same CA the `roles` one-shot already verifies against.
+      - ES_CA=/certs/ca/ca.crt
     volumes:
       - ../../configs/elasticsearch:/lifecycle:ro
+      - certs:/certs:ro
     networks:
       - soc-mesh-net
     entrypoint: ["/bin/bash", "-c"]
