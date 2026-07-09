@@ -22,6 +22,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$HERE/../../scripts/setup/.env"
+# shellcheck disable=SC1090  # .env is gitignored, no static file to point at
 [[ -f "$ENV_FILE" ]] && { set -a; . "$ENV_FILE"; set +a; }
 
 # These serve the no-ES path: the if-block below only indexes when ES_PASS is set,
@@ -91,6 +92,7 @@ if [[ -n "$ES_PASS" ]]; then
   # so we never send two Content-Type headers (ES rejects that).
   # Shared ES creds + TLS + es()/es_bulk() (issue #156). Sourced inside the
   # `if [[ -n "$ES_PASS" ]]` block so the feed refresh still runs without ES creds.
+  # shellcheck source=../../scripts/setup/lib/es_common.sh
   source "$HERE/../../scripts/setup/lib/es_common.sh"
   # 3a. Upsert each indicator (_id = indicator) into threat-intel-indicators so
   #     re-runs don't duplicate; ECS threat.indicator.* + threat.feed.name.
@@ -98,7 +100,7 @@ if [[ -n "$ES_PASS" ]]; then
   now="$(ts)"
   # No python/jq dependency: indicators are validated IPv4/domains and the type/feed
   # are fixed strings, so they embed in JSON safely without escaping.
-  grep -vE '^\s*#|^\s*$' "$OUT" | while IFS=$'\t' read -r ind itype isrc idesc; do
+  grep -vE '^\s*#|^\s*$' "$OUT" | while IFS=$'\t' read -r ind itype isrc _; do
     [[ -z "$ind" ]] && continue
     if [[ "$itype" == "Intel::ADDR" ]]; then field="ip"; else field="domain"; fi
     printf '{"index":{"_index":"threat-intel-indicators","_id":"%s"}}\n' "$ind"

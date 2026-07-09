@@ -1,0 +1,13 @@
+# yamllint config (audit #168) — relaxed to match this repo's existing
+# conventions rather than reformatting every file to the tool's defaults.
+extends: default
+
+rules:
+  # None of the Beats/Zeek configs use explicit `---` document markers; not
+  # worth adding repo-wide for a purely cosmetic YAML convention.
+  document-start: disable
+  # Longest existing line is 90 chars; default (80) would flag ~15 lines of
+  # otherwise-fine config across 3 files. 100 gives a little headroom without
+  # being unbounded.
+  line-length:
+    max: 100

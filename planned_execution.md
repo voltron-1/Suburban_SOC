@@ -16,61 +16,61 @@ Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 [Project Board #17](https://github.com/users/voltron-1/projects/17). Plus
 follow-ups #182-#185 filed during remediation itself.
 
-Next unstarted item: **#170** — ES client/credential consolidation
-(#156/#157) incomplete; no connection reuse or retry.
+Next unstarted item: **#169** — Logstash pipeline has no dead-letter queue
+and no grok parse-failure test coverage (SC-24).
 
 - [x] **#164** — Broker: unvalidated `attacker_ip` reached the `nft`/SSH command
   sink (SI-10/PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178) merged; issue closed.
 - [x] **#165** — SLO metrics & threat hunts silently swallowed ES errors as false
-  negatives (SI-11). [PR #179](https://github.com/voltron-1/Suburban_SOC/pull/179) merged; issue closed.
-  Deferred `agent_app.py:696` (audit-write visibility) — filed as #184.
+  negatives (SI-11). [PR #179](https://github.com/voltron-1/Suburban_SOC/pull/179)
+  merged; issue closed. 20 new tests, all passing. Deferred `agent_app.py:696`
+  (audit-write visibility) to a follow-up — filed as #184.
 - [x] **#166** — Bash admin tooling skipped TLS verification (`curl -k`) while
   sending ES credentials (SC-8). [PR #180](https://github.com/voltron-1/Suburban_SOC/pull/180) merged; issue closed.
   Operator note: host scripts relying on the old implicit `-k` fallback now
   need `ES_CA=<path>` or `ES_INSECURE=true`.
 - [x] **#167** — Unhardened systemd units + `elastic` superuser default in host
-  automation (AC-6, CM-7). [PR #181](https://github.com/voltron-1/Suburban_SOC/pull/181) merged; issue closed.
-  New least-privilege `slo_metrics_reader` ES role/user — holding.
-  `zeek-host-capture.service` sandboxing was deployed, broke live capture
-  (root cause: WSL2 `eth0` down, unrelated to the hardening), reverted
-  same-day — unit currently runs unsandboxed. Follow-up: #182.
-- [x] **#185** (unplanned) — `deploy_detections.sh` silently no-op'd on every
-  run since introduction (#93): competing stdin redirects meant the
-  transformed rule payload was always empty, Kibana's import API returns
-  `success:true` for an empty file (CM-3, SI-11). [PR #186](https://github.com/voltron-1/Suburban_SOC/pull/186) open.
+  automation (AC-6, CM-7). [PR #181](https://github.com/voltron-1/Suburban_SOC/pull/181)
+  merged; issue closed. New least-privilege `slo_metrics_reader` ES role +
+  `slo_metrics` user, live-created and verified end-to-end — holding.
+  `zeek-host-capture.service` sandboxing was deployed, broke live capture in
+  production (crash-loop), and was reverted same-day — root cause was the
+  WSL2 `eth0` interface being administratively down, unrelated to the
+  hardening itself, but the unit currently runs unsandboxed. Follow-up #182
+  covers re-attempting it safely. `es_common.sh`'s shared `elastic` default
+  deliberately left alone (~15 other legitimate admin-tooling consumers
+  depend on it).
+- [x] **#185** (unplanned, discovered this session) — `deploy_detections.sh`
+  silently no-op'd on every run since its introduction (#93, 2026-06-12):
+  competing `< "$RAW"` / `<<'PY'` stdin redirects meant the transformed rule
+  payload was always empty, and Kibana's import API returns `success:true`
+  for an empty file — a silent false-positive (CM-3, SI-11). Surfaced while
+  investigating shellcheck findings for #168. Fixed via `RAW_PATH` env var +
+  explicit `open()`; verified with synthetic + realistic-data transform
+  tests. [PR #186](https://github.com/voltron-1/Suburban_SOC/pull/186) open
+  — awaiting merge.
 - [x] **#168** — CI had no linter and functional tests were path-filtered
-  (SA-11/CM-3). New always-on `lint.yml` (shellcheck/ruff/mypy/yamllint);
-  `soar-tests.yml`/`detections.yml` path filters removed. Real CI confirmed
-  working. [PR #187](https://github.com/voltron-1/Suburban_SOC/pull/187) open.
-- [x] **#169** — Logstash had no dead-letter queue/persisted queue, and grok/
-  JSON parse failures were tagged but still written to the main index
-  (SC-24, CP-10). New `configs/logstash.yml` (persisted queue + DLQ) +
-  durable named volume; `logstash.conf` output split to route
-  `pipeline.error:true` events to a `logstash-security-quarantine-*` index;
-  14 new golden-file grok/JSON tests (includes the #161 DEFERRED
-  standalone-"Invalid user" gap); new "Quarantined Events" Kibana panel.
-  **Live end-to-end verified**: real malformed/well-formed events posted
-  through the running pipeline, confirmed routing to quarantine vs. main
-  index respectively. **Found and fixed a real #166 regression along the
-  way**: the `lifecycle` Docker one-shot was failing outright
-  ("No such file or directory") because that PR's `es_common.sh` sourcing
-  assumed a full repo checkout, but the `lifecycle` compose service only
-  ever mounted `configs/elasticsearch/` — this was actively blocking
-  Logstash from starting mid-session; fixed by mounting `scripts/setup/lib`
-  into the container. Branch `remediation/p2-issue-169-nist` (commit
-  `041b709`). [PR #188](https://github.com/voltron-1/Suburban_SOC/pull/188) open.
-- [ ] **#170** — ES client/credential consolidation (#156/#157) incomplete;
-  no connection reuse or retry. Next up.
+  (SA-11/CM-3). New always-on `.github/workflows/lint.yml` (shellcheck, ruff,
+  mypy, yamllint); `soar-tests.yml`/`detections.yml` path filters removed
+  entirely. Fixed all findings surfaced (2 real shellcheck unused-vars, 3
+  ruff, 8 mypy — 2 of which were genuine latent type-signature/behavior
+  mismatches, not just stub pickiness) rather than suppressing. Along the way
+  found a real shellcheck directive-scoping gotcha (a `disable=` comment
+  before a `cmd1; cmd2; cmd3` chain only covers `cmd1`). Explicitly deferred:
+  required branch-protection status checks (repo-settings change, needs
+  separate explicit sign-off). Real CI confirmed: ruff/mypy/yamllint pass;
+  shellcheck fails only on the 2 findings #185 already fixes (pending
+  merge); `soar-tests`/`detections` now actually run and pass (previously
+  would have been skipped). Branch `remediation/p2-issue-168-nist` (commit
+  `1e7c0f4`). [PR #187](https://github.com/voltron-1/Suburban_SOC/pull/187)
+  open — awaiting merge.
+- [ ] **#169** — Logstash pipeline: no dead-letter queue and no grok
+  parse-failure test coverage (SC-24). Next up.
 
-P2 remaining (#171, #172, #182, #183) and P3 (#173-#177, #184) tracked on
+P2 remaining (#170-#172, #182, #183) and P3 (#173-#177, #184) tracked on
 [Project Board #17](https://github.com/users/voltron-1/projects/17); working
 sequentially in descending priority order per the remediation protocol, one
 item at a time with explicit approval before each file change.
-
-Operator note: PRs #178-#181 (P1) are the only ones merged so far; #186-#188
-(P2, plus the unplanned #185) are open, awaiting a batch merge decision —
-same pattern as the P1 phase. Each independently verified (tests + live
-stack where applicable) but not yet on `main`.
 
 ---
 

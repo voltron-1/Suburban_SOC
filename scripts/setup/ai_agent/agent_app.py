@@ -487,7 +487,7 @@ def send_discord_alert(device_ip: str, device_mac: str, ai_summary: str, tenant:
         }]
     }
     try:
-        requests.post(webhook, json=payload, timeout=10)
+        requests.post(webhook, json=payload, timeout=10)  # type: ignore[arg-type]  # requests stub JsonType is stricter than our dict shape
     except Exception as e:
         app.logger.error("Discord notification failed: %s", e)
 
