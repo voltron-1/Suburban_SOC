@@ -91,20 +91,24 @@ if [[ "${count:-0}" -eq 0 ]]; then
 fi
 
 # --- 3. Point each rule at our data index (logstash-*) + honour --no-enable ---
-# Read stdin / write stdout (bash handles the redirections) so no temp path is
-# passed to the interpreter — portable across shells.
-ENABLE="$ENABLE" DETECTION_INDEX="$DETECTION_INDEX" python3 - < "$RAW" > "$NDJSON" <<'PY'
-import json, os, sys
+# audit #185: RAW is read via an explicit path (RAW_PATH), not stdin — a `<
+# "$RAW"` redirect here competes with the `<<'PY'` heredoc for fd 0 (the
+# heredoc always wins, since python3 - reads its own script FROM stdin first),
+# which silently produced an empty NDJSON on every run. Only stdout is
+# redirected to a file; the heredoc supplies the script source as intended.
+ENABLE="$ENABLE" DETECTION_INDEX="$DETECTION_INDEX" RAW_PATH="$RAW" python3 > "$NDJSON" <<'PY'
+import json, os
 idx = os.environ["DETECTION_INDEX"].split(",")
 enable = os.environ["ENABLE"] == "1"
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    r = json.loads(line)
-    r["index"] = idx
-    r["enabled"] = enable
-    print(json.dumps(r))
+with open(os.environ["RAW_PATH"]) as fh:
+    for line in fh:
+        line = line.strip()
+        if not line:
+            continue
+        r = json.loads(line)
+        r["index"] = idx
+        r["enabled"] = enable
+        print(json.dumps(r))
 PY
 green "    converted $count rules (index=$DETECTION_INDEX, enabled=$([[ $ENABLE -eq 1 ]] && echo true || echo false))"
 
