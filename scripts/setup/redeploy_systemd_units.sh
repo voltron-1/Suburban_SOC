@@ -27,8 +27,8 @@ REPO="$(cd "$HERE/../.." && pwd)"
 cd "$REPO"
 
 echo "==> Before scores (for comparison)"
-sudo systemd-analyze security slo-metrics.service || true
-sudo systemd-analyze security zeek-host-capture.service || true
+sudo systemd-analyze security --no-pager slo-metrics.service || true
+sudo systemd-analyze security --no-pager zeek-host-capture.service || true
 
 echo
 echo "==> Installing updated unit files"
@@ -57,8 +57,8 @@ sudo journalctl -u slo-metrics -n 30 --no-pager
 
 echo
 echo "==> After scores"
-sudo systemd-analyze security slo-metrics.service || true
-sudo systemd-analyze security zeek-host-capture.service || true
+sudo systemd-analyze security --no-pager slo-metrics.service || true
+sudo systemd-analyze security --no-pager zeek-host-capture.service || true
 
 echo
 echo "==> Verification checklist:"
