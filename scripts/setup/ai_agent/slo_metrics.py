@@ -71,6 +71,13 @@ ES_CA = os.environ.get("ES_CA", "/certs/ca/ca.crt")
 ES_VERIFY = ES_CA if ES_CA else True
 
 
+class MetricUnavailable(Exception):
+    """Raised when a metric could not be measured because the ES/Kibana request
+    failed (or, for metric_coverage, the local file couldn't be read) — distinct
+    from a legitimate empty/zero result (audit #165 / NIST SI-11). A down or
+    unreachable dependency must never be reported as a benign 'n/a'."""
+
+
 def es(method, path, body=None):
     return requests.request(
         method, f"{ES_URL}{path}", auth=(ES_USER, ES_PASS), verify=ES_VERIFY,
@@ -86,9 +93,13 @@ def kb(path):
 def _count(index, query):
     try:
         r = es("POST", f"/{index}/_count", {"query": query})
-        return r.json().get("count", 0) if r.status_code == 200 else 0
-    except Exception:
-        return 0
+        if r.status_code != 200:
+            raise MetricUnavailable(f"{index} count returned HTTP {r.status_code}")
+        return r.json().get("count", 0)
+    except MetricUnavailable:
+        raise
+    except Exception as e:
+        raise MetricUnavailable(f"{index} count request failed: {e}") from e
 
 
 def metric_mttd():
@@ -98,9 +109,13 @@ def metric_mttd():
             "query": {"range": {"@timestamp": {"gte": WINDOW}}}}
     try:
         r = es("POST", "/.alerts-security.alerts-*/_search", body)
+        if r.status_code != 200:
+            raise MetricUnavailable(f"mttd search returned HTTP {r.status_code}")
         hits = r.json().get("hits", {}).get("hits", [])
-    except Exception:
-        hits = []
+    except MetricUnavailable:
+        raise
+    except Exception as e:
+        raise MetricUnavailable(f"mttd search failed: {e}") from e
     deltas = []
     for h in hits:
         s = h.get("_source", {})
@@ -113,7 +128,7 @@ def metric_mttd():
             if d >= 0:
                 deltas.append(d)
         except Exception:
-            continue
+            continue  # a single malformed hit is skipped — not a measurement error
     return round(sum(deltas) / len(deltas), 2) if deltas else None
 
 
@@ -125,18 +140,22 @@ def metric_mttr():
         "aggs": {"avg_lat": {"avg": {"field": "response.latency_seconds"}}}}
     try:
         r = es("POST", "/soar-actions-*/_search", body)
+        if r.status_code != 200:
+            raise MetricUnavailable(f"mttr search returned HTTP {r.status_code}")
         v = r.json().get("aggregations", {}).get("avg_lat", {}).get("value")
         return round(v / 60.0, 3) if v is not None else None
-    except Exception:
-        return None
+    except MetricUnavailable:
+        raise
+    except Exception as e:
+        raise MetricUnavailable(f"mttr search failed: {e}") from e
 
 
 def metric_coverage():
     p = REPO / "docs" / "detections" / "attack-coverage.json"
     try:
         return float(len(json.loads(p.read_text(encoding="utf-8")).get("techniques", [])))
-    except Exception:
-        return None
+    except Exception as e:
+        raise MetricUnavailable(f"attack-coverage.json unreadable: {e}") from e
 
 
 def metric_false_positive_pct():
@@ -146,8 +165,8 @@ def metric_false_positive_pct():
         fp = kb("/api/cases/_find?perPage=1&status=closed&tags=disposition:false_positive"
                 ).json().get("total", 0)
         return round(100.0 * fp / total, 2) if total else 0.0
-    except Exception:
-        return None
+    except Exception as e:
+        raise MetricUnavailable(f"cases query failed: {e}") from e
 
 
 def metric_ingest_lag_seconds():
@@ -158,8 +177,8 @@ def metric_ingest_lag_seconds():
             return None
         newest = datetime.fromisoformat(hits[0]["_source"]["@timestamp"].replace("Z", "+00:00"))
         return round((datetime.now(timezone.utc) - newest).total_seconds(), 1)
-    except Exception:
-        return None
+    except Exception as e:
+        raise MetricUnavailable(f"ingest-lag search failed: {e}") from e
 
 
 def metric_parse_error_pct():
@@ -173,14 +192,25 @@ def main():
     if not ES_PASS:
         print("ERROR: ES_PASS / ELASTIC_PASSWORD required", file=sys.stderr)
         sys.exit(1)
-    values = {
-        "mttd_minutes": metric_mttd(),
-        "mttr_minutes": metric_mttr(),
-        "coverage_techniques": metric_coverage(),
-        "false_positive_pct": metric_false_positive_pct(),
-        "ingest_lag_seconds": metric_ingest_lag_seconds(),
-        "parse_error_pct": metric_parse_error_pct(),
+
+    metric_fns = {
+        "mttd_minutes": metric_mttd,
+        "mttr_minutes": metric_mttr,
+        "coverage_techniques": metric_coverage,
+        "false_positive_pct": metric_false_positive_pct,
+        "ingest_lag_seconds": metric_ingest_lag_seconds,
+        "parse_error_pct": metric_parse_error_pct,
     }
+    values, errors = {}, {}
+    for name, fn in metric_fns.items():
+        try:
+            values[name] = fn()
+        except MetricUnavailable as e:
+            # audit #165 / NIST SI-11: a measurement failure must never look
+            # like a benign "n/a" or a healthy "0" — it is always a breach.
+            values[name] = None
+            errors[name] = str(e)
+
     now = datetime.now(timezone.utc).isoformat()
     doc = {"@timestamp": now, "slo": {}}
     breaches = []
@@ -189,7 +219,10 @@ def main():
     for name, val in values.items():
         target = TARGETS[name]
         lower = LOWER_BETTER[name]
-        if val is None:
+        if name in errors:
+            breach = True
+            status = "ERROR(unmeasurable)"
+        elif val is None:
             # Fail closed for liveness-critical metrics: unmeasurable == breach.
             breach = name in BREACH_IF_NA
             status = "BREACH(no-data)" if breach else "n/a"
@@ -198,17 +231,22 @@ def main():
             status = "BREACH" if breach else "ok"
         if breach:
             breaches.append(name)
-        doc["slo"][name] = {"value": val, "target": target,
-                            "comparator": "<=" if lower else ">=", "breach": breach}
+        entry = {"value": val, "target": target,
+                 "comparator": "<=" if lower else ">=", "breach": breach}
+        if name in errors:
+            entry["error"] = errors[name]
+        doc["slo"][name] = entry
         print(f"  {name.ljust(20)} {str(val):>10}  {('<=' if lower else '>=')+str(target):>8}  {status}")
     doc["breach_count"] = len(breaches)
     doc["status"] = "breach" if breaches else "ok"
 
     # Index for the SLO dashboard.
+    index_failed = False
     try:
         es("POST", "/soc-slo-metrics/_doc", doc)
         print(f"  -> indexed to soc-slo-metrics (breaches: {len(breaches)})")
     except Exception as e:
+        index_failed = True
         print(f"  -> ES index failed: {e}", file=sys.stderr)
 
     # Alert on breach (best-effort).
@@ -221,6 +259,12 @@ def main():
         except Exception:
             pass
 
+    # audit #165 / NIST SI-11: a measurement error (or a failure to persist the
+    # doc at all) is a harder failure than a routine target breach — exit 3 so
+    # slo-metrics.service (SuccessExitStatus=0 2) correctly reports a failed
+    # run instead of blending it into "successful run, breach".
+    if errors or index_failed:
+        sys.exit(3)
     sys.exit(2 if breaches else 0)
 
 
