@@ -23,11 +23,12 @@ All matching is case-insensitive (Sigma's default).
 """
 
 import re
+from typing import Optional
 
 _SUPPORTED_MODS = {"contains", "endswith", "startswith", "all", "cased"}
 
 
-def _match_one(value: str, mods, target) -> bool:
+def _match_one(value: Optional[str], mods, target) -> bool:
     s = str(value if value is not None else "")
     cased = "cased" in mods
     if not cased:

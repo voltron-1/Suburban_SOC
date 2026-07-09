@@ -8,8 +8,10 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENVF="$HERE/../../scripts/setup/.env"
+# shellcheck disable=SC1090  # .env is gitignored, no static file to point at
 [[ -f "$ENVF" ]] && { set -a; . "$ENVF"; set +a; }
 # Shared ES creds + TLS + es() (issue #156).
+# shellcheck source=../../scripts/setup/lib/es_common.sh
 source "$HERE/../../scripts/setup/lib/es_common.sh"
 
 PW="RbacTest123!"; fails=0

@@ -1,0 +1,68 @@
+name: Lint
+
+# audit #168: always-on style/type gate — runs on every PR and push to main
+# with NO path filter, unlike detections.yml/soar-tests.yml. A bash-only or
+# reporting-script-only change must not skip every automated check.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  shellcheck:
+    name: shellcheck (bash)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install shellcheck
+        run: |
+          curl -sL https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.x86_64.tar.xz | tar -xJ
+          sudo mv shellcheck-stable/shellcheck /usr/local/bin/shellcheck
+
+      - name: Run shellcheck on every tracked .sh file
+        run: git ls-files '*.sh' | xargs shellcheck -S warning
+
+  ruff:
+    name: ruff (python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install --quiet ruff
+      - run: ruff check .
+
+  mypy:
+    name: mypy (python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install --quiet mypy
+      - name: Run mypy on every tracked .py file
+        run: git ls-files '*.py' | xargs mypy --ignore-missing-imports --follow-imports=silent
+
+  yamllint:
+    name: yamllint (configs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - run: pip install --quiet yamllint
+      - run: yamllint -c .yamllint configs/

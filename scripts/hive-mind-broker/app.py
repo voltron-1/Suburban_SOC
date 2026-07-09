@@ -25,7 +25,7 @@ HMAC_SECRET = os.getenv("HIVE_MIND_SECRET", "").encode("utf-8")
 # within that window is refused (nonce cache), so a captured block request cannot
 # be replayed.
 HMAC_REPLAY_WINDOW = int(os.getenv("HMAC_REPLAY_WINDOW", "300"))  # seconds
-_seen_sigs = {}            # signature -> expiry epoch
+_seen_sigs: dict[str, float] = {}    # signature -> expiry epoch
 _seen_sigs_lock = threading.Lock()
 
 # CDP §12.3: autonomous containment is Deferred Scope. By default the broker

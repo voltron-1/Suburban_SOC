@@ -22,9 +22,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$HERE/../../scripts/setup/.env"
+# shellcheck disable=SC1090  # .env is gitignored, no static file to point at
 [[ -f "$ENV_FILE" ]] && { set -a; . "$ENV_FILE"; set +a; }
 
 # Shared ES creds + TLS + es() (issue #156; audit #166 — no local -k downgrade).
+# shellcheck source=../../scripts/setup/lib/es_common.sh
 source "$HERE/../../scripts/setup/lib/es_common.sh"
 
 echo "==> Installing logstash-security-template"
