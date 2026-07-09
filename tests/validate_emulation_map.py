@@ -85,7 +85,7 @@ class Emulation:
         if severity is not Severity.OK:
             self.findings.append(Finding(severity, check, message))
 
-    def cell(self, check: str) -> Severity:
+    def cell(self, check: str) -> Optional[Severity]:
         """Worst severity recorded for a check, or OK if it ran clean, or None."""
         if check not in self.checks_run:
             return None
@@ -297,8 +297,8 @@ def validate(em: Emulation, root: Path, check_sigma: bool) -> None:
             if ls.get("product", "").lower() == "windows" and any(h in domain for h in NETWORK_HINTS):
                 em.add(
                     Severity.WARN, "tag-match",
-                    f"Log_Source looks like network/host telemetry but the rule's logsource "
-                    f"is product:windows -- likely platform mismatch",
+                    "Log_Source looks like network/host telemetry but the rule's logsource "
+                    "is product:windows -- likely platform mismatch",
                 )
 
     # NIST control

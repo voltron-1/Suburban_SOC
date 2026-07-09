@@ -14,20 +14,18 @@ Priority 2 in progress.**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177) and linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17). Plus
-follow-ups #182-#185 filed during remediation itself (see below).
+follow-ups #182-#185 filed during remediation itself.
 
-Next unstarted item: **#168** — CI has no linter and functional tests are
-path-filtered (SA-11/CM-3).
+Next unstarted item: **#169** — Logstash pipeline has no dead-letter queue
+and no grok parse-failure test coverage (SC-24).
 
 - [x] **#164** — Broker: unvalidated `attacker_ip` reached the `nft`/SSH command
   sink (NIST SP 800-53 Rev.5 SI-10 / CSF 2.0 PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178)
   merged; issue closed. Broker suite 23→29 tests, all passing.
 - [x] **#165** — SLO metrics & threat hunts silently swallowed ES errors as false
   negatives (SI-11). [PR #179](https://github.com/voltron-1/Suburban_SOC/pull/179)
-  merged; issue closed. 20 new tests, all passing (real CI confirmed via
-  `soar-tests.yml` for the slo_metrics half — `run_hunts.py` has no CI path yet,
-  tracked under #168). Deferred `agent_app.py:696` (audit-write visibility) to a
-  follow-up — filed as #184.
+  merged; issue closed. 20 new tests, all passing. Deferred `agent_app.py:696`
+  (audit-write visibility) to a follow-up — filed as #184.
 - [x] **#166** — Bash admin tooling skipped TLS verification (`curl -k`) while
   sending ES credentials (SC-8). [PR #180](https://github.com/voltron-1/Suburban_SOC/pull/180)
   merged; issue closed. Also fixed the `lifecycle` compose one-shot, which had no
@@ -37,43 +35,45 @@ path-filtered (SA-11/CM-3).
 - [x] **#167** — Unhardened systemd units + `elastic` superuser default in host
   automation (AC-6, CM-7). [PR #181](https://github.com/voltron-1/Suburban_SOC/pull/181)
   merged; issue closed. New least-privilege `slo_metrics_reader` ES role +
-  `slo_metrics` user, live-created and verified end-to-end against the running
-  stack — this part is holding. `slo-metrics.service` sandboxing (empty
-  CapabilityBoundingSet, ProtectSystem=strict, etc.) deployed and confirmed
-  working. **`zeek-host-capture.service` sandboxing was deployed, broke live
-  capture in production (crash-loop), and was reverted same-day** — root cause
-  turned out to be the WSL2 `eth0` interface being administratively down
-  (unrelated to the hardening directives, confirmed via journalctl), but the
-  unhardened unit file is what's currently live. Follow-up #182 (capability
-  scoping) now also covers re-attempting sandboxing safely. `es_common.sh`'s
-  shared `elastic` default deliberately left alone (~15 other legitimate
-  admin-tooling consumers depend on it).
+  `slo_metrics` user, live-created and verified end-to-end — holding.
+  `zeek-host-capture.service` sandboxing was deployed, broke live capture in
+  production (crash-loop), and was reverted same-day — root cause was the
+  WSL2 `eth0` interface being administratively down, unrelated to the
+  hardening itself, but the unit currently runs unsandboxed. Follow-up #182
+  covers re-attempting it safely. `es_common.sh`'s shared `elastic` default
+  deliberately left alone (~15 other legitimate admin-tooling consumers
+  depend on it).
 - [x] **#185** (unplanned, discovered this session) — `deploy_detections.sh`
   silently no-op'd on every run since its introduction (#93, 2026-06-12):
-  competing `< "$RAW"` / `<<'PY'` stdin redirects meant the heredoc always won,
-  so the transformed rule payload was always empty, and Kibana's import API
-  returns `success:true` for an empty file — a silent false-positive matching
-  the SI-11 pattern (CM-3, SI-11). Surfaced while investigating shellcheck
-  findings for #168. Fixed via `RAW_PATH` env var + explicit `open()` instead of
-  `sys.stdin`; verified with synthetic + realistic-data transform tests (20
-  real rules exported from live Kibana, all transformed correctly). Live
-  end-to-end import round-trip intentionally deferred (would mutate production
-  rules without further sign-off). Branch `remediation/p1-issue-185-nist`
-  (commit `add02c9`). [PR #186](https://github.com/voltron-1/Suburban_SOC/pull/186)
+  competing `< "$RAW"` / `<<'PY'` stdin redirects meant the transformed rule
+  payload was always empty, and Kibana's import API returns `success:true`
+  for an empty file — a silent false-positive (CM-3, SI-11). Surfaced while
+  investigating shellcheck findings for #168. Fixed via `RAW_PATH` env var +
+  explicit `open()`; verified with synthetic + realistic-data transform
+  tests. [PR #186](https://github.com/voltron-1/Suburban_SOC/pull/186) open
+  — awaiting merge.
+- [x] **#168** — CI had no linter and functional tests were path-filtered
+  (SA-11/CM-3). New always-on `.github/workflows/lint.yml` (shellcheck, ruff,
+  mypy, yamllint); `soar-tests.yml`/`detections.yml` path filters removed
+  entirely. Fixed all findings surfaced (2 real shellcheck unused-vars, 3
+  ruff, 8 mypy — 2 of which were genuine latent type-signature/behavior
+  mismatches, not just stub pickiness) rather than suppressing. Along the way
+  found a real shellcheck directive-scoping gotcha (a `disable=` comment
+  before a `cmd1; cmd2; cmd3` chain only covers `cmd1`). Explicitly deferred:
+  required branch-protection status checks (repo-settings change, needs
+  separate explicit sign-off). Real CI confirmed: ruff/mypy/yamllint pass;
+  shellcheck fails only on the 2 findings #185 already fixes (pending
+  merge); `soar-tests`/`detections` now actually run and pass (previously
+  would have been skipped). Branch `remediation/p2-issue-168-nist` (commit
+  `1e7c0f4`). [PR #187](https://github.com/voltron-1/Suburban_SOC/pull/187)
   open — awaiting merge.
-- [ ] **#168** — CI has no linter and functional tests are path-filtered,
-  leaving bash/reporting code ungated (SA-11/CM-3). Next up.
+- [ ] **#169** — Logstash pipeline: no dead-letter queue and no grok
+  parse-failure test coverage (SC-24). Next up.
 
-P2 remaining (#169-#172, #182, #183) and P3 (#173-#177, #184) tracked on
+P2 remaining (#170-#172, #182, #183) and P3 (#173-#177, #184) tracked on
 [Project Board #17](https://github.com/users/voltron-1/projects/17); working
 sequentially in descending priority order per the remediation protocol, one
 item at a time with explicit approval before each file change.
-
-Also filed this session (unrelated to the P1 fixes themselves, surfaced while
-investigating CI failures): #183 — `weasyprint==68.0` pinned in
-`scripts/setup/ai_agent/requirements.txt` has a disclosed CVE (CVE-2026-49452,
-CSS injection/SSRF via `presentational_hints`); a fix is available upstream
-(69.0/68.1), not yet bumped.
 
 ---
 

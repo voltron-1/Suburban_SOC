@@ -200,7 +200,7 @@ def test_dispatch_unknown_tenant_is_no_op(_no_real_ssh):
 
 
 def test_approve_dispatches_only_to_tenant_routers(_no_real_ssh):
-    draft = _post({"attacker_ip": "9.9.9.9", "tenant_id": TENANT}).json()
+    _post({"attacker_ip": "9.9.9.9", "tenant_id": TENANT})
     # pull the drafted id
     action_id = [a for a in _get_pending().json()["pending"]
                  if a["attacker_ip"] == "9.9.9.9"][0]["id"]

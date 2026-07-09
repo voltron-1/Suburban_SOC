@@ -19,7 +19,9 @@ KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
 NTFY_TOPIC="${NTFY_TOPIC:-}"
 # Shared ES creds + TLS + es helpers (issue #156). Soft mode: a health monitor must
 # keep checking other components even when ES creds are absent, so don't fail-fast.
+# shellcheck disable=SC2034  # read by the sourced es_common.sh, not directly in this file
 ES_REQUIRE_CREDS=0
+# shellcheck source=lib/es_common.sh
 source "$HERE/lib/es_common.sh"
 
 green() { printf '\033[32m%s\033[0m\n' "$*"; }

@@ -38,7 +38,7 @@ os.environ["SOC_AGENT_HMAC_SECRET"] = SECRET
 # agent_app imports its sibling reporting module at load time; stub it so this
 # unit test doesn't pull in PDF/LLM dependencies.
 _stub = types.ModuleType("weekly_ciso_report")
-_stub.run_reporting_pipeline = lambda *a, **k: {"status": "stub"}
+_stub.run_reporting_pipeline = lambda *a, **k: {"status": "stub"}  # type: ignore[attr-defined]  # dynamic stub module, mypy can't see the assignment
 sys.modules["weekly_ciso_report"] = _stub
 
 AGENT_DIR = Path(__file__).resolve().parents[2] / "scripts" / "setup" / "ai_agent"
