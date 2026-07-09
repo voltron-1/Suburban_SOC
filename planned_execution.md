@@ -10,54 +10,67 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 ## NEXT UP
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
-Priority 2 not yet started.**
+Priority 2 in progress.**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177) and linked to
-[Project Board #17](https://github.com/users/voltron-1/projects/17).
+[Project Board #17](https://github.com/users/voltron-1/projects/17). Plus
+follow-ups #182-#185 filed during remediation itself.
 
-Next unstarted item: define P2 order with the owner (#168-#172 — CI lint
-gate, Logstash DLQ, ES client consolidation, broker logging, reporting-plane
-tests).
+Next unstarted item: **#170** — ES client/credential consolidation
+(#156/#157) incomplete; no connection reuse or retry.
 
 - [x] **#164** — Broker: unvalidated `attacker_ip` reached the `nft`/SSH command
-  sink (NIST SP 800-53 Rev.5 SI-10 / CSF 2.0 PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178)
-  merged; issue closed. Broker suite 23→29 tests, all passing.
+  sink (SI-10/PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178) merged; issue closed.
 - [x] **#165** — SLO metrics & threat hunts silently swallowed ES errors as false
-  negatives (SI-11). [PR #179](https://github.com/voltron-1/Suburban_SOC/pull/179)
-  merged; issue closed. 20 new tests, all passing (real CI confirmed via
-  `soar-tests.yml` for the slo_metrics half — `run_hunts.py` has no CI path yet,
-  tracked under #168). Deferred `agent_app.py:696` (audit-write visibility) to a
-  follow-up — no metrics/health surface to hook a counter into yet.
+  negatives (SI-11). [PR #179](https://github.com/voltron-1/Suburban_SOC/pull/179) merged; issue closed.
+  Deferred `agent_app.py:696` (audit-write visibility) — filed as #184.
 - [x] **#166** — Bash admin tooling skipped TLS verification (`curl -k`) while
-  sending ES credentials (SC-8). [PR #180](https://github.com/voltron-1/Suburban_SOC/pull/180)
-  merged; issue closed. Also fixed the `lifecycle` compose one-shot, which had no
-  CA mounted and would have broken stack startup once the fail-closed default
-  landed. Operator note: any host script relying on the old implicit `-k`
-  fallback now needs `ES_CA=<path>` or `ES_INSECURE=true`.
+  sending ES credentials (SC-8). [PR #180](https://github.com/voltron-1/Suburban_SOC/pull/180) merged; issue closed.
+  Operator note: host scripts relying on the old implicit `-k` fallback now
+  need `ES_CA=<path>` or `ES_INSECURE=true`.
 - [x] **#167** — Unhardened systemd units + `elastic` superuser default in host
-  automation (AC-6, CM-7). [PR #181](https://github.com/voltron-1/Suburban_SOC/pull/181)
-  merged; issue closed. New least-privilege `slo_metrics_reader` ES role +
-  `slo_metrics` user, live-created and verified end-to-end against the running
-  stack. `zeek-host-capture.service` hardened conservatively only (no
-  capability/`User=` changes — actively capturing real traffic, no safe way to
-  live-test a narrower capability set this session; does not reach the ≤6.0
-  target). `es_common.sh`'s shared `elastic` default deliberately left alone
-  (~15 other legitimate admin-tooling consumers depend on it). **Template-only
-  change — operator must redeploy both systemd units to apply**
-  (`sudo cp configs/systemd/{slo-metrics,zeek-host-capture}.service
-  /etc/systemd/system/ && sudo systemctl daemon-reload`, then restart each;
-  see redeploy runbook). Follow-up filed: #182 (zeek-host-capture.service
-  capability scoping).
+  automation (AC-6, CM-7). [PR #181](https://github.com/voltron-1/Suburban_SOC/pull/181) merged; issue closed.
+  New least-privilege `slo_metrics_reader` ES role/user — holding.
+  `zeek-host-capture.service` sandboxing was deployed, broke live capture
+  (root cause: WSL2 `eth0` down, unrelated to the hardening), reverted
+  same-day — unit currently runs unsandboxed. Follow-up: #182.
+- [x] **#185** (unplanned) — `deploy_detections.sh` silently no-op'd on every
+  run since introduction (#93): competing stdin redirects meant the
+  transformed rule payload was always empty, Kibana's import API returns
+  `success:true` for an empty file (CM-3, SI-11). [PR #186](https://github.com/voltron-1/Suburban_SOC/pull/186) open.
+- [x] **#168** — CI had no linter and functional tests were path-filtered
+  (SA-11/CM-3). New always-on `lint.yml` (shellcheck/ruff/mypy/yamllint);
+  `soar-tests.yml`/`detections.yml` path filters removed. Real CI confirmed
+  working. [PR #187](https://github.com/voltron-1/Suburban_SOC/pull/187) open.
+- [x] **#169** — Logstash had no dead-letter queue/persisted queue, and grok/
+  JSON parse failures were tagged but still written to the main index
+  (SC-24, CP-10). New `configs/logstash.yml` (persisted queue + DLQ) +
+  durable named volume; `logstash.conf` output split to route
+  `pipeline.error:true` events to a `logstash-security-quarantine-*` index;
+  14 new golden-file grok/JSON tests (includes the #161 DEFERRED
+  standalone-"Invalid user" gap); new "Quarantined Events" Kibana panel.
+  **Live end-to-end verified**: real malformed/well-formed events posted
+  through the running pipeline, confirmed routing to quarantine vs. main
+  index respectively. **Found and fixed a real #166 regression along the
+  way**: the `lifecycle` Docker one-shot was failing outright
+  ("No such file or directory") because that PR's `es_common.sh` sourcing
+  assumed a full repo checkout, but the `lifecycle` compose service only
+  ever mounted `configs/elasticsearch/` — this was actively blocking
+  Logstash from starting mid-session; fixed by mounting `scripts/setup/lib`
+  into the container. Branch `remediation/p2-issue-169-nist` (commit
+  `041b709`). [PR #188](https://github.com/voltron-1/Suburban_SOC/pull/188) open.
+- [ ] **#170** — ES client/credential consolidation (#156/#157) incomplete;
+  no connection reuse or retry. Next up.
 
-P2 (next sprint, #168-#172) and P3 (backlog, #173-#177) are tracked on
-[Project Board #17](https://github.com/users/voltron-1/projects/17); not
-yet individually sequenced here — define order with the owner next session.
+P2 remaining (#171, #172, #182, #183) and P3 (#173-#177, #184) tracked on
+[Project Board #17](https://github.com/users/voltron-1/projects/17); working
+sequentially in descending priority order per the remediation protocol, one
+item at a time with explicit approval before each file change.
 
-Also filed this session (unrelated to the P1 fixes themselves, surfaced while
-investigating CI failures): #183 — `weasyprint==68.0` pinned in
-`scripts/setup/ai_agent/requirements.txt` has a disclosed CVE (CVE-2026-49452,
-CSS injection/SSRF via `presentational_hints`); a fix is available upstream
-(69.0/68.1), not yet bumped.
+Operator note: PRs #178-#181 (P1) are the only ones merged so far; #186-#188
+(P2, plus the unplanned #185) are open, awaiting a batch merge decision —
+same pattern as the P1 phase. Each independently verified (tests + live
+stack where applicable) but not yet on `main`.
 
 ---
 
