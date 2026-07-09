@@ -42,6 +42,12 @@ ES_CA = os.environ.get("ES_CA", "/certs/ca/ca.crt")
 ES_VERIFY = ES_CA if ES_CA else True
 
 
+class HuntQueryUnavailable(Exception):
+    """Raised when a hunt's ES query could not be executed — distinct from a
+    genuine zero-match count (audit #165 / NIST SI-11). A down or unreachable
+    Elasticsearch must never be reported as 'no findings'."""
+
+
 def es_count(index, query_string):
     body = {"query": {"bool": {"filter": [
         {"query_string": {"query": query_string}},
@@ -50,9 +56,13 @@ def es_count(index, query_string):
         r = requests.post(f"{ES_URL}/{index}/_count", auth=(ES_USER, ES_PASS),
                           verify=ES_VERIFY, headers={"Content-Type": "application/json"},
                           data=json.dumps(body), timeout=20)
-        return r.json().get("count", 0) if r.status_code == 200 else 0
-    except Exception:
-        return 0
+        if r.status_code != 200:
+            raise HuntQueryUnavailable(f"{index} count returned HTTP {r.status_code}")
+        return r.json().get("count", 0)
+    except HuntQueryUnavailable:
+        raise
+    except Exception as e:
+        raise HuntQueryUnavailable(f"{index} count request failed: {e}") from e
 
 
 def main():
@@ -64,13 +74,18 @@ def main():
         print("No hunts found in hunts/", file=sys.stderr)
         sys.exit(1)
     now = datetime.now(timezone.utc).isoformat()
-    bulk, findings = [], 0
+    bulk, findings, hunt_errors = [], 0, 0
     print(f"Threat hunts @ {now}  (window {WINDOW})")
     print(f"  {'hunt'.ljust(10)} {'attack'.ljust(12)} {'count':>7}  finding")
     for path in hunts:
         h = yaml.safe_load(path.read_text(encoding="utf-8"))
         idx = h.get("index", "logstash-security-*")
-        count = es_count(idx, h.get("query", "*"))
+        try:
+            count = es_count(idx, h.get("query", "*"))
+        except HuntQueryUnavailable as e:
+            hunt_errors += 1
+            print(f"  {str(h.get('id','')).ljust(10)} ERROR: {e}", file=sys.stderr)
+            continue  # never fabricate a "0 matches" finding for an unreachable query
         threshold = int(h.get("threshold", 1))
         finding = count >= threshold
         if finding:
@@ -84,14 +99,21 @@ def main():
                "threshold": threshold, "finding": finding}
         bulk.append('{"index":{"_index":"soc-hunts"}}')
         bulk.append(json.dumps(doc))
+    index_failed = False
     if bulk:
         try:
             requests.post(f"{ES_URL}/_bulk", auth=(ES_USER, ES_PASS), verify=ES_VERIFY,
                           headers={"Content-Type": "application/x-ndjson"},
                           data="\n".join(bulk) + "\n", timeout=20)
-            print(f"  -> indexed {len(hunts)} hunt results to soc-hunts ({findings} findings)")
+            print(f"  -> indexed {len(bulk) // 2} hunt results to soc-hunts ({findings} findings)")
         except Exception as e:
+            index_failed = True
             print(f"  -> ES index failed: {e}", file=sys.stderr)
+    if index_failed:
+        sys.exit(3)
+    if hunt_errors:
+        print(f"  -> {hunt_errors}/{len(hunts)} hunt(s) failed to query — see stderr", file=sys.stderr)
+        sys.exit(2)
     sys.exit(0)
 
 

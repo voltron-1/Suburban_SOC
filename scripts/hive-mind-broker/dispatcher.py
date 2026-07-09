@@ -77,15 +77,28 @@ def load_excluded_ips() -> set:
     return ips
 
 
+def validate_ip(attacker_ip) -> "ipaddress._BaseAddress":
+    """Validate attacker_ip is a well-formed IPv4/IPv6 address string.
+
+    Raises ValueError if attacker_ip is not a string, or is not a parseable IP
+    address (audit #164 / NIST SI-10) — callers must reject malformed input
+    rather than letting it reach a firewall command or SSH-executed string."""
+    if not isinstance(attacker_ip, str):
+        raise ValueError(f"attacker_ip must be a string, got {type(attacker_ip).__name__}")
+    return ipaddress.ip_address(attacker_ip)
+
+
 def is_excluded_ip(attacker_ip: str) -> bool:
     """True if attacker_ip falls inside any excluded address/CIDR (v4 or v6).
 
     Fails CLOSED: if the exclusion list can't be read, return True so the broker
-    refuses to dispatch a block for ANY asset until the list is restored (§12.4)."""
-    try:
-        addr = ipaddress.ip_address(attacker_ip)
-    except ValueError:
-        return False
+    refuses to dispatch a block for ANY asset until the list is restored (§12.4).
+
+    Raises ValueError if attacker_ip is not a parseable IP address (audit #164 /
+    NIST SI-10) — a malformed address is refused outright instead of silently
+    being treated as "not excluded", which previously let unvalidated input
+    reach build_nft_command."""
+    addr = validate_ip(attacker_ip)
     try:
         entries = load_excluded_ips()
     except ExclusionListUnavailable:
@@ -103,6 +116,7 @@ def is_excluded_ip(attacker_ip: str) -> bool:
 # Drops traffic from the specified IP on the OpenWrt input chain.
 # Note: For OpenWrt 22.03+, we assume 'inet fw4 input' is the default target chain.
 def build_nft_command(attacker_ip: str) -> str:
+    validate_ip(attacker_ip)  # raises ValueError for malformed input (audit #164 / NIST SI-10)
     return f"nft add rule inet fw4 input ip saddr {attacker_ip} drop"
 
 async def block_ip_on_router(router: dict, attacker_ip: str):
