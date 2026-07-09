@@ -20,18 +20,15 @@ Next unstarted item: **#169** — Logstash pipeline has no dead-letter queue
 and no grok parse-failure test coverage (SC-24).
 
 - [x] **#164** — Broker: unvalidated `attacker_ip` reached the `nft`/SSH command
-  sink (NIST SP 800-53 Rev.5 SI-10 / CSF 2.0 PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178)
-  merged; issue closed. Broker suite 23→29 tests, all passing.
+  sink (SI-10/PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178) merged; issue closed.
 - [x] **#165** — SLO metrics & threat hunts silently swallowed ES errors as false
   negatives (SI-11). [PR #179](https://github.com/voltron-1/Suburban_SOC/pull/179)
   merged; issue closed. 20 new tests, all passing. Deferred `agent_app.py:696`
   (audit-write visibility) to a follow-up — filed as #184.
 - [x] **#166** — Bash admin tooling skipped TLS verification (`curl -k`) while
-  sending ES credentials (SC-8). [PR #180](https://github.com/voltron-1/Suburban_SOC/pull/180)
-  merged; issue closed. Also fixed the `lifecycle` compose one-shot, which had no
-  CA mounted and would have broken stack startup once the fail-closed default
-  landed. Operator note: any host script relying on the old implicit `-k`
-  fallback now needs `ES_CA=<path>` or `ES_INSECURE=true`.
+  sending ES credentials (SC-8). [PR #180](https://github.com/voltron-1/Suburban_SOC/pull/180) merged; issue closed.
+  Operator note: host scripts relying on the old implicit `-k` fallback now
+  need `ES_CA=<path>` or `ES_INSECURE=true`.
 - [x] **#167** — Unhardened systemd units + `elastic` superuser default in host
   automation (AC-6, CM-7). [PR #181](https://github.com/voltron-1/Suburban_SOC/pull/181)
   merged; issue closed. New least-privilege `slo_metrics_reader` ES role +

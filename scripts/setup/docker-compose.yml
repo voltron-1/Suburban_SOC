@@ -306,6 +306,13 @@ services:
     volumes:
       - ../../configs/elasticsearch:/lifecycle:ro
       - certs:/certs:ro
+      # fix(#166 regression): apply-lifecycle.sh/apply-templates.sh source
+      # es_common.sh via a path relative to the repo root ($HERE/../../scripts/
+      # setup/lib/es_common.sh) — that resolves inside this container to
+      # /scripts/setup/lib/es_common.sh, which was never mounted, so the
+      # lifecycle one-shot failed outright ("No such file or directory") the
+      # first time it actually ran after #166 landed.
+      - ../../scripts/setup/lib:/scripts/setup/lib:ro
     networks:
       - soc-mesh-net
     entrypoint: ["/bin/bash", "-c"]
@@ -378,6 +385,12 @@ services:
       # Single source of truth: the repo-root pipeline config is mounted directly
       # (path is relative to this compose file at scripts/setup/). No copy/sync step.
       - ../../configs/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      # audit #169: node settings (persisted queue + DLQ) — see configs/logstash.yml.
+      - ../../configs/logstash.yml:/usr/share/logstash/config/logstash.yml
+      # audit #169: named volume (not the container's ephemeral filesystem) so the
+      # persisted queue + DLQ survive `docker compose down`/`up`, not just an
+      # in-place process crash.
+      - logstash_data:/usr/share/logstash/data
     networks:
       - soc-mesh-net
 
@@ -488,3 +501,5 @@ volumes:
   suburban_soc_data:
   # WS0.5: persistent store for the fs snapshot repository (snapshot-before-delete).
   suburban_soc_snapshots:
+  # audit #169: Logstash's persisted queue + dead-letter queue (configs/logstash.yml).
+  logstash_data:
