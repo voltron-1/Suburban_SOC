@@ -35,6 +35,11 @@ if ENV.exists():
             k, v = line.split("=", 1)
             os.environ.setdefault(k, v)
 
+# Shared connection-pooled, retrying Session (issue #170) — sibling module, no
+# installable package here yet (tracked separately), so sys.path like the tests do.
+sys.path.insert(0, str(HERE.parent / "lib"))
+import es_client  # noqa: E402
+
 ES_URL = os.environ.get("ES_URL", "https://localhost:9200")
 ES_USER = os.environ.get("ES_USER", "elastic")
 ES_PASS = os.environ.get("ES_PASS") or os.environ.get("ELASTIC_PASSWORD", "")
@@ -70,6 +75,10 @@ BREACH_IF_NA = {"ingest_lag_seconds"}
 ES_CA = os.environ.get("ES_CA", "/certs/ca/ca.crt")
 ES_VERIFY = ES_CA if ES_CA else True
 
+# Connection reuse + retry/backoff (issue #170) — same credentials serve both
+# ES and Kibana today, so one session covers es() and kb() below.
+SESSION = es_client.get_session(ES_USER, ES_PASS)
+
 
 class MetricUnavailable(Exception):
     """Raised when a metric could not be measured because the ES/Kibana request
@@ -79,14 +88,14 @@ class MetricUnavailable(Exception):
 
 
 def es(method, path, body=None):
-    return requests.request(
-        method, f"{ES_URL}{path}", auth=(ES_USER, ES_PASS), verify=ES_VERIFY,
+    return SESSION.request(
+        method, f"{ES_URL}{path}", verify=ES_VERIFY,
         headers={"Content-Type": "application/json"},
         data=json.dumps(body) if body is not None else None, timeout=15)
 
 
 def kb(path):
-    return requests.get(f"{KIBANA_URL}{path}", auth=(ES_USER, ES_PASS),
+    return SESSION.get(f"{KIBANA_URL}{path}",
                         headers={"kbn-xsrf": "true"}, timeout=15)
 
 

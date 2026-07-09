@@ -24,6 +24,12 @@
 #            FAIL CLOSED (audit #166 / NIST SC-8): if no readable CA and
 #            ES_INSECURE isn't "true", this script exits rather than
 #            silently falling back to curl -k.
+#   ES_CURL_TIMEOUT  default 60 (seconds). es()/es_code() now always set
+#            --max-time (audit #170 — no consumer previously had a hard
+#            ceiling on a hung/stalled ES connection). Curl honors the LAST
+#            --max-time/-m it sees, and ours is added before "$@", so any
+#            caller that needs a longer ceiling (e.g. a bulk reindex) can
+#            still override it by passing its own -m/--max-time as normal.
 #
 # Fails fast (exit 1) when no password resolves, instead of emitting an
 # unauthenticated request that returns a confusing 401. Set ES_REQUIRE_CREDS=0
@@ -71,12 +77,19 @@ else
   exit 1
 fi
 
+# audit #170: every curl invocation gets a hard ceiling — no consumer of this
+# shared helper previously had one, so a stalled ES connection could hang a
+# caller indefinitely. Overridable per-deployment via ES_CURL_TIMEOUT; a
+# caller can still raise it for a specific call by passing its own
+# -m/--max-time (curl honors the last one seen — see header note above).
+ES_CURL_TIMEOUT="${ES_CURL_TIMEOUT:-60}"
+
 # Base helper: auth + TLS, NO Content-Type — callers add -H as needed so json
 # (doc) and x-ndjson (bulk) calls never collide into two Content-Type headers
 # (which Elasticsearch rejects).
-es()      { curl -s "${ES_AUTH[@]}" "${ES_TLS[@]}" "$@"; }
+es()      { curl -s --max-time "${ES_CURL_TIMEOUT}" "${ES_AUTH[@]}" "${ES_TLS[@]}" "$@"; }
 # Convenience wrappers for the common content types.
 esj()     { es -H 'Content-Type: application/json' "$@"; }
 es_bulk() { es -H 'Content-Type: application/x-ndjson' "$@"; }
 # Status-code only (replaces the per-script code()/codeof() helpers).
-es_code() { curl -s -o /dev/null -w '%{http_code}' "${ES_AUTH[@]}" "${ES_TLS[@]}" "$@"; }
+es_code() { curl -s --max-time "${ES_CURL_TIMEOUT}" -o /dev/null -w '%{http_code}' "${ES_AUTH[@]}" "${ES_TLS[@]}" "$@"; }

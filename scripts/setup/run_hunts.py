@@ -18,7 +18,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import requests
 import yaml
 
 HERE = Path(__file__).resolve().parent
@@ -32,6 +31,11 @@ if ENV.exists():
             k, v = line.split("=", 1)
             os.environ.setdefault(k, v)
 
+# Shared connection-pooled, retrying Session (issue #170) — sibling module, no
+# installable package here yet (tracked separately), so sys.path like the tests do.
+sys.path.insert(0, str(HERE / "lib"))
+import es_client  # noqa: E402
+
 ES_URL = os.environ.get("ES_URL", "https://localhost:9200")
 ES_USER = os.environ.get("ES_USER", "elastic")
 ES_PASS = os.environ.get("ES_PASS") or os.environ.get("ELASTIC_PASSWORD", "")
@@ -40,6 +44,8 @@ WINDOW = os.environ.get("HUNT_WINDOW", "now-7d")
 # Set ES_CA to your CA path for host/standalone runs, or "" for system trust.
 ES_CA = os.environ.get("ES_CA", "/certs/ca/ca.crt")
 ES_VERIFY = ES_CA if ES_CA else True
+
+SESSION = es_client.get_session(ES_USER, ES_PASS)
 
 
 class HuntQueryUnavailable(Exception):
@@ -53,7 +59,7 @@ def es_count(index, query_string):
         {"query_string": {"query": query_string}},
         {"range": {"@timestamp": {"gte": WINDOW}}}]}}}
     try:
-        r = requests.post(f"{ES_URL}/{index}/_count", auth=(ES_USER, ES_PASS),
+        r = SESSION.post(f"{ES_URL}/{index}/_count",
                           verify=ES_VERIFY, headers={"Content-Type": "application/json"},
                           data=json.dumps(body), timeout=20)
         if r.status_code != 200:
@@ -102,7 +108,7 @@ def main():
     index_failed = False
     if bulk:
         try:
-            requests.post(f"{ES_URL}/_bulk", auth=(ES_USER, ES_PASS), verify=ES_VERIFY,
+            SESSION.post(f"{ES_URL}/_bulk", verify=ES_VERIFY,
                           headers={"Content-Type": "application/x-ndjson"},
                           data="\n".join(bulk) + "\n", timeout=20)
             print(f"  -> indexed {len(bulk) // 2} hunt results to soc-hunts ({findings} findings)")

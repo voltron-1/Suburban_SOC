@@ -99,7 +99,7 @@ def main() -> int:
     ca = os.environ.get("ES_CA", "/certs/ca/ca.crt")
     insecure = os.environ.get("ES_INSECURE", "false").lower() == "true"
 
-    kwargs: dict[str, Any] = {"hosts": [es_url]}
+    kwargs: dict[str, Any] = {"hosts": [es_url], "retry_on_timeout": True, "max_retries": 3}
     if user and password:
         kwargs["basic_auth"] = (user, password)
     if es_url.startswith("https"):

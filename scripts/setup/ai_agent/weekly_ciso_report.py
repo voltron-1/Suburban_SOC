@@ -96,7 +96,8 @@ def fetch_and_calculate_metrics() -> dict:
 
     try:
         es = Elasticsearch(ES_HOST, api_key=ES_API_KEY,
-                           verify_certs=True, ca_certs=(ES_CA or None))
+                           verify_certs=True, ca_certs=(ES_CA or None),
+                           retry_on_timeout=True, max_retries=3)
         res = es.search(index=".alerts-security.alerts-*", body=query)
         hits = res["hits"]["hits"]
         log.info("Retrieved %d alerts from ES.", len(hits))
