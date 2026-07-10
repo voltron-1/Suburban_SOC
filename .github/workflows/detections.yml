@@ -30,6 +30,9 @@ jobs:
       - name: Detection fixture tests (WS2.1 — TP fires, TN regression, promotion gate)
         run: python tests/detections/test_sigma_detections.py
 
+      - name: Threshold-rule companions are well-formed and paired (issue #192)
+        run: python tests/detections/test_threshold_rules.py
+
       - name: Every Sigma rule converts to an Elastic detection rule
         run: |
           set -euo pipefail

@@ -1,0 +1,43 @@
+title: Privileged Group Membership Change (Windows Security 4732/4728/4756)
+id: 38b751f6-9baf-4292-903c-78cf6c15703e
+status: stable
+description: >
+    Detects a member added to a privileged group: 4732 (local group, already
+    collected), 4728 (global group), 4756 (universal group), where the target
+    group is Administrators, Domain Admins, or Enterprise Admins. Matches on
+    both the group's display name (TargetUserName) and its well-known SID
+    suffix (TargetSid ending in -544/-512/-519) — the SID is locale- and
+    rename-invariant, so this still fires if the group was renamed or the
+    host uses a non-English display language, which a name-only match would
+    miss. 4728/4756 only fire on Domain Controllers and require the "Audit
+    Security Group Management" advanced audit subcategory (Account
+    Management) to be enabled.
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_eventid:
+        EventID:
+            - 4732
+            - 4728
+            - 4756
+    selection_group_name:
+        TargetUserName:
+            - 'Administrators'
+            - 'Domain Admins'
+            - 'Enterprise Admins'
+    selection_group_sid:
+        TargetSid|endswith:
+            - '-544'
+            - '-512'
+            - '-519'
+    condition: selection_eventid and (selection_group_name or selection_group_sid)
+falsepositives:
+    - Approved IT/helpdesk workflows adding a new administrator during
+      onboarding or a documented role change.
+level: high
+tags:
+    - attack.persistence
+    - attack.privilege_escalation
+    - attack.t1098
+    - attack.t1078

@@ -50,6 +50,45 @@ TACTICS = {
 # Tactics with zero detections today -> explicit gaps / prioritized backlog.
 BACKLOG_TACTICS = ["Collection", "Exfiltration", "Command and Control", "Lateral Movement"]
 
+# Human-readable label per Sigma `service:` value (classic Windows Event Log
+# channels that aren't identified by `category:`, issue #192).
+SERVICE_LABELS = {
+    "security": "Winlogbeat (Windows Security)",
+    "system": "Winlogbeat (Windows System)",
+    "wmi": "Winlogbeat (WMI-Activity/Operational)",
+    "powershell": "Winlogbeat (PowerShell/Operational)",
+}
+ZEEK_SERVICE_LABELS = {
+    "notice": "Zeek notice.log",
+    "files": "Zeek files.log",
+}
+
+
+def logsource_label(rule_text: str) -> str:
+    """Derive a human-readable data-source label from a rule's `logsource:` block.
+
+    Previously hardcoded to "Sysmon/Winlogbeat (process_creation)" for every Sigma
+    rule regardless of its actual logsource — silently mislabeling the 3 net_zeek_*
+    rules too (issue #192). Falls back to that same string when a rule has no
+    machine-readable logsource (keeps old behavior for anything unanticipated).
+    """
+    m = re.search(r"^logsource:\n((?:[ \t]+\S.*\n?)+)", rule_text, re.M)
+    block = m.group(1) if m else ""
+    category = re.search(r"category:\s*(\S+)", block)
+    product = re.search(r"product:\s*(\S+)", block)
+    service = re.search(r"service:\s*(\S+)", block)
+    prod = product.group(1) if product else None
+    if prod == "zeek":
+        if not service:
+            return "Zeek"
+        svc = service.group(1)
+        return ZEEK_SERVICE_LABELS.get(svc, f"Zeek {svc}")
+    if prod == "windows" and category:
+        return f"Sysmon/Winlogbeat ({category.group(1)})"
+    if prod == "windows" and service:
+        return SERVICE_LABELS.get(service.group(1), f"Winlogbeat ({service.group(1)})")
+    return "Sysmon/Winlogbeat (process_creation)"
+
 
 def harvest():
     rows = []  # each: technique, tactic, source, rule, test, title, status
@@ -66,7 +105,7 @@ def harvest():
         rows.append({
             "technique": tech.group(1).upper(),
             "tactic": tactic_name,
-            "source": "Sysmon/Winlogbeat (process_creation)",
+            "source": logsource_label(t),
             "rule": f"rules/sigma/{f.name}",
             "test": "Detections CI: sigma->Lucene conversion + fixture replay (tests/detections/)",
             "title": title.group(1).strip() if title else f.stem,

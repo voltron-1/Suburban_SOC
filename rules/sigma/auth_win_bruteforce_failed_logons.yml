@@ -1,0 +1,24 @@
+title: Repeated Failed Sign-Ins (Windows Security 4625)
+id: 01059e96-c0fe-4727-9f84-63d3f62aef72
+status: experimental
+description: >
+    Identifies failed Windows logon events (Security 4625). Single-event logic
+    only — this file is the logic-of-record for the paired Elastic threshold rule
+    (rules/elastic/threshold/auth-win-bruteforce-failed-logons.ndjson), which
+    alerts at >=5 failures per target account within a 5-minute window.
+    Deliberately status: experimental so deploy_detections.sh does not also
+    deploy this as a noisy per-event query rule (issue #192).
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4625
+    condition: selection
+falsepositives:
+    - High-volume legitimate failures during a mass password-reset rollout.
+    - Load-balanced authentication proxies retrying with stale credentials.
+level: high
+tags:
+    - attack.credential_access
+    - attack.t1110

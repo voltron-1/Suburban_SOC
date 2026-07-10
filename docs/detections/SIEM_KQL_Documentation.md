@@ -5,7 +5,63 @@
 > hand-edit — re-run the generator. Queries target **`process.args`** (this
 > stack's field), NOT the ECS-standard `process.command_line`.
 
-**22 rules.** Each query is the exact Lucene the Sigma rule compiles to.
+**35 rules.** Each query is the exact Lucene the Sigma rule compiles to.
+
+## Repeated Failed Sign-Ins (Windows Security 4625)
+
+- **Rule:** `auth_win_bruteforce_failed_logons.yml` · **level:** high · **status:** experimental · **ATT&CK:** T1110
+
+```
+winlog.event_id:4625
+```
+
+## Password Spray Indicator via Failed Logons From a Single Source (Windows Security 4625)
+
+- **Rule:** `auth_win_bruteforce_source_spray.yml` · **level:** high · **status:** experimental · **ATT&CK:** T1110.003
+
+```
+winlog.event_id:4625
+```
+
+## Explicit-Credential Sign-In Recorded (Windows Security 4648)
+
+- **Rule:** `auth_win_explicit_cred_account_sweep.yml` · **level:** high · **status:** experimental · **ATT&CK:** T1110.003
+
+```
+winlog.event_id:4648
+```
+
+## Privileged Group Membership Change (Windows Security 4732/4728/4756)
+
+- **Rule:** `auth_win_priv_group_membership_change.yml` · **level:** high · **status:** stable · **ATT&CK:** T1098, T1078
+
+```
+(winlog.event_id:(4732 OR 4728 OR 4756)) AND ((winlog.event_data.TargetUserName:(Administrators OR Domain\ Admins OR Enterprise\ Admins)) OR (winlog.event_data.TargetSid:(*\-544 OR *\-512 OR *\-519)))
+```
+
+## Security Audit Log Cleared (Windows Security 1102)
+
+- **Rule:** `auth_win_security_log_cleared.yml` · **level:** high · **status:** stable · **ATT&CK:** T1070.001
+
+```
+winlog.event_id:1102
+```
+
+## Special-Privilege Logon Assigning SeDebugPrivilege (Windows Security 4672)
+
+- **Rule:** `auth_win_sedebug_special_logon.yml` · **level:** medium · **status:** stable · **ATT&CK:** T1078, T1134
+
+```
+(winlog.event_id:4672 AND winlog.event_data.PrivilegeList:*SeDebugPrivilege*) AND (NOT winlog.event_data.SubjectUserSid:S\-1\-5\-18)
+```
+
+## Suspicious CreateRemoteThread Target or Source (Sysmon EventID 8)
+
+- **Rule:** `create_remote_thread_win_susp_target.yml` · **level:** high · **status:** stable · **ATT&CK:** T1055
+
+```
+winlog.event_id:8 AND (winlog.event_data.TargetImage:*\\lsass.exe OR (NOT winlog.event_data.SourceUser:NT\ AUTHORITY\\SYSTEM))
+```
 
 ## Executable or Script Payload Downloaded Over HTTP (Zeek Files)
 
@@ -29,6 +85,14 @@ note:(Scan\:\:Port_Scan OR Scan\:\:Address_Scan OR Scan\:\:Random_Scan)
 
 ```
 note:(SSH\:\:Password_Guessing OR SSH\:\:Login_By_Password_Guesser)
+```
+
+## Obfuscated or Encoded PowerShell Script Block
+
+- **Rule:** `posh_ps_obfuscated_scriptblock.yml` · **level:** high · **status:** stable · **ATT&CK:** T1059.001, T1027
+
+```
+winlog.event_id:4104 AND (winlog.event_data.ScriptBlockText:(*\-bxor* OR *\-bnot* OR *FromBase64String* OR *\[Convert\]\:\:* OR *IEX\(* OR *Invoke\-Expression* OR *\-EncodedCommand* OR *\-enc\ * OR *DownloadString* OR *Net.WebClient*))
 ```
 
 ## Malicious File Download via Bitsadmin
@@ -69,6 +133,14 @@ process.executable:*\\wevtutil.exe AND (process.args:(*\ cl\ * OR *\ clear\-log\
 
 ```
 (process.executable:(*\\net.exe OR *\\net1.exe)) AND (process.args:*group* AND process.args:*\/domain*)
+```
+
+## Shell Spawned by PsExec Service or WMI Provider Host
+
+- **Rule:** `proc_creation_win_lateral_tool_parent.yml` · **level:** high · **status:** stable · **ATT&CK:** T1021, T1569.002
+
+```
+(process.executable:(*\\cmd.exe OR *\\powershell.exe)) AND (process.parent.name:(*\\PSEXESVC.exe OR *\\WmiPrvSE.exe))
 ```
 
 ## Local User Account Creation via Net.exe
@@ -181,4 +253,36 @@ process.executable:*\\vssadmin.exe AND (process.args:*delete* AND process.args:*
 
 ```
 process.executable:*\\wmic.exe AND (process.args:*process* AND process.args:*call* AND process.args:*create*)
+```
+
+## Event Log Cleared (Windows System 104)
+
+- **Rule:** `system_win_eventlog_cleared.yml` · **level:** high · **status:** stable · **ATT&CK:** T1070.001
+
+```
+winlog.event_id:104
+```
+
+## Windows Event Log Service Reconfigured or Disabled (Windows System 7040)
+
+- **Rule:** `system_win_eventlog_service_tamper.yml` · **level:** high · **status:** stable · **ATT&CK:** T1562.002
+
+```
+winlog.event_id:7040 AND winlog.event_data.param1:*Event\ Log*
+```
+
+## New Service Installed (Windows System 7045)
+
+- **Rule:** `system_win_service_installed.yml` · **level:** medium · **status:** stable · **ATT&CK:** T1543.003
+
+```
+winlog.event_id:7045
+```
+
+## Suspicious WMI Event Filter-to-Consumer Binding (WMI-Activity 5861)
+
+- **Rule:** `wmi_win_event_subscription_binding.yml` · **level:** high · **status:** stable · **ATT&CK:** T1546.003
+
+```
+winlog.event_id:5861 AND (winlog.event_data.Operation:*PutInstance* AND winlog.event_data.Operation:*FilterToConsumerBinding*)
 ```

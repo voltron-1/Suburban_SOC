@@ -12,6 +12,12 @@
 #        -> POST /api/detection_engine/rules/_import?overwrite=true  (idempotent;
 #           stable rule_id comes from each Sigma rule's `id`).
 #
+# rules/elastic/threshold/*.ndjson (issue #192): hand-authored Elastic `type:
+# threshold` rules for the count/cardinality logic pySigma's lucene target can't
+# express (see the paired `status: experimental` Sigma files, which this script's
+# promotion-gate selection deliberately excludes). Imported via the same _import
+# endpoint, unmodified — no index/enabled override, no pipeline conversion.
+#
 # The toolchain (sigma-cli + pysigma-backend-elasticsearch) is set up in a local
 # venv if `sigma` is not already on PATH. Use --no-build to require it on PATH.
 #
@@ -76,8 +82,8 @@ for f in "$RULES_DIR"/*.yml; do
 done
 [[ ${#RULES[@]} -gt 0 ]] || { red "ERROR: no rules selected (all experimental? use --include-experimental)."; exit 1; }
 blue "==> Converting ${#RULES[@]} Sigma rule(s) [status test/stable$([[ $INCLUDE_EXPERIMENTAL == 1 ]] && echo '+experimental')] -> Elastic detection rules"
-RAW="$(mktemp)"; NDJSON="$(mktemp)"; ERR="$(mktemp)"
-trap 'rm -f "$RAW" "$NDJSON" "$ERR"' EXIT
+RAW="$(mktemp)"; NDJSON="$(mktemp)"; ERR="$(mktemp)"; THRESH_TMP="$(mktemp)"
+trap 'rm -f "$RAW" "$NDJSON" "$ERR" "$THRESH_TMP"' EXIT
 # sigma convert is all-or-nothing: ONE invalid rule fails the whole batch, so we
 # surface its stderr rather than swallowing it. JSON rule lines start with '{';
 # the "Parsing Sigma rules" progress lines do not.
@@ -112,6 +118,53 @@ with open(os.environ["RAW_PATH"]) as fh:
 PY
 green "    converted $count rules (index=$DETECTION_INDEX, enabled=$([[ $ENABLE -eq 1 ]] && echo true || echo false))"
 
+# --- 3b. Append the threshold-rule companions (issue #192) -------------------
+# rules/elastic/threshold/*.ndjson pair with `status: experimental` Sigma files
+# (excluded from the batch above) for the count/cardinality logic pySigma's lucene
+# target can't express. Same index override + --no-enable handling as step 3,
+# applied via THRESH_TMP so a "0 rules produced" failure (e.g. every file present
+# but empty) is caught the same way step 3 catches it, rather than silently
+# appending nothing.
+#
+# security-auditor review (issue #192): the import below runs with
+# ?overwrite=true against stable rule_ids from the Sigma batch. Without a
+# type/rule_id check here, a malformed or malicious threshold ndjson could
+# silently overwrite an unrelated deployed rule. Enforce the same invariant
+# tests/detections/test_threshold_rules.py already checks in CI (type ==
+# "threshold", rule_id ends in "-threshold") at deploy time too — CI and
+# deploy are separate trust boundaries.
+THRESHOLD_DIR="$REPO_ROOT/rules/elastic/threshold"
+threshold_count=0
+if compgen -G "$THRESHOLD_DIR"/*.ndjson > /dev/null; then
+  blue "==> Appending Elastic threshold-rule companion(s)"
+  ENABLE="$ENABLE" DETECTION_INDEX="$DETECTION_INDEX" THRESHOLD_DIR="$THRESHOLD_DIR" python3 > "$THRESH_TMP" <<'PY'
+import glob, json, os, sys
+idx = os.environ["DETECTION_INDEX"].split(",")
+enable = os.environ["ENABLE"] == "1"
+for f in sorted(glob.glob(os.path.join(os.environ["THRESHOLD_DIR"], "*.ndjson"))):
+    with open(f) as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            r = json.loads(line)
+            if r.get("type") != "threshold" or not str(r.get("rule_id", "")).endswith("-threshold"):
+                print(f"REFUSING {f}: type={r.get('type')!r} rule_id={r.get('rule_id')!r} "
+                      f"(expected type=threshold, rule_id ending in -threshold)", file=sys.stderr)
+                sys.exit(1)
+            r["index"] = idx
+            r["enabled"] = enable
+            print(json.dumps(r))
+PY
+  threshold_count=$(wc -l < "$THRESH_TMP" | tr -d ' ')
+  if [[ "${threshold_count:-0}" -eq 0 ]]; then
+    red "ERROR: $THRESHOLD_DIR has *.ndjson file(s) but 0 threshold rules were produced (empty/malformed/rejected file — see above)."
+    exit 1
+  fi
+  cat "$THRESH_TMP" >> "$NDJSON"
+  green "    appended $threshold_count threshold rule(s) (index=$DETECTION_INDEX, enabled=$([[ $ENABLE -eq 1 ]] && echo true || echo false))"
+fi
+
 # --- 4. Import into the Kibana Detection Engine (idempotent) -----------------
 blue "==> Importing detection rules into the Kibana Detection Engine"
 # Ensure the signals/alerts index exists first (no-op if already created).
@@ -137,7 +190,7 @@ echo
 if [[ $rc -eq 0 ]]; then
   green "=== Detection rules deployed. View/triage in Kibana → Security → Rules / Alerts. ==="
   # WS3.5: record the change (deploy changelog evidence).
-  bash "$SCRIPT_DIR/deploy_changelog.sh" "detections" "deployed ${count:-?} rules to the Elastic Detection Engine" 2>/dev/null || true
+  bash "$SCRIPT_DIR/deploy_changelog.sh" "detections" "deployed ${count:-?} Sigma-derived + ${threshold_count:-0} threshold rules to the Elastic Detection Engine" 2>/dev/null || true
 else
   red   "=== Detection rule import reported errors (see above). ==="
 fi

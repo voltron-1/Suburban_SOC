@@ -1,0 +1,23 @@
+title: New Service Installed (Windows System 7045)
+id: 3b0cb14b-1b24-4039-819f-b3412d09c65f
+status: stable
+description: >
+    Detects System 7045 ("a service was installed in the system"), emitted by
+    the Service Control Manager for every new service registration regardless
+    of the installing tool. Complements proc_creation_win_service_creation_sc.yml
+    (which only catches sc.exe) with native, tool-agnostic coverage.
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        EventID: 7045
+    condition: selection
+falsepositives:
+    - Legitimate software installers, patch management, and endpoint agents
+      routinely install services.
+level: medium
+tags:
+    - attack.persistence
+    - attack.privilege_escalation
+    - attack.t1543.003

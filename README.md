@@ -106,9 +106,9 @@ Individual improvements merged toward the in-progress Phase 0 (M7) and detection
 plane (M8) — these are work items within those milestones, not milestone completions:
 
 - **Detection framework enrichment (PR #112).** The detection plane spans
-  **21 ATT&CK techniques across 8 tactics** (see
+  **37 ATT&CK techniques across 9 tactics** (see
   [`docs/detections/attack-coverage.md`](docs/detections/attack-coverage.md)). The
-  **19 Sigma rules** (`rules/sigma/`) each carry their own ATT&CK technique tag and
+  **35 Sigma rules** (`rules/sigma/`) each carry their own ATT&CK technique tag and
   convert to Elastic SIEM rules via pySigma (`deploy_detections.sh`) — the rules,
   not the pipeline, are the single source of truth for endpoint detection. In
   addition, `configs/logstash.conf` classifies the two Zeek **network** detections —

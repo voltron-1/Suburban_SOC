@@ -1,0 +1,41 @@
+title: Suspicious CreateRemoteThread Target or Source (Sysmon EventID 8)
+id: 9fd02fe5-421b-4127-ae1e-65426d5b35e9
+status: stable
+description: >
+    Detects Sysmon EventID 8 (CreateRemoteThread) where either the target
+    process is lsass.exe (regardless of source account — classic credential-
+    dumping-via-injection precursor) or the thread was created by any account
+    other than SYSTEM. Known scope limits: (1) the non-SYSTEM branch is broad
+    by design and will match routine non-malicious CreateRemoteThread activity
+    (EDR/AV agents, debuggers, JIT/.NET hosting, accessibility and
+    remote-support tooling, some installers) — expect meaningful alert volume
+    on a live fleet and tune with a target/source allowlist if needed; (2) a
+    SYSTEM-context actor injecting into a non-lsass target is not covered by
+    this rule (pair with dedicated lsass-access rules for that case); (3) the
+    SYSTEM exclusion matches the literal display string 'NT AUTHORITY\SYSTEM'
+    (Sysmon does not expose a SID for SourceUser) — correct on English-locale
+    hosts, but would need a locale-specific value added on non-English builds.
+logsource:
+    category: create_remote_thread
+    product: windows
+detection:
+    selection_base:
+        EventID: 8
+    selection_lsass:
+        TargetImage|endswith: '\lsass.exe'
+    filter_system:
+        SourceUser: 'NT AUTHORITY\SYSTEM'
+    condition: selection_base and (selection_lsass or not filter_system)
+falsepositives:
+    - Legitimate security/monitoring agents (EDR, debuggers, backup software)
+      that inject into or inspect LSASS for non-malicious purposes.
+    - The non-SYSTEM branch is broad — routine CreateRemoteThread by EDR/AV
+      agents, debuggers, JIT/.NET runtimes, accessibility tooling, and
+      remote-support software running under a normal user account will also
+      match. Expect this to require tuning (allowlisting) before running at
+      the default high severity on a live fleet.
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.privilege_escalation
+    - attack.t1055

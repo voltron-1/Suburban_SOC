@@ -1,0 +1,30 @@
+title: Windows Event Log Service Reconfigured or Disabled (Windows System 7040)
+id: 466b2d94-be08-429c-8d65-2fed99f9f4c9
+status: stable
+description: >
+    Detects System 7040 ("the start type of the <service> service was changed
+    from <old> to <new>") where the affected service is the Windows Event Log
+    service itself — an attacker disabling or demoting logging ahead of other
+    activity. Winlogbeat surfaces this legacy formatted-message event's
+    substitution parameters as param1 (service display name), param2 (old start
+    type), param3 (new start type). Known scope limits: this only catches a
+    start-type *change* (7040) — an attacker who instead stops the running
+    service directly (7036, not currently collected) is not covered here; and
+    param1 is the localized service display name ('Windows Event Log' is
+    English-only), so a non-English host needs the locale-specific string
+    added.
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        EventID: 7040
+        param1|contains: 'Event Log'
+    condition: selection
+falsepositives:
+    - Approved endpoint-hardening or migration scripts that intentionally
+      reconfigure the Event Log service's start type.
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.t1562.002

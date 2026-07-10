@@ -220,7 +220,7 @@ Traffic volume, top talkers, DNS/HTTP, **TLS/SNI**, and the **GeoIP map** popula
 ### Step B.3 — Endpoint & Host (`endpoint-dashboard`) — **evidence as "tooling ready" (decision #2)**
 Do **not** fabricate endpoint data. Instead prove the path exists:
 - `configs/endpoint/winlogbeat.yml` + `filebeat_endpoint.yml` ship TLS to `:5044`.
-- The pipeline maps endpoint fields; the 19 endpoint Sigma rules convert/deploy.
+- The pipeline maps endpoint fields; the 32 endpoint Sigma rules convert/deploy.
 - The 19 Windows emulation scripts (`tests/anomaly_simulation/sim_win_*.ps1`) exist to drive them once an endpoint attaches.
 
 Mark live process-anomaly / auth / Sigma-hit panels **"awaiting a live endpoint."**
