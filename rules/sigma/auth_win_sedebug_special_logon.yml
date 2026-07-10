@@ -1,0 +1,29 @@
+title: Special-Privilege Logon Assigning SeDebugPrivilege (Windows Security 4672)
+id: 09d83822-0938-42d4-bbcd-0a9537d4152e
+status: stable
+description: >
+    Detects a Security 4672 (special privileges assigned to new logon) event
+    where SeDebugPrivilege is present in PrivilegeList, filtering out the
+    SYSTEM account (S-1-5-18) which is assigned it on every boot. SeDebugPrivilege
+    lets a process open and read the memory of any other process (e.g. LSASS) and
+    is a common precursor to credential dumping or token theft. Requires the
+    "Audit Special Logon" advanced audit subcategory (Logon/Logoff), which is
+    enabled by default in most modern audit-policy baselines.
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4672
+        PrivilegeList|contains: 'SeDebugPrivilege'
+    filter_system:
+        SubjectUserSid: 'S-1-5-18'
+    condition: selection and not filter_system
+falsepositives:
+    - Legitimate debugging, backup, or monitoring software running under a
+      non-SYSTEM administrative account that requires SeDebugPrivilege.
+level: medium
+tags:
+    - attack.privilege_escalation
+    - attack.t1078
+    - attack.t1134

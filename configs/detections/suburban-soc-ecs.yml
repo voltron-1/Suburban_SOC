@@ -1,12 +1,21 @@
-# pySigma processing pipeline (WS1.2) — maps Sigma's Sysmon field names to the ECS
+# pySigma processing pipeline (WS1.2) — maps Sigma field names to the ECS/winlog
 # fields the Suburban-SOC Logstash pipeline actually produces (configs/logstash.conf
 # Category 2). IMPORTANT: this stack uses process.args (NOT the ECS-standard
 # process.command_line), so converted detections must query process.args to match
 # real data. deploy_detections.sh sets the rule index to logstash-* after conversion.
+#
+# Only the Sysmon process_creation channel gets ECS renames in logstash.conf; every
+# other Windows channel (Security, System, WMI-Activity, PowerShell/Operational, and
+# Sysmon's other event types) keeps Winlogbeat's raw nested shape —
+# [winlog][event_id] / [winlog][event_data][<Field>] — so those transformations map
+# straight to winlog.event_id / winlog.event_data.<Field> instead. Each is scoped
+# with `rule_conditions` to its own logsource so field names that collide across
+# channels (e.g. TargetUserName means different things in a Sysmon logon event vs. a
+# Security group-membership event) don't cross-apply (issue #192).
 name: suburban-soc-ecs
 priority: 100
 transformations:
-  - id: field-mapping
+  - id: field-mapping-sysmon-process-creation
     type: field_name_mapping
     mapping:
       Image: process.executable
@@ -18,3 +27,72 @@ transformations:
       TargetUserName: user.target.name
       TargetFilename: file.path
       Hashes: file.hash.sha256
+    rule_conditions:
+      - type: logsource
+        product: windows
+        category: process_creation
+
+  # Sysmon CreateRemoteThread (EventID 8, issue #192 rule 6) — none of these fields
+  # are in the logstash.conf Sysmon rename list, so they stay under winlog.event_data.
+  - id: field-mapping-sysmon-create-remote-thread
+    type: field_name_mapping
+    mapping:
+      EventID: winlog.event_id
+      SourceImage: winlog.event_data.SourceImage
+      TargetImage: winlog.event_data.TargetImage
+      SourceUser: winlog.event_data.SourceUser
+      TargetUser: winlog.event_data.TargetUser
+    rule_conditions:
+      - type: logsource
+        product: windows
+        category: create_remote_thread
+
+  # Windows Security channel (issue #192 rules 1a/1b/1c/1d/2a/4) — logstash.conf
+  # only stamps event.outcome for 4624/4625, it does not rename EventData.
+  - id: field-mapping-windows-security
+    type: field_name_mapping
+    mapping:
+      EventID: winlog.event_id
+      TargetUserName: winlog.event_data.TargetUserName
+      TargetSid: winlog.event_data.TargetSid
+      PrivilegeList: winlog.event_data.PrivilegeList
+      SubjectUserSid: winlog.event_data.SubjectUserSid
+      IpAddress: winlog.event_data.IpAddress
+    rule_conditions:
+      - type: logsource
+        product: windows
+        service: security
+
+  # Windows System channel (issue #192 rules 2b/3a/3b) — no logstash.conf handling
+  # at all for this channel; fields stay under winlog.event_data.
+  - id: field-mapping-windows-system
+    type: field_name_mapping
+    mapping:
+      EventID: winlog.event_id
+      param1: winlog.event_data.param1
+    rule_conditions:
+      - type: logsource
+        product: windows
+        service: system
+
+  # Microsoft-Windows-WMI-Activity/Operational (issue #192 rule 5).
+  - id: field-mapping-windows-wmi
+    type: field_name_mapping
+    mapping:
+      EventID: winlog.event_id
+      Operation: winlog.event_data.Operation
+    rule_conditions:
+      - type: logsource
+        product: windows
+        service: wmi
+
+  # Microsoft-Windows-PowerShell/Operational (issue #192 rule 8, stretch).
+  - id: field-mapping-windows-powershell
+    type: field_name_mapping
+    mapping:
+      EventID: winlog.event_id
+      ScriptBlockText: winlog.event_data.ScriptBlockText
+    rule_conditions:
+      - type: logsource
+        product: windows
+        service: powershell

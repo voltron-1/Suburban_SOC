@@ -1,0 +1,23 @@
+title: Shell Spawned by PsExec Service or WMI Provider Host
+id: fe24808d-5681-44ca-b334-2c7acbb2cb68
+status: stable
+description: Detects cmd.exe or powershell.exe launched with PSEXESVC.exe or WmiPrvSE.exe as the parent process, a common indicator of lateral movement via PsExec or WMI-based remote command execution.
+logsource:
+    category: process_creation
+    product: windows
+detection:
+    selection:
+        Image|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+        ParentImage|endswith:
+            - '\PSEXESVC.exe'
+            - '\WmiPrvSE.exe'
+    condition: selection
+falsepositives:
+    - Authorized remote administration via PsExec or WMI by IT/helpdesk staff.
+level: high
+tags:
+    - attack.lateral_movement
+    - attack.t1021
+    - attack.t1569.002

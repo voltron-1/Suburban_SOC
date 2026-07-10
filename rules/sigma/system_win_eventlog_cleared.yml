@@ -1,0 +1,24 @@
+title: Event Log Cleared (Windows System 104)
+id: cee2e6d6-935c-44dd-a209-71a3682bff56
+status: stable
+description: >
+    Detects System 104 ("the <log> log was cleared"), the native event emitted
+    by the Windows Event Log service any time any log channel is cleared
+    (Security, System, Application, etc.). More reliable than command-line-based
+    detection alone (proc_creation_win_clear_event_logs.yml) since it fires
+    regardless of the tool used — kept alongside that rule and
+    auth_win_security_log_cleared.yml, not a replacement for either.
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        EventID: 104
+    condition: selection
+falsepositives:
+    - Scheduled log-retention or rotation tooling that clears logs as part of
+      approved maintenance.
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.t1070.001

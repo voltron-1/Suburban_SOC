@@ -1,0 +1,46 @@
+title: Obfuscated or Encoded PowerShell Script Block
+id: f715bab5-0604-4629-8016-66f02096e164
+status: stable
+description: >
+    Detects obfuscation/encoded-execution indicators in the reconstructed
+    script content of a PowerShell/Operational 4104 (script-block logging)
+    event. Improves on proc_creation_win_powershell_encoded.yml, which only
+    catches the literal -enc/-EncodedCommand command-line flag: 4104 logs
+    PowerShell's own deobfuscated script-block text, so this also catches
+    base64/bitwise obfuscation and IEX-based download cradles that never pass
+    an encoding flag on the command line at all. Requires the "Turn on
+    PowerShell Script Block Logging" Group Policy (Administrative Templates >
+    Windows Components > Windows PowerShell). Known scope limit: this is
+    substring matching (sigma_eval.py / this stack's Lucene target support
+    contains/endswith/startswith/all, not regex), so trivial string
+    reconstruction (e.g. splitting 'Net.WebClient' across concatenated
+    string literals) evades it — treat as a tripwire to complement, not
+    replace, behavioral detections.
+logsource:
+    product: windows
+    service: powershell
+detection:
+    selection:
+        EventID: 4104
+    selection_obfuscation:
+        ScriptBlockText|contains:
+            - '-bxor'
+            - '-bnot'
+            - 'FromBase64String'
+            - '[Convert]::'
+            - 'IEX('
+            - 'Invoke-Expression'
+            - '-EncodedCommand'
+            - '-enc '
+            - 'DownloadString'
+            - 'Net.WebClient'
+    condition: selection and selection_obfuscation
+falsepositives:
+    - Legitimate administrative or deployment scripts that use Base64 encoding
+      or dynamic invocation for non-malicious reasons.
+level: high
+tags:
+    - attack.execution
+    - attack.defense_evasion
+    - attack.t1059.001
+    - attack.t1027

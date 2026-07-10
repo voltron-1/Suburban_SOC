@@ -1,0 +1,32 @@
+title: Password Spray Indicator via Failed Logons From a Single Source (Windows Security 4625)
+id: 6b3f0a1c-9c7e-4a2b-8e5a-1a7b2c3d4e5f
+status: experimental
+description: >
+    Identifies failed Windows logon events (Security 4625), same base
+    selection as auth_win_bruteforce_failed_logons.yml. Single-event logic
+    only — this file is the logic-of-record for the paired Elastic threshold
+    rule (rules/elastic/threshold/auth-win-bruteforce-source-spray.ndjson),
+    which alerts when one source IP accrues >=6 distinct target accounts
+    within a 5-minute window. This closes a gap the per-account threshold
+    (auth_win_bruteforce_failed_logons.yml, >=5 failures on ONE account)
+    cannot see: a password spray tries few passwords against MANY accounts,
+    so no single account's failure count crosses that threshold even though
+    the source is clearly hostile. Deliberately status: experimental so
+    deploy_detections.sh does not also deploy this as a noisy per-event
+    query rule (issue #192, security-auditor review finding).
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4625
+    condition: selection
+falsepositives:
+    - A misconfigured application or service account retrying the same
+      stale credential against many resources from one host.
+    - NAT/proxy gateways where many real users' failed logons share one
+      apparent source IP.
+level: high
+tags:
+    - attack.credential_access
+    - attack.t1110.003

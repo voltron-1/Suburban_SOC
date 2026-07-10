@@ -1,0 +1,28 @@
+title: Explicit-Credential Sign-In Recorded (Windows Security 4648)
+id: 4b70ab2c-f99d-4e51-9303-29730d00d808
+status: experimental
+description: >
+    Identifies explicit-credential logon events (Security 4648, "a logon was
+    attempted using explicit credentials"). Single-event logic only — this file
+    is the logic-of-record for the paired Elastic threshold rule
+    (rules/elastic/threshold/auth-win-explicit-cred-account-sweep.ndjson), which
+    alerts when one source host uses >=6 distinct target accounts within a
+    5-minute window (password-spray / account-sweep indicator). Deliberately
+    status: experimental so deploy_detections.sh does not also deploy this as a
+    noisy per-event query rule (issue #192).
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4648
+    condition: selection
+falsepositives:
+    - IT help desk or password-reset tooling touching many accounts from one
+      admin workstation.
+    - Backup or scanning service accounts connecting to many targets with
+      explicit credentials.
+level: high
+tags:
+    - attack.credential_access
+    - attack.t1110.003

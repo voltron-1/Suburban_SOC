@@ -1,0 +1,23 @@
+title: Security Audit Log Cleared (Windows Security 1102)
+id: d3e9840b-92e2-4b6f-a4fb-e2357a1a2799
+status: stable
+description: >
+    Detects Security 1102 ("The audit log was cleared"), the native Windows
+    event for a Security-channel clear. More reliable than command-line-based
+    detection alone (proc_creation_win_clear_event_logs.yml) since it fires
+    regardless of the tool used to clear the log — kept alongside that rule,
+    not a replacement for it.
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 1102
+    condition: selection
+falsepositives:
+    - None expected in steady state. Scope any exception to a documented,
+      change-managed maintenance window.
+level: high
+tags:
+    - attack.defense_evasion
+    - attack.t1070.001

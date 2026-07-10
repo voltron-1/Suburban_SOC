@@ -1,0 +1,27 @@
+title: Suspicious WMI Event Filter-to-Consumer Binding (WMI-Activity 5861)
+id: c8fe3e76-13d6-4ec5-b4bd-ef904ccb1319
+status: stable
+description: >
+    Detects Microsoft-Windows-WMI-Activity/Operational EventID 5861, which logs
+    the PutInstance operation that completes a permanent WMI event subscription
+    by binding an __EventFilter to a consumer (__FilterToConsumerBinding) —
+    the step that makes a WMI-based persistence mechanism (T1546.003) durable
+    across reboots. The channel is enabled by default on Windows 8 / Server 2012
+    and later; no additional audit policy is required.
+logsource:
+    product: windows
+    service: wmi
+detection:
+    selection:
+        EventID: 5861
+        Operation|contains|all:
+            - 'PutInstance'
+            - 'FilterToConsumerBinding'
+    condition: selection
+falsepositives:
+    - Legitimate WMI-based management or monitoring tooling (e.g. SCCM, some
+      AV/EDR agents) that registers permanent event subscriptions.
+level: high
+tags:
+    - attack.persistence
+    - attack.t1546.003

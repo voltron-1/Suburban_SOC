@@ -14,7 +14,7 @@ Your document proposes four dashboard layers. Here is where the current Suburban
 |---|---|---|
 | **1. Executive / Bird's-Eye** | Partial — [weekly_ciso_report.py](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/scripts/setup/ai_agent/weekly_ciso_report.py) generates a PDF with NIST/MTTD metrics, but there is **no live Kibana dashboard** for this | Need a full Kibana dashboard with KPIs, MITRE heatmap, NIST breakdown, and MTTD trend |
 | **2. Network & Traffic** | ✅ **Mostly built** — existing NDJSON exports in [configs/server/](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/server) have GeoIP map, source IP pie chart, and Talos intel table. DNS fields (`dns.question.name`, `dns.response.code`) and HTTP fields (`http.request.method`, `http.response.status_code`) are already ECS-mapped by Logstash but **not visualized** | Need: traffic volume timeline, top ports bar chart, SNI/server-name panel, cipher-suite/TLS auditing panel, DNS query panel, HTTP method breakdown |
-| **3. Endpoint & Host-Level** | Partial — [logstash.conf](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/logstash.conf) already has Sysmon + `auth.log` parsing (Category 2), 19 Sigma rules exist in [rules/sigma/](rules/sigma). **No Kibana dashboard** surfaces this data | Need a full dashboard + Winlogbeat/Filebeat endpoint agent config |
+| **3. Endpoint & Host-Level** | Partial — [logstash.conf](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/logstash.conf) already has Sysmon + `auth.log` parsing (Category 2), 35 Sigma rules exist in [rules/sigma/](rules/sigma). **No Kibana dashboard** surfaces this data | Need a full dashboard + Winlogbeat/Filebeat endpoint agent config |
 | **4. Data Quality & Ingestion** | ❌ **Nothing exists** | Need pipeline health metrics, agent heartbeat tracking, parsing error panels |
 
 > [!IMPORTANT]
@@ -205,7 +205,7 @@ This generates `ssl.log` with fields: `server_name`, `cipher`, `curve`, `version
 | **Mass File Modification** | Metric | Sysmon Event 11 count spike | Ransomware early warning — bulk file creates/renames |
 | **Failed SSH by Country** | Pie | `source.geo.country_name` filtered to `event.outcome: failure` | Geographic origin of brute-force attempts |
 | **System Reboots** | Metric | Windows Event 1074/6006 or Linux `shutdown` | Unexpected restart tracking |
-| **Sigma Rule Hits** | Data Table | `tags: sigma_*` | Active detections from your 10 translated Sigma rules |
+| **Sigma Rule Hits** | Data Table | `tags: sigma_*` | Active detections from your 35 translated Sigma rules |
 
 #### [NEW] [winlogbeat.yml](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/endpoint/winlogbeat.yml)
 
@@ -223,6 +223,9 @@ winlogbeat.event_logs:
 output.logstash:
   hosts: ["${LOGSTASH_HOST:localhost:5044}"]
 ```
+
+> [!IMPORTANT]
+> **Update (issue #192):** The deployed [winlogbeat.yml](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/endpoint/winlogbeat.yml) collection scope has since been extended beyond this original proposal — Security now also collects 1102/4728/4756, System also collects 104/7040/7045, and two new channels were added (`Microsoft-Windows-WMI-Activity/Operational` 5861, `Microsoft-Windows-PowerShell/Operational` 4103/4104). See that file for the current, authoritative event ID list rather than this snippet.
 
 #### [NEW] [filebeat_endpoint.yml](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/endpoint/filebeat_endpoint.yml)
 
