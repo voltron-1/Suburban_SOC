@@ -92,7 +92,7 @@ configure_router_ip() {
         fi
     done
     
-    # Export for use in child scripts (like stream_bat0_data.sh)
+    # Export for use in child scripts (like stream_capture.sh)
     export ROUTER_IP
     pass "Router IP set to: $ROUTER_IP"
 }
@@ -300,9 +300,9 @@ run_sop_001a() {
     confirm || return # Abort if user doesn't confirm
 
     # Ensure the helper script is executable, then run it
-    chmod +x "${SCRIPT_DIR}/stream_bat0_data.sh"
+    chmod +x "${SCRIPT_DIR}/stream_capture.sh"
     echo -e "\n${GREEN}Starting bat0 capture...${NC}\n"
-    "${SCRIPT_DIR}/stream_bat0_data.sh"
+    "${SCRIPT_DIR}/stream_capture.sh" bat0
 }
 
 # =============================================================================
@@ -318,9 +318,9 @@ run_sop_001b() {
     info "Press Ctrl+C to stop capture"
     confirm || return
 
-    chmod +x "${SCRIPT_DIR}/stream_br_lan_data.sh"
+    chmod +x "${SCRIPT_DIR}/stream_capture.sh"
     echo -e "\n${GREEN}Starting br-lan capture...${NC}\n"
-    "${SCRIPT_DIR}/stream_br_lan_data.sh"
+    "${SCRIPT_DIR}/stream_capture.sh" br-lan
 }
 
 # =============================================================================
@@ -336,10 +336,10 @@ run_sop_001c() {
     info "Press Ctrl+C to stop capture"
     confirm || return
 
-    chmod +x "${SCRIPT_DIR}/stream_raw_data.sh"
+    chmod +x "${SCRIPT_DIR}/stream_capture.sh"
     echo -e "\n${GREEN}Starting eth0 capture...${NC}\n"
     # Local captures usually require elevated privileges to access network interfaces
-    sudo "${SCRIPT_DIR}/stream_raw_data.sh"
+    sudo "${SCRIPT_DIR}/stream_capture.sh" raw
 }
 
 # =============================================================================
