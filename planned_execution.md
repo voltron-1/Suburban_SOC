@@ -11,18 +11,31 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
 Priority 2: #164-#172, #183 merged; #182 DEFERRED (needs interactive sudo at
-a real terminal — see DEFERRED section). Priority 3: backlog in progress
-(8 items — #173-#177, #184, #189-#190).**
+a real terminal — see DEFERRED section). Priority 3: #173 merged; 7 items
+remaining (#174-#177, #184, #189-#190).**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#173** — repo-root clutter and dead scripts
-(`audit_repo.sh`, `validate_soc.sh`, `scripts/agile` duplicates, 3
-near-duplicate stream scripts). #182 picked back up once sudo is available
-interactively.
+Next unstarted item: **#174** — no Python package structure; `sys.path`
+hacks in tests, one unpinned requirements file. #182 picked back up once
+sudo is available interactively.
 
+- [x] **#173** — repo-root clutter and dead scripts: deleted `audit_repo.sh`
+  (stale foreign repo slug) and `validate_soc.sh` (superseded by
+  `stack_health.sh`/`verify_*.sh`); moved the two `UIW_*.html` deliverables
+  into `reports/`; removed the empty `scripts/logstach/`; deleted the
+  entire `scripts/agile/` (15 one-shot historical board-automation scripts,
+  all referencing a stale/wrong repo slug); merged the 3 near-duplicate
+  stream-capture scripts into one `stream_capture.sh <bat0|br-lan|raw>`,
+  updating every call site and doc reference (`code-reviewer` caught one
+  I'd missed — a stale comment in the live systemd unit file). Live-traced
+  all three capture modes with a sudo test-shim (no passwordless sudo in
+  this environment) confirming byte-for-byte identical command construction
+  to the originals, without touching the actually-running capture service.
+  [PR #197](https://github.com/voltron-1/Suburban_SOC/pull/197) merged;
+  issue closed.
 - [x] **#172** — zero test coverage on the SOC reporting plane
   (`slo_metrics.py`/`run_hunts.py`/`weekly_ciso_report.py`); agent ran on
   Flask's dev server, not a production WSGI server (SA-11/SC-5). 82 tests,
