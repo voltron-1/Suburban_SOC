@@ -1,9 +1,11 @@
 import asyncio
 import asyncssh
 import ipaddress
-import sys
+import logging
 import os
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # CDP §12.4: permanent exclusion list — IPs the broker may never block.
 def _default_exclusion_path() -> str:
@@ -41,8 +43,8 @@ def _resolve_known_hosts():
     connection fails if the router key is unknown), or None ONLY when the operator
     explicitly opted out via BROKER_INSECURE_SSH=true."""
     if INSECURE_SSH:
-        print("[!] BROKER_INSECURE_SSH=true — SSH host-key verification is DISABLED "
-              "(lab/first-run only; do not use in production).", file=sys.stderr)
+        logger.warning("BROKER_INSECURE_SSH=true — SSH host-key verification is DISABLED "
+                        "(lab/first-run only; do not use in production).")
         return None
     return KNOWN_HOSTS
 
@@ -72,7 +74,7 @@ def load_excluded_ips() -> set:
                 except ValueError:
                     pass  # not an IP/CIDR (e.g. a MAC) — broker excludes by IP
     except OSError as e:
-        print(f"[-] EXCLUSION LIST UNREADABLE ({EXCLUSION_LIST}): {e} — failing CLOSED", file=sys.stderr)
+        logger.error("EXCLUSION LIST UNREADABLE (%s): %s — failing CLOSED", EXCLUSION_LIST, e)
         raise ExclusionListUnavailable(str(e)) from e
     return ips
 
@@ -140,14 +142,14 @@ async def block_ip_on_router(router: dict, attacker_ip: str):
             
             # Execute command
             await conn.run(command, check=True)
-            print(f"[+] Successfully blocked {attacker_ip} on {ip}")
+            logger.info("Successfully blocked %s on %s", attacker_ip, ip)
             return True
-            
+
     except asyncssh.Error as exc:
-        print(f"[-] SSH connection failed to {ip}: {str(exc)}", file=sys.stderr)
+        logger.error("SSH connection failed to %s: %s", ip, exc)
         return False
     except Exception as e:
-        print(f"[-] Error executing on {ip}: {str(e)}", file=sys.stderr)
+        logger.error("Error executing on %s: %s", ip, e)
         return False
 
 async def dispatch_block_to_all(routers: list, attacker_ip: str):
@@ -156,11 +158,11 @@ async def dispatch_block_to_all(routers: list, attacker_ip: str):
     """
     # §12.4: never push a block for a protected asset, even if an alert demands it.
     if is_excluded_ip(attacker_ip):
-        print(f"[!] REFUSED: {attacker_ip} is on the permanent exclusion list — no block dispatched.",
-              file=sys.stderr)
+        logger.warning("REFUSED: %s is on the permanent exclusion list — no block dispatched.",
+                        attacker_ip)
         return 0
 
-    print(f"[*] Dispatching block for {attacker_ip} to {len(routers)} routers...")
+    logger.info("Dispatching block for %s to %d routers...", attacker_ip, len(routers))
 
     # Create a list of async tasks for all routers
     tasks = [block_ip_on_router(r, attacker_ip) for r in routers]
@@ -169,5 +171,5 @@ async def dispatch_block_to_all(routers: list, attacker_ip: str):
     results = await asyncio.gather(*tasks)
     
     success_count = sum(1 for r in results if r)
-    print(f"[*] Immunization complete: {success_count}/{len(routers)} routers updated.")
+    logger.info("Immunization complete: %d/%d routers updated.", success_count, len(routers))
     return success_count

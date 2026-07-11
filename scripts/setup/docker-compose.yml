@@ -166,6 +166,10 @@ services:
           curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/role/slo_metrics_reader -d "{\"indices\":[{\"names\":[\".alerts-security.alerts-*\",\"soar-actions-*\",\"logstash-security-*\"],\"privileges\":[\"read\",\"view_index_metadata\"]},{\"names\":[\"soc-slo-metrics\"],\"privileges\":[\"create_index\",\"create\"]}],\"applications\":[{\"application\":\"kibana-.kibana\",\"privileges\":[\"feature_generalCases.read\"],\"resources\":[\"*\"]}]}" > /dev/null;
           curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/slo_metrics -d "{\"password\":\"${SLO_METRICS_PASSWORD}\",\"roles\":[\"slo_metrics_reader\"],\"full_name\":\"SLO metrics (Suburban-SOC)\"}" > /dev/null;
         fi;
+        if [ x${BROKER_AUDIT_PASSWORD} != x ]; then
+          echo "Provisioning hive_mind_broker user (audit #171 — persisted denial records via the existing append-only soc_audit_appender role)";
+          curl -s -X PUT --cacert config/certs/ca/ca.crt -u "elastic:${ELASTIC_PASSWORD}" -H "Content-Type: application/json" https://elasticsearch:9200/_security/user/hive_mind_broker -d "{\"password\":\"${BROKER_AUDIT_PASSWORD}\",\"roles\":[\"soc_audit_appender\"],\"full_name\":\"Hive-Mind broker (Suburban-SOC)\"}" > /dev/null;
+        fi;
         echo "Provisioning complete.";
       '
 
@@ -461,6 +465,9 @@ services:
       context: ../hive-mind-broker
     container_name: hive_mind_broker
     mem_limit: 256m        # audit P2-3
+    depends_on:
+      provision:                              # needs the hive_mind_broker ES user
+        condition: service_completed_successfully
     environment:
       # Must equal the agent's HIVE_MIND_SECRET. Broker fails closed (503) if unset.
       - HIVE_MIND_SECRET=${HIVE_MIND_SECRET:-}
@@ -474,11 +481,21 @@ services:
       # mounted below). Set BROKER_INSECURE_SSH=true ONLY for a lab/first run to skip
       # verification (logs loudly).
       - BROKER_INSECURE_SSH=${BROKER_INSECURE_SSH:-false}
+      # audit #171: persisted denial records (AU-2/3/12) via the dedicated
+      # least-privilege hive_mind_broker user (role: soc_audit_appender,
+      # create-only on soc-audit-*). Unset BROKER_AUDIT_PASSWORD => the user is
+      # never provisioned and write_denial() degrades to a logged no-op —
+      # auth enforcement itself is unaffected either way.
+      - ES_HOST=https://elasticsearch:9200
+      - ES_USER=hive_mind_broker
+      - ES_PASS=${BROKER_AUDIT_PASSWORD:-}
+      - ES_CA=/certs/ca/ca.crt
     volumes:
       # Host-specific secrets — mounted read-only, never baked into the image.
       # inventory.yaml is gitignored; copy it from inventory.example.yaml first.
       - ../hive-mind-broker/inventory.yaml:/app/inventory.yaml:ro
       - ../../governance:/governance:ro
+      - certs:/certs:ro
       # SSH key(s) the broker uses to reach routers (path per inventory.yaml).
       # Compose does NOT expand `~`, so default to an absolute ${HOME}/.ssh; set
       # HIVE_MIND_SSH_DIR to an absolute path to override (required on Windows hosts).

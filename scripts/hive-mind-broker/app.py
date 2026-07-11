@@ -8,9 +8,19 @@ import uuid
 import os
 import re
 import threading
+import logging
+import httpx
+from datetime import datetime, timezone
 
 from inventory import Inventory
 from dispatcher import dispatch_block_to_all, is_excluded_ip, validate_ip
+
+# Module-level so it runs at import time regardless of launch method (the
+# Dockerfile CMD is `uvicorn app:app`, which never executes `__main__`).
+# Uvicorn's own dictConfig only touches the uvicorn.*/uvicorn.error/access
+# loggers and leaves root alone, so this doesn't get clobbered (#171, AU-2/3).
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Hive-Mind Broker")
 
@@ -28,6 +38,17 @@ HMAC_REPLAY_WINDOW = int(os.getenv("HMAC_REPLAY_WINDOW", "300"))  # seconds
 _seen_sigs: dict[str, float] = {}    # signature -> expiry epoch
 _seen_sigs_lock = threading.Lock()
 
+# #171 (AU-2/3/12): persisted record of denied/replayed/invalid-signature
+# requests, mirroring agent_app.py's write_audit() — a dedicated least-
+# privilege ES account (role: soc_audit_appender, create-only on
+# soc-audit-*), same as the agent's. Optional: an unset ES_PASS degrades
+# write_denial() to a logged no-op rather than blocking auth responses.
+ES_HOST   = os.getenv("ES_HOST", "https://elasticsearch:9200")
+ES_USER   = os.getenv("ES_USER", "hive_mind_broker")
+ES_PASS   = os.getenv("ES_PASS", "")
+ES_CA     = os.getenv("ES_CA", "/certs/ca/ca.crt")
+ES_VERIFY = ES_CA if ES_CA else True  # fail closed: never silently disable TLS verification
+
 # CDP §12.3: autonomous containment is Deferred Scope. By default the broker
 # DRAFTS a block and queues it for a human-of-record; it does not push it.
 # Set AUTONOMOUS_BLOCK_ENABLED=true to restore legacy auto-dispatch.
@@ -44,6 +65,37 @@ def safe_tenant(value):
     """Return a validated lowercase tenant slug, or 'unassigned' if invalid."""
     v = str(value or "").strip().lower()
     return v if _TENANT_RE.match(v) else "unassigned"
+
+
+async def write_denial(reason: str, request: Request, detail: str = "") -> None:
+    """Persist a denied/replayed/invalid-signature request (#171, AU-2/3/12).
+
+    Append-only doc to soc-audit-unassigned, same schema as agent_app.py's
+    write_audit() (op_type=create via the soc_audit_appender role — no
+    update/delete). _verify() fires before any request body is trusted, so
+    there is no real tenant to attribute this to yet; 'unassigned' is the
+    established convention for audit events with no resolved tenant.
+    Failures are logged, never raised — auditing must not break the 401/503
+    it's recording.
+    """
+    doc = {
+        "@timestamp":    datetime.now(timezone.utc).isoformat(),
+        "event.action":  reason,
+        "actor":         request.client.host if request.client else "unknown",
+        "tenant.id":     "unassigned",
+        "event.outcome": "denied",
+        "target":        request.url.path,
+        "detail":        detail,
+    }
+    ndjson = '{"create":{}}\n' + json.dumps(doc) + "\n"
+    try:
+        async with httpx.AsyncClient(verify=ES_VERIFY, timeout=3) as client:
+            response = await client.post(f"{ES_HOST}/soc-audit-unassigned/_bulk", content=ndjson,
+                                          headers={"Content-Type": "application/x-ndjson"},
+                                          auth=(ES_USER, ES_PASS))
+            response.raise_for_status()  # a non-2xx (bad creds, missing role) must not look like success
+    except Exception as e:  # noqa: BLE001
+        logger.error("Failed to write denial record: %s", e)
 
 
 def _append_action(action: dict) -> None:
@@ -74,18 +126,22 @@ async def _verify(request: Request) -> bytes:
     """
     # Fail closed if no secret is configured — never accept unauthenticated calls.
     if not HMAC_SECRET:
+        await write_denial("no_secret_configured", request)
         raise HTTPException(status_code=503, detail="Broker secret not configured")
 
     signature_header = request.headers.get("x-elastic-signature")
     timestamp_header = request.headers.get("x-elastic-timestamp")
     if not signature_header or not timestamp_header:
+        await write_denial("missing_signature_or_timestamp", request)
         raise HTTPException(status_code=401, detail="Missing signature or timestamp header")
     try:
         ts = int(timestamp_header)
     except ValueError:
+        await write_denial("invalid_timestamp", request)
         raise HTTPException(status_code=401, detail="Invalid timestamp")
     now = int(time.time())
     if abs(now - ts) > HMAC_REPLAY_WINDOW:
+        await write_denial("timestamp_outside_replay_window", request)
         raise HTTPException(status_code=401, detail="Timestamp outside replay window")
 
     # The raw body is what was signed (prefixed by the timestamp) — verify before parsing.
@@ -93,16 +149,22 @@ async def _verify(request: Request) -> bytes:
     signed = f"{timestamp_header}.".encode("utf-8") + body
     expected_mac = hmac.new(HMAC_SECRET, signed, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(f"sha256={expected_mac}", signature_header):
+        await write_denial("invalid_signature", request)
         raise HTTPException(status_code=401, detail="Invalid signature")
     # Replay check only AFTER the signature is proven valid (so forged signatures
-    # cannot poison the cache).
+    # cannot poison the cache). Kept synchronous (no `await` while held) — a
+    # threading.Lock does not yield to the event loop, so awaiting write_denial()
+    # inside it would stall every other request until this one resumes.
     with _seen_sigs_lock:
         for s, exp in list(_seen_sigs.items()):
             if exp <= now:
                 del _seen_sigs[s]
-        if signature_header in _seen_sigs:
-            raise HTTPException(status_code=401, detail="Replayed signature")
-        _seen_sigs[signature_header] = now + HMAC_REPLAY_WINDOW
+        replayed = signature_header in _seen_sigs
+        if not replayed:
+            _seen_sigs[signature_header] = now + HMAC_REPLAY_WINDOW
+    if replayed:
+        await write_denial("replayed_signature", request)
+        raise HTTPException(status_code=401, detail="Replayed signature")
     return body
 
 
@@ -135,7 +197,7 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
 
     # §12.4: refuse to act against protected infrastructure, signed or not.
     if is_excluded_ip(attacker_ip):
-        print(f"[!] REFUSED: {attacker_ip} is on the permanent exclusion list.")
+        logger.warning("REFUSED: %s is on the permanent exclusion list.", attacker_ip)
         return {"status": "success",
                 "message": f"IP {attacker_ip} is on the exclusion list — no block drafted."}
 
@@ -145,14 +207,14 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
     tenant = safe_tenant(payload.get("tenant_id"))
     routers = inv.get_routers_for_tenant(tenant)
     if not routers:
-        print(f"[!] No routers for tenant '{tenant}' — refusing to act on {attacker_ip}.")
+        logger.warning("No routers for tenant '%s' — refusing to act on %s.", tenant, attacker_ip)
         return {"status": "success",
                 "message": f"No routers configured for tenant '{tenant}' — nothing to block."}
 
     if AUTONOMOUS_BLOCK_ENABLED:
         # Legacy, out-of-scope behaviour, retained only behind an explicit flag.
         background_tasks.add_task(dispatch_block_to_all, routers, attacker_ip)
-        print(f"[*] Auto-block dispatched for {attacker_ip} on tenant '{tenant}' (flag enabled).")
+        logger.info("Auto-block dispatched for %s on tenant '%s' (flag enabled).", attacker_ip, tenant)
         return {"status": "success",
                 "message": f"IP {attacker_ip} dispatched for block across {len(routers)} "
                            f"router(s) for tenant '{tenant}'."}
@@ -167,7 +229,7 @@ async def receive_alert(request: Request, background_tasks: BackgroundTasks):
         "router_count": len(routers),
     }
     _append_action(action)
-    print(f"[*] Drafted block for {attacker_ip} (action {action['id']}) — awaiting approval.")
+    logger.info("Drafted block for %s (action %s) — awaiting approval.", attacker_ip, action['id'])
     return {"status": "success",
             "message": f"IP {attacker_ip} drafted for human approval (action {action['id']})."}
 
@@ -199,7 +261,7 @@ async def dispatch_block(request: Request):
 
     # §12.4: refuse protected infrastructure, signed or not.
     if is_excluded_ip(attacker_ip):
-        print(f"[!] REFUSED dispatch: {attacker_ip} is on the exclusion list.")
+        logger.warning("REFUSED dispatch: %s is on the exclusion list.", attacker_ip)
         return {"status": "refused", "executed": False,
                 "message": f"IP {attacker_ip} is on the exclusion list — no block dispatched."}
 
@@ -207,7 +269,7 @@ async def dispatch_block(request: Request):
     tenant = safe_tenant(payload.get("tenant_id"))
     routers = inv.get_routers_for_tenant(tenant)
     if not routers:
-        print(f"[!] No routers for tenant '{tenant}' — refusing to dispatch {attacker_ip}.")
+        logger.warning("No routers for tenant '%s' — refusing to dispatch %s.", tenant, attacker_ip)
         return {"status": "no_routers", "executed": False,
                 "message": f"No routers configured for tenant '{tenant}' — nothing to block."}
 
@@ -217,8 +279,8 @@ async def dispatch_block(request: Request):
         "approver": approver, "tenant": tenant, "attacker_ip": attacker_ip,
         "result": f"{count}/{len(routers)} routers",
     })
-    print(f"[*] Dispatched block for {attacker_ip} on tenant '{tenant}' "
-          f"({count}/{len(routers)} routers) — approver={approver}.")
+    logger.info("Dispatched block for %s on tenant '%s' (%d/%d routers) — approver=%s.",
+                attacker_ip, tenant, count, len(routers), approver)
     return {"status": "executed", "executed": True, "tenant": tenant,
             "router_count": len(routers), "success_count": count,
             "message": f"IP {attacker_ip} blocked on {count}/{len(routers)} "

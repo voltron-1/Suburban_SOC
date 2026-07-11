@@ -10,6 +10,13 @@ when / tenant** to the append-only `soc-audit-<tenant>` index:
 `tenant.id`, `@timestamp`). Config/rule **deploys** are recorded separately by
 WS3.5 (`soc-deploys` + git history).
 
+The hive-mind-broker additionally records every **denied** request to its
+HMAC-signed webhooks — missing/invalid signature, invalid/stale timestamp, or a
+replayed signature (audit #171, AU-2/3/12) — as `broker_request_denied` to
+`soc-audit-unassigned` (no real tenant is known at auth-failure time). Uses its
+own least-privilege `hive_mind_broker` account, holding the same append-only
+`soc_audit_appender` role as the agent's.
+
 ## Tamper-evidence (write-once)
 The agent's ES account holds the **append-only `soc_audit_appender` role**
 (`create` privilege only — no `write`/`update`/`delete`/`manage`). It can ADD audit
