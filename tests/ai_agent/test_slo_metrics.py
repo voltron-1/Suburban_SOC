@@ -6,13 +6,12 @@ slo_metrics.py must distinguish "ES/Kibana unreachable" from "genuinely no
 data this window": a down dependency must always surface as an error/breach,
 never silently collapse into a healthy-looking None/0 reading.
 
-Run:  python tests/ai_agent/test_slo_metrics.py     (or: pytest tests/ai_agent)
+Run:  pytest tests/ai_agent/test_slo_metrics.py
 """
 
 import contextlib
 import json
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,10 +20,7 @@ from unittest import mock
 # ES_PASS is read at import time; must be truthy or main() exits(1) immediately.
 os.environ["ES_PASS"] = "unit_test_pass"
 
-AGENT_DIR = Path(__file__).resolve().parents[2] / "scripts" / "setup" / "ai_agent"
-sys.path.insert(0, str(AGENT_DIR))
-
-import slo_metrics  # noqa: E402
+import slo_metrics
 
 
 class _FakeResponse:

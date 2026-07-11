@@ -13,11 +13,7 @@ import os
 import sys
 import tempfile
 import unittest
-from pathlib import Path
 from unittest import mock
-
-AGENT_DIR = Path(__file__).resolve().parents[2] / "scripts" / "setup" / "ai_agent"
-sys.path.insert(0, str(AGENT_DIR))
 
 # test_alert_auth.py unconditionally replaces sys.modules["weekly_ciso_report"]
 # with a stub before importing agent_app (so that import doesn't pull in

@@ -8,16 +8,12 @@ retry on read-timeout is explicitly disabled (a write may have already landed
 server-side; retrying it risks a duplicate write — e.g. run_hunts.py's bulk
 index, slo_metrics.py's SLO doc).
 
-Run:  python tests/setup/test_es_client.py     (or: pytest tests/setup)
+Run:  pytest tests/setup/test_es_client.py
 """
 
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts" / "setup" / "lib"))
-
-import es_client  # noqa: E402
+import es_client
 
 
 class GetSessionTests(unittest.TestCase):

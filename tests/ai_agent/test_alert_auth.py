@@ -16,7 +16,7 @@ Covers WS0.2 (HMAC auth + MAC validation) and the CDP §12.3/§12.4 response mod
   * execution routes containment to the hive-mind-broker over HMAC (#109) — the
     slim agent never shells out to isolate.sh.
 
-Run:  python tests/ai_agent/test_alert_auth.py     (or: pytest tests/ai_agent)
+Run:  pytest tests/ai_agent/test_alert_auth.py
 """
 
 import os
@@ -28,7 +28,6 @@ import hmac
 import hashlib
 import tempfile
 import unittest
-from pathlib import Path
 from unittest import mock
 
 # The shared secret must be set BEFORE importing agent_app (it is read at import).
@@ -40,9 +39,6 @@ os.environ["SOC_AGENT_HMAC_SECRET"] = SECRET
 _stub = types.ModuleType("weekly_ciso_report")
 _stub.run_reporting_pipeline = lambda *a, **k: {"status": "stub"}  # type: ignore[attr-defined]  # dynamic stub module, mypy can't see the assignment
 sys.modules["weekly_ciso_report"] = _stub
-
-AGENT_DIR = Path(__file__).resolve().parents[2] / "scripts" / "setup" / "ai_agent"
-sys.path.insert(0, str(AGENT_DIR))
 
 import agent_app  # noqa: E402
 

@@ -14,18 +14,16 @@ fixtures (tests/detections/fixtures.json):
 Prints a rule -> test coverage report. Requires PyYAML (the Detections CI installs
 sigma-cli, which provides it).
 
-Run:  python tests/detections/test_sigma_detections.py   (or: pytest tests/detections)
+Run:  pytest tests/detections/test_sigma_detections.py
 """
 
 import json
-import sys
 import unittest
 from pathlib import Path
 
 import yaml
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
 from sigma_eval import detection_matches  # noqa: E402
 
 ROOT = HERE.parents[1]
