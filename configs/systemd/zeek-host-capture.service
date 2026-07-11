@@ -10,7 +10,7 @@
 # (192.168.65.0/24), NOT the WSL distro's eth0 — so Zeek would see only Docker-internal
 # traffic and miss all real host/LAN traffic (and every sim). Capturing with host-native
 # tcpdump and feeding Zeek over stdin is the only approach that sees the real interface
-# (this is exactly what scripts/setup/stream_raw_data.sh does).
+# (this is exactly what scripts/setup/stream_capture.sh raw does).
 #
 # Install:
 #   sudo cp configs/systemd/zeek-host-capture.service /etc/systemd/system/

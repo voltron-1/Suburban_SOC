@@ -103,13 +103,13 @@ WINDOW_END="$(date -u +%FT%TZ)"
 ```bash
 cd "$(git rev-parse --show-toplevel)"/scripts/setup   # repo-root-relative; safe to run from anywhere in the repo
 WINDOW_START="$(date -u +%FT%TZ)"
-./stream_bat0_data.sh        # or stream_br_lan_data.sh / stream_raw_data.sh — note the interface
+./stream_capture.sh bat0    # or br-lan / raw (#173 — one script, mode = capture source)
 # let it run a defined window, then drive traffic that ACTUALLY crosses the captured interface
 WINDOW_END="$(date -u +%FT%TZ)"
 ```
 
 > **Path B traffic must cross the captured interface — the local Path-A sims won't.**
-> `stream_bat0_data.sh` captures `bat0` *on the router* (over SSH); the SOC host is not a
+> `stream_capture.sh bat0` captures `bat0` *on the router* (over SSH); the SOC host is not a
 > mesh node, so `sim_portscan.sh` (which scans loopback/local) never appears. To exercise a
 > port scan on `bat0`, run it **from a mesh node against another host reached over the mesh**:
 > - **Pick a target across the mesh, then *prove* it crosses `bat0`.** The routing table is

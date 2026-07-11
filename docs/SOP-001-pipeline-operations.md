@@ -30,7 +30,8 @@ Before executing any procedure, verify the following:
 
 ## SOP-001-A: Live Capture — Mesh Interface (bat0)
 
-**Script:** `scripts/setup/stream_bat0_data.sh`  
+**Script:** `scripts/setup/stream_capture.sh bat0` (#173 — one script parameterized
+by capture source; replaces the formerly-separate `stream_bat0_data.sh`)  
 **Owner:** SA  
 **Interface:** `bat0` (B.A.T.M.A.N. advanced mesh)  
 **Use When:** Monitoring wireless mesh node-to-node traffic
@@ -42,10 +43,10 @@ Before executing any procedure, verify the following:
 cd /path/to/Suburban-SOC/scripts/setup
 
 # 2. Make executable (first time only)
-chmod +x stream_bat0_data.sh
+chmod +x stream_capture.sh
 
 # 3. Run the stream
-./stream_bat0_data.sh
+./stream_capture.sh bat0
 ```
 
 **What it does:**  
@@ -60,7 +61,8 @@ Zeek JSON log files appear in `/storage/PCAP/zeek_logs/` (`conn.log`, `http.log`
 
 ## SOP-001-B: Live Capture — Standard LAN Interface (br-lan)
 
-**Script:** `scripts/setup/stream_br_lan_data.sh`  
+**Script:** `scripts/setup/stream_capture.sh br-lan` (#173 — replaces the
+formerly-separate `stream_br_lan_data.sh`)  
 **Owner:** SA  
 **Interface:** `br-lan` (standard bridged LAN)  
 **Use When:** Monitoring all traffic across the router's wired/wireless LAN bridge
@@ -68,8 +70,8 @@ Zeek JSON log files appear in `/storage/PCAP/zeek_logs/` (`conn.log`, `http.log`
 ### Steps
 
 ```bash
-chmod +x stream_br_lan_data.sh
-./stream_br_lan_data.sh
+chmod +x stream_capture.sh
+./stream_capture.sh br-lan
 ```
 
 **What it does:**  
@@ -81,7 +83,8 @@ Identical to SOP-001-A but captures on `br-lan`. The `-C` flag disables IP check
 
 ## SOP-001-C: Live Capture — Local Host Interface (eth0)
 
-**Script:** `scripts/setup/stream_raw_data.sh`  
+**Script:** `scripts/setup/stream_capture.sh raw` (#173 — replaces the
+formerly-separate `stream_raw_data.sh`)  
 **Owner:** SA  
 **Interface:** `eth0` (local WSL/host interface)  
 **Use When:** Testing locally without the router (dev/debug use)
@@ -89,8 +92,8 @@ Identical to SOP-001-A but captures on `br-lan`. The `-C` flag disables IP check
 ### Steps
 
 ```bash
-chmod +x stream_raw_data.sh
-sudo ./stream_raw_data.sh
+chmod +x stream_capture.sh
+sudo ./stream_capture.sh raw
 ```
 
 **What it does:**  
@@ -279,7 +282,7 @@ These supersede the external runbook §11.2–11.5, which had drifted from the d
 #### §11.4 — Stack healthy but no documents in the Zeek indices
 **Symptom:** ES + Kibana healthy, Filebeat shows no errors, but no new `zeek.*` docs.
 **Cause:** Zeek is capturing the wrong/inactive interface. `bat0` no longer exists on this host — capture moved to host `eth0` via `zeek-host-capture.service`. Two live variants:
-- **Docker Desktop `--network host` trap:** a containerized `zeek -i eth0 --network host` attaches to the Docker Desktop VM netns (`192.168.65.0/24`), not the WSL `eth0`, so it captures only Docker-internal traffic. Tell-tale: recent `conn.log` dest IPs are all `192.168.65.x`. Fix = host-native `tcpdump -i eth0 -U -w - | docker run -i … zeek -r -` (the `zeek-host-capture.service` / `stream_raw_data.sh` pattern).
+- **Docker Desktop `--network host` trap:** a containerized `zeek -i eth0 --network host` attaches to the Docker Desktop VM netns (`192.168.65.0/24`), not the WSL `eth0`, so it captures only Docker-internal traffic. Tell-tale: recent `conn.log` dest IPs are all `192.168.65.x`. Fix = host-native `tcpdump -i eth0 -U -w - | docker run -i … zeek -r -` (the `zeek-host-capture.service` / `stream_capture.sh raw` pattern).
 - **Loopback sims:** traffic to `127.0.0.1` traverses `lo` and is never seen by an `eth0` capture — sims must target an address that crosses `eth0` (e.g. the gateway).
 **Diagnostics:** `systemctl is-active zeek-host-capture`; `pgrep -a tcpdump`; `ls -lt /storage/PCAP/zeek_logs/conn.log` (fresh mtime?); confirm `conn.log` dest IPs aren't all `192.168.65.x`. Tracking: #155.
 

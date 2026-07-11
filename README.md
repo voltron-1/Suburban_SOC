@@ -236,7 +236,6 @@ This project encompasses the design, development, and testing of an advanced **n
 / (root)
 ├── README.md                   # Project overview, setup, and documentation links
 ├── LICENSE                     # MIT License
-├── validate_soc.sh             # SOC pipeline validation script
 ├── /configs                    # Pipeline and agent configurations
 │   ├── /elasticsearch          # ECS index templates + apply/reindex helper scripts
 │   ├── /endpoint               # Endpoint agents (Winlogbeat, Filebeat) + tenant edge-stamp

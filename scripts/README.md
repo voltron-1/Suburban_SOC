@@ -31,12 +31,16 @@ All main administrative scripts are currently located in the `setup/` subdirecto
 
 ### Network Streaming & Zeek Integration
 
-* **`stream_br_lan_data.sh`**: 
-  Connects to the OpenWrt router (`10.18.81.1`) via SSH, captures live traffic on the standard LAN interface (`br-lan`), and pipes it directly into the Zeek container to produce JSON output.
-* **`stream_bat0_data.sh`**: 
-  Functions identically to the above, but specifically monitors the B.A.T.M.A.N. advanced mesh routing interface (`bat0`).
-* **`stream_raw_data.sh`**: 
-  Streams raw live traffic locally from the `eth0` interface and instantly feeds it into the containerized Zeek instance.
+* **`stream_capture.sh <bat0|br-lan|raw>`** (#173 — replaces the formerly-separate
+  `stream_bat0_data.sh`/`stream_br_lan_data.sh`/`stream_raw_data.sh`):
+  Pipes live traffic into the Zeek container to produce JSON output, one mode per
+  capture source:
+  * `bat0` — SSH to the mesh router (`ROUTER_IP`, default `10.18.81.1`), captures
+    the B.A.T.M.A.N. advanced mesh interface (`bat0`).
+  * `br-lan` — SSH to the LAN router (`ROUTER_IP`, default `192.168.1.233`),
+    captures the standard bridged LAN interface (`br-lan`).
+  * `raw` — streams raw live traffic locally from the `eth0` interface (no SSH);
+    must be run with sudo.
 * **`zeek_connect_host.sh`**: 
   Starts an interactive Zeek container bound directly to the host network layout, listening for any traffic on `eth0`.
 * **`zeek_run_pcap.sh`**: 
