@@ -93,6 +93,9 @@ APPROVAL_QUEUE = os.environ.get(
     str((Path(__file__).resolve().parent / "approval_queue.jsonl")),
 )
 _queue_lock = threading.Lock()
+# audit #172: any status other than "pending" means the action is no longer
+# awaiting approval — "claimed" marks one mid-execution (see approve_action).
+_RESOLVED_STATUSES = ("approved", "denied", "claimed")
 
 # Hive-Mind broker — the router-block dispatcher (#109). The agent runs in a slim
 # container with no ssh/sudo, so it can't run isolate.sh against a router itself.
@@ -854,7 +857,7 @@ def list_pending():
         return auth_error
     pending = [a for a in _read_queue() if a.get("status") == "pending"]
     # An action is 'pending' unless a later line resolved it; collapse by id.
-    resolved = {a["id"] for a in _read_queue() if a.get("status") in ("approved", "denied")}
+    resolved = {a["id"] for a in _read_queue() if a.get("status") in _RESOLVED_STATUSES}
     pending = [a for a in pending if a["id"] not in resolved]
     return jsonify({"pending": pending, "count": len(pending)}), 200
 
@@ -879,13 +882,26 @@ def approve_action():
     # Subtract already-resolved ids (audit P2-9) so an action can't be approved (and
     # executed) twice — the queue is append-only, so the original 'pending' line
     # survives after approval. Mirrors list_pending and the broker.
-    queue = _read_queue()
-    resolved = {a["id"] for a in queue if a.get("status") in ("approved", "denied")}
-    pending = {a["id"]: a for a in queue
-               if a.get("status") == "pending" and a["id"] not in resolved}
-    action = pending.get(action_id)
-    if not action:
-        return jsonify({"error": f"no pending action {action_id}"}), 404
+    #
+    # audit #172: the read-check-and-claim below is atomic under _queue_lock. Under
+    # the old single-threaded Werkzeug dev server, requests were implicitly
+    # serialized so this race could never surface; gunicorn's gthread workers make
+    # requests genuinely concurrent, so two POST /approve for the same action_id
+    # (each with its own fresh, valid signature — the replay-nonce cache does not
+    # protect against two *different* signed requests) could otherwise both observe
+    # "pending" and both execute the isolation. Claiming the id atomically here,
+    # before the (slow, network-bound) isolation call, closes that window.
+    with _queue_lock:
+        queue = _read_queue()
+        resolved = {a["id"] for a in queue if a.get("status") in _RESOLVED_STATUSES}
+        pending = {a["id"]: a for a in queue
+                   if a.get("status") == "pending" and a["id"] not in resolved}
+        action = pending.get(action_id)
+        if not action:
+            return jsonify({"error": f"no pending action {action_id}"}), 404
+        with open(APPROVAL_QUEUE, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"id": action_id, "ts": time.time(),
+                                  "status": "claimed", "approver": approver}) + "\n")
 
     _t0 = time.time()
     action_tenant = safe_tenant(action.get("tenant"))

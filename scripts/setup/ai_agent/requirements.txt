@@ -5,3 +5,4 @@ requests==2.33.0
 elasticsearch==8.15.1
 jinja2==3.1.6
 weasyprint==69.0
+gunicorn==26.0.0

@@ -403,6 +403,18 @@ services:
       context: ./ai_agent
     container_name: soc_ai_agent
     mem_limit: 512m        # audit P2-3
+    # audit #172: GET /weekly-report/status is an existing unauthenticated,
+    # side-effect-free route built for exactly this — unlike a bare TCP
+    # connect, it actually exercises gunicorn's WSGI dispatch (a hung/deadlocked
+    # worker would still accept the TCP connection but never respond, so a
+    # connect-only check could report "healthy" against a dead app). No curl
+    # in the slim image; urllib is stdlib.
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/weekly-report/status', timeout=3).read()\""]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
       elasticsearch:
         condition: service_healthy

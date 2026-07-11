@@ -9,8 +9,11 @@ never silently collapse into a healthy-looking None/0 reading.
 Run:  python tests/ai_agent/test_slo_metrics.py     (or: pytest tests/ai_agent)
 """
 
+import contextlib
+import json
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -63,6 +66,25 @@ class MetricFunctionTests(unittest.TestCase):
                                return_value=_FakeResponse(200, {"hits": {"hits": []}})):
             self.assertIsNone(slo_metrics.metric_mttd())
 
+    def test_mttd_averages_real_hits_and_skips_bad_ones(self):
+        hits = [
+            # 10-minute detection delay
+            {"_source": {"kibana.alert.start": "2026-01-01T00:10:00Z",
+                          "kibana.alert.original_time": "2026-01-01T00:00:00Z"}},
+            # 20-minute detection delay
+            {"_source": {"kibana.alert.start": "2026-01-01T01:20:00Z",
+                          "kibana.alert.original_time": "2026-01-01T01:00:00Z"}},
+            # negative delta (clock skew) — must be skipped, not averaged in
+            {"_source": {"kibana.alert.start": "2026-01-01T02:00:00Z",
+                          "kibana.alert.original_time": "2026-01-01T02:30:00Z"}},
+            # malformed timestamp — must be skipped, not raise
+            {"_source": {"kibana.alert.start": "not-a-timestamp",
+                          "kibana.alert.original_time": "2026-01-01T03:00:00Z"}},
+        ]
+        with mock.patch.object(slo_metrics, "es",
+                               return_value=_FakeResponse(200, {"hits": {"hits": hits}})):
+            self.assertEqual(slo_metrics.metric_mttd(), 15.0)  # avg(10, 20)
+
     def test_mttr_raises_on_non_200(self):
         with mock.patch.object(slo_metrics, "es", return_value=_FakeResponse(500)):
             with self.assertRaises(slo_metrics.MetricUnavailable):
@@ -78,10 +100,42 @@ class MetricFunctionTests(unittest.TestCase):
             with self.assertRaises(slo_metrics.MetricUnavailable):
                 slo_metrics.metric_coverage()
 
+    def test_coverage_returns_technique_count_on_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            coverage_path = repo / "docs" / "detections"
+            coverage_path.mkdir(parents=True)
+            (coverage_path / "attack-coverage.json").write_text(
+                json.dumps({"techniques": ["T1110", "T1046", "T1078"]}), encoding="utf-8")
+            with mock.patch.object(slo_metrics, "REPO", repo):
+                self.assertEqual(slo_metrics.metric_coverage(), 3.0)
+
     def test_false_positive_pct_raises_on_kibana_failure(self):
         with mock.patch.object(slo_metrics, "kb", side_effect=ConnectionError("refused")):
             with self.assertRaises(slo_metrics.MetricUnavailable):
                 slo_metrics.metric_false_positive_pct()
+
+    def test_false_positive_pct_computes_percentage_on_success(self):
+        with mock.patch.object(slo_metrics, "kb", side_effect=[
+            _FakeResponse(200, {"total": 20}),
+            _FakeResponse(200, {"total": 4}),
+        ]):
+            self.assertEqual(slo_metrics.metric_false_positive_pct(), 20.0)
+
+    def test_false_positive_pct_zero_total_returns_zero_not_division_error(self):
+        with mock.patch.object(slo_metrics, "kb", side_effect=[
+            _FakeResponse(200, {"total": 0}),
+            _FakeResponse(200, {"total": 0}),
+        ]):
+            self.assertEqual(slo_metrics.metric_false_positive_pct(), 0.0)
+
+    def test_parse_error_pct_computes_percentage_on_success(self):
+        with mock.patch.object(slo_metrics, "_count", side_effect=[200, 2]):
+            self.assertEqual(slo_metrics.metric_parse_error_pct(), 1.0)
+
+    def test_parse_error_pct_zero_total_returns_zero_not_division_error(self):
+        with mock.patch.object(slo_metrics, "_count", side_effect=[0, 0]):
+            self.assertEqual(slo_metrics.metric_parse_error_pct(), 0.0)
 
     def test_ingest_lag_raises_on_request_failure(self):
         with mock.patch.object(slo_metrics, "es", side_effect=ConnectionError("refused")):
@@ -97,6 +151,30 @@ class MetricFunctionTests(unittest.TestCase):
         with mock.patch.object(slo_metrics, "es", side_effect=ConnectionError("refused")):
             with self.assertRaises(slo_metrics.MetricUnavailable):
                 slo_metrics.metric_parse_error_pct()
+
+
+class EsKbWrapperTests(unittest.TestCase):
+    """Cover the real es()/kb() request wrappers — every test above mocks them
+    out entirely, so their own bodies (SESSION.request/get plumbing) were
+    otherwise never exercised."""
+
+    def test_es_wrapper_calls_session_request(self):
+        with mock.patch.object(slo_metrics.SESSION, "request",
+                               return_value=_FakeResponse(200, {"ok": True})) as m:
+            r = slo_metrics.es("POST", "/some-index/_search", {"query": {}})
+        m.assert_called_once()
+        args, kwargs = m.call_args
+        self.assertEqual(args[0], "POST")
+        self.assertTrue(args[1].endswith("/some-index/_search"))
+        self.assertEqual(kwargs["data"], json.dumps({"query": {}}))
+        self.assertEqual(r.json(), {"ok": True})
+
+    def test_kb_wrapper_calls_session_get(self):
+        with mock.patch.object(slo_metrics.SESSION, "get",
+                               return_value=_FakeResponse(200, {"total": 5})) as m:
+            r = slo_metrics.kb("/api/cases/_find")
+        m.assert_called_once()
+        self.assertEqual(r.json(), {"total": 5})
 
 
 class MainExitCodeTests(unittest.TestCase):
@@ -137,6 +215,42 @@ class MainExitCodeTests(unittest.TestCase):
              mock.patch.object(slo_metrics, "NTFY_TOPIC", ""):
             code = self._run_main_capturing_exit()
         self.assertEqual(code, 0)
+
+    def _mock_all_metrics(self, mttd=0.0, mttr=0.0, coverage=12.0, fp_pct=0.0,
+                           ingest_lag=10.0, parse_err=0.0):
+        return [
+            mock.patch.object(slo_metrics, "metric_mttd", return_value=mttd),
+            mock.patch.object(slo_metrics, "metric_mttr", return_value=mttr),
+            mock.patch.object(slo_metrics, "metric_coverage", return_value=coverage),
+            mock.patch.object(slo_metrics, "metric_false_positive_pct", return_value=fp_pct),
+            mock.patch.object(slo_metrics, "metric_ingest_lag_seconds", return_value=ingest_lag),
+            mock.patch.object(slo_metrics, "metric_parse_error_pct", return_value=parse_err),
+            mock.patch.object(slo_metrics, "es", return_value=_FakeResponse(200, {})),
+        ]
+
+    def test_breach_detected_exits_2_and_sends_ntfy(self):
+        # mttd_minutes=999 blows through its <=30min target -> a real breach,
+        # everything else healthy.
+        with contextlib.ExitStack() as stack, \
+             mock.patch.object(slo_metrics, "NTFY_TOPIC", "test-topic"), \
+             mock.patch.object(slo_metrics.requests, "post") as ntfy_post:
+            for p in self._mock_all_metrics(mttd=999.0):
+                stack.enter_context(p)
+            code = self._run_main_capturing_exit()
+        self.assertEqual(code, 2)
+        ntfy_post.assert_called_once()
+        self.assertIn("mttd_minutes", ntfy_post.call_args.kwargs["data"].decode())
+
+    def test_ntfy_failure_is_swallowed_not_fatal(self):
+        # A downed ntfy.sh must not crash main() or change the breach exit code.
+        with contextlib.ExitStack() as stack, \
+             mock.patch.object(slo_metrics, "NTFY_TOPIC", "test-topic"), \
+             mock.patch.object(slo_metrics.requests, "post",
+                               side_effect=ConnectionError("refused")):
+            for p in self._mock_all_metrics(mttd=999.0):
+                stack.enter_context(p)
+            code = self._run_main_capturing_exit()
+        self.assertEqual(code, 2)
 
 
 if __name__ == "__main__":
