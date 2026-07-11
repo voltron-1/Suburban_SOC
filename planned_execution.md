@@ -10,15 +10,28 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 ## NEXT UP
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
-Priority 2: #164-#170 merged; #171-#172 not yet started.**
+Priority 2: #164-#170 merged; #171 PR open awaiting merge; #172 not yet started.**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#171** — broker security events logged via bare
-`print()`, no persisted record of denied/replayed/invalid-signature attempts
-(AU-2/3/12).
+Next unstarted item: **#172** — zero test coverage on the SOC reporting plane;
+agent runs on Flask dev server, not prod WSGI.
+
+- [~] **#171** — broker security events logged via bare `print()`, no
+  persisted record of denied/replayed/invalid-signature attempts (AU-2/3/12).
+  Branch `remediation/p2-issue-171-nist`. All `print()` converted to
+  `logging`; new `write_denial()` persists every `_verify()` auth-failure to
+  `soc-audit-unassigned` via a new dedicated least-privilege `hive_mind_broker`
+  ES user (reuses the existing `soc_audit_appender` role, no new role).
+  37 tests passing; `security-auditor` (no exploitable issues) +
+  `code-reviewer` (one should-fix, resolved) both ran. Live-verified against
+  the running stack: real invalid-signature request → 401 + matching ES doc;
+  confirmed the account is create-only (403 on search/delete); confirmed
+  agent's `basicConfig` fix against a control case.
+  [PR #194](https://github.com/voltron-1/Suburban_SOC/pull/194) open,
+  awaiting review/merge.
 
 - [x] **#192** (unplanned, detection-engineering coverage review, filed
   2026-07-09 — separate from the #164-#190 structural review) — collected
