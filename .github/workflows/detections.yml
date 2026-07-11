@@ -22,7 +22,7 @@ jobs:
           python-version-file: .python-version
 
       - name: Install the Sigma toolchain
-        run: pip install --quiet sigma-cli pysigma-backend-elasticsearch
+        run: pip install --quiet sigma-cli pysigma-backend-elasticsearch pytest
 
       - name: Framework-enrichment consistency tests
         run: python tests/pipeline/test_framework_enrichment.py
