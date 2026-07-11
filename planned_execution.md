@@ -10,15 +10,33 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 ## NEXT UP
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
-Priority 2: #164-#171 merged; #172 not yet started.**
+Priority 2: #164-#172, #183 merged; #182 remaining. Priority 3: backlog
+(8 items — #173-#177, #184, #189-#190).**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#172** — zero test coverage on the SOC reporting plane;
-agent runs on Flask dev server, not prod WSGI.
+Next unstarted item: **#182** (priority:medium — the last P2 item) — safely
+narrow `CapabilityBoundingSet`/`User` for `zeek-host-capture.service`
+(follow-up to #167's reverted sandboxing attempt). After that, P3 backlog.
 
+- [x] **#172** — zero test coverage on the SOC reporting plane
+  (`slo_metrics.py`/`run_hunts.py`/`weekly_ciso_report.py`); agent ran on
+  Flask's dev server, not a production WSGI server (SA-11/SC-5). 82 tests,
+  97%+ combined coverage on all three files, gated in new CI workflow
+  `reporting-coverage.yml`. Dockerfile CMD → gunicorn — deliberately
+  `--worker-class gthread --workers 1 --threads 4`, not the issue's suggested
+  `-w 2`: agent_app.py's HMAC replay-nonce cache and approval-queue writer
+  are `threading.Lock`-guarded in-process state, not cross-process-safe.
+  `security-auditor` caught a real concurrency regression this move exposed —
+  `/approve`'s check-then-execute wasn't atomic, so genuinely concurrent
+  gthread requests could double-execute an isolation the old sequential dev
+  server could never race. Fixed (atomic claim under `_queue_lock`),
+  live-verified against the running container (confirmed double-dispatch
+  without the fix, single-dispatch with it), and covered by a permanent
+  regression test. [PR #196](https://github.com/voltron-1/Suburban_SOC/pull/196)
+  merged; issue closed.
 - [x] **#171** — broker security events logged via bare `print()`, no
   persisted record of denied/replayed/invalid-signature attempts (AU-2/3/12).
   All `print()` converted to `logging`; new `write_denial()` persists every
@@ -135,10 +153,10 @@ agent runs on Flask dev server, not prod WSGI.
   [PR #191](https://github.com/voltron-1/Suburban_SOC/pull/191) merged;
   issue closed.
 
-P2 remaining (#172) and P3 (backlog, #173-#177) are tracked on
-[Project Board #17](https://github.com/users/voltron-1/projects/17); working
-sequentially in descending priority order per the remediation protocol, one
-item at a time with explicit approval before each file change.
+P2 remaining (#182) and P3 (backlog, #173-#177 + follow-ups #184/#189/#190)
+are tracked on [Project Board #17](https://github.com/users/voltron-1/projects/17);
+working sequentially in descending priority order per the remediation
+protocol, one item at a time with explicit approval before each file change.
 
 ---
 
@@ -157,6 +175,11 @@ item at a time with explicit approval before each file change.
   mypy) is not a substitute for confirming the actual PR checks. Caught when
   the user reported a CI failure; corrected by checking `gh pr checks` /
   the check-runs API before any future "done" claim on a PR.
+- **#172** implemented, reviewed, live-verified, and merged same-session —
+  see NEXT UP for detail. [PR #196](https://github.com/voltron-1/Suburban_SOC/pull/196).
+  Also corrected a stale reading of the remaining P2/P3 queue: #182 (filed
+  2026-07-08, priority:medium) had been missed from "P2 remaining" in this
+  file — it's next, not the P3 backlog.
 
 ## LAST SESSION — 2026-07-10
 
