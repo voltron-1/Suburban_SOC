@@ -1,0 +1,47 @@
+name: Reporting Plane Coverage
+
+# audit #172 (SA-11): line-coverage gate for the SOC's self-reporting/metrics
+# plane (slo_metrics.py, run_hunts.py, weekly_ciso_report.py), which had zero
+# automated tests. Kept out of soar-tests.yml deliberately — that workflow's
+# own header comment explains it avoids the heavy WeasyPrint/elasticsearch
+# deps by stubbing weekly_ciso_report.py; this workflow exists specifically
+# to exercise the real module, so it needs those deps (and WeasyPrint's
+# native libs, matching scripts/setup/ai_agent/Dockerfile) for real.
+# audit #168 precedent: runs on EVERY PR, no path filter.
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  reporting-coverage:
+    name: pytest-cov >= 70% (slo_metrics / run_hunts / weekly_ciso_report)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      # Matches scripts/setup/ai_agent/Dockerfile — WeasyPrint's cffi/cairo
+      # bindings need these to be *loadable* just to import the module, not
+      # only to render a PDF.
+      - name: Install WeasyPrint native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libglib2.0-0 libpango-1.0-0 libpangocairo-1.0-0 \
+            libgdk-pixbuf-2.0-0 libcairo2 libffi8 shared-mime-info
+
+      - name: Install Python dependencies
+        run: |
+          pip install --quiet -r scripts/setup/ai_agent/requirements.txt
+          pip install --quiet pyyaml pytest pytest-cov
+
+      - name: Coverage gate (fails under 70% line coverage)
+        run: |
+          pytest tests/ai_agent/test_slo_metrics.py \
+                 tests/ai_agent/test_weekly_ciso_report.py \
+                 tests/hunts/test_run_hunts.py \
+                 --cov=slo_metrics --cov=run_hunts --cov=weekly_ciso_report \
+                 --cov-report=term-missing --cov-fail-under=70

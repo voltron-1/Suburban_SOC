@@ -9,6 +9,7 @@ query or the final bulk index write failed — it must never silently exit 0.
 Run:  python tests/hunts/test_run_hunts.py     (or: pytest tests/hunts)
 """
 
+import json
 import os
 import sys
 import tempfile
@@ -125,6 +126,48 @@ class MainExitCodeTests(unittest.TestCase):
             ]
             code = self._run_main_capturing_exit()
         self.assertEqual(code, 3)
+
+    def test_hunt_meeting_threshold_is_a_finding(self):
+        # HUNT-TEST-A's threshold is 1; a count of 3 must register as a finding
+        # and be bulk-indexed with finding=true.
+        with mock.patch.object(run_hunts.SESSION, "post") as post:
+            post.side_effect = [
+                _FakeResponse(200, {"count": 3}),   # HUNT-TEST-A: finding
+                _FakeResponse(200, {"count": 0}),   # HUNT-TEST-B: no finding
+                _FakeResponse(200, {}),             # bulk index
+            ]
+            code = self._run_main_capturing_exit()
+        self.assertEqual(code, 0)
+        bulk_call = post.call_args_list[-1]
+        sent = bulk_call.kwargs["data"]
+        # The finding doc for HUNT-TEST-A must carry finding:true and the real count.
+        finding_line = [line for line in sent.splitlines() if "HUNT-TEST-A" in line][0]
+        doc = json.loads(finding_line)
+        self.assertTrue(doc["finding"])
+        self.assertEqual(doc["match_count"], 3)
+
+
+class MainNoHuntsAndMissingCredsTests(unittest.TestCase):
+    def test_no_hunts_found_exits_1(self):
+        with tempfile.TemporaryDirectory() as empty_dir:
+            with mock.patch.object(run_hunts, "HUNTS_DIR", Path(empty_dir)):
+                try:
+                    run_hunts.main()
+                except SystemExit as e:
+                    code = e.code
+                else:
+                    code = None
+        self.assertEqual(code, 1)
+
+    def test_missing_es_pass_exits_1(self):
+        with mock.patch.object(run_hunts, "ES_PASS", ""):
+            try:
+                run_hunts.main()
+            except SystemExit as e:
+                code = e.code
+            else:
+                code = None
+        self.assertEqual(code, 1)
 
 
 if __name__ == "__main__":

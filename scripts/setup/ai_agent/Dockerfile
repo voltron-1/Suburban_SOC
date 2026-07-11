@@ -35,5 +35,16 @@ USER appuser
 # 5. Expose port 5000 for Kibana webhooks
 EXPOSE 5000
 
-# 6. Command to run the application
-CMD ["python", "agent_app.py"]
+# 6. Command to run the application (audit #172, SA-11/SC-5): gunicorn instead
+#    of Werkzeug's single-threaded dev server. Deliberately --workers 1 (a
+#    single PROCESS) rather than the multi-process "-w 2" a naive prod-WSGI
+#    swap would use: agent_app.py's replay-nonce cache (_seen_sigs) and its
+#    approval-queue writer (_queue_lock) are threading.Lock-guarded in-process
+#    state, not cross-process-safe — two worker processes would each keep an
+#    independent nonce cache, so a replayed HMAC signature could land on the
+#    worker that never saw the original and be silently re-accepted.
+#    --worker-class gthread --threads 4 keeps a single process (existing locks
+#    stay correct) while still adding real concurrency over the dev server.
+CMD ["gunicorn", "--worker-class", "gthread", "--workers", "1", "--threads", "4", \
+     "--bind", "0.0.0.0:5000", "--access-logfile", "-", "--error-logfile", "-", \
+     "agent_app:app"]

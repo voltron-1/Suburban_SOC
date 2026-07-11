@@ -90,6 +90,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 scripts/hive-mind-broker/.pytest_cache/
+.coverage
 
 # Local deployment configurations
 scripts/setup/.env

@@ -253,6 +253,38 @@ class AlertResponseTests(unittest.TestCase):
         self.assertEqual(second.status_code, 404)
         self.mock_dispatch.assert_called_once()    # still exactly one dispatch
 
+    def test_concurrent_approve_of_same_id_dispatches_only_once(self):
+        # audit #172: under gunicorn's gthread workers, /approve requests are
+        # genuinely concurrent (the old single-threaded dev server serialized them
+        # implicitly). Two threads racing to approve the SAME action_id — each with
+        # a distinct, validly-signed request — must still execute isolation exactly
+        # once. A small delay in the mocked dispatch widens the race window so the
+        # unlocked read-check-execute this test guards against would otherwise
+        # reliably let both requests observe "pending" before either resolves it.
+        action_id = self._post({"severity": "critical", "source_ip": "1.2.3.4",
+                                "source_mac": GOOD_MAC}).get_json()["action_id"]
+
+        def _slow_dispatch(*a, **k):
+            time.sleep(0.05)
+            return (True, "IP blocked on 1/1 router(s)")
+        self.mock_dispatch.side_effect = _slow_dispatch
+
+        import threading
+        results = {}
+
+        def _approve(approver):
+            results[approver] = self._post(
+                {"id": action_id, "approver": approver}, path="/approve").status_code
+
+        threads = [threading.Thread(target=_approve, args=(f"racer-{i}",)) for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        self.mock_dispatch.assert_called_once()
+        self.assertEqual(sorted(results.values()), [200, 404])
+
     # --- WS0.3 tenant-scoped routing (the broker owns router resolution) ------
     def test_named_tenant_passed_to_broker_on_autonomous(self):
         # The agent forwards the tenant; the broker maps it to that tenant's routers.
