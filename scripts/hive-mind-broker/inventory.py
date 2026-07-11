@@ -1,5 +1,9 @@
 import yaml
 import os
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class Inventory:
     def __init__(self, filepath="inventory.yaml"):
@@ -9,15 +13,15 @@ class Inventory:
 
     def load(self):
         if not os.path.exists(self.filepath):
-            print(f"[!] Inventory file not found: {self.filepath}")
+            logger.warning("Inventory file not found: %s", self.filepath)
             return
-        
+
         with open(self.filepath, 'r') as f:
             data = yaml.safe_load(f)
             if data and 'routers' in data:
                 self.routers = data['routers']
-        
-        print(f"[*] Loaded {len(self.routers)} routers from inventory.")
+
+        logger.info("Loaded %d routers from inventory.", len(self.routers))
 
     def get_routers(self):
         return self.routers

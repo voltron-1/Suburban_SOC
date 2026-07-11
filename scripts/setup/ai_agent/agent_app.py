@@ -17,6 +17,10 @@ from flask import Flask, request, jsonify
 from weekly_ciso_report import run_reporting_pipeline
 
 app = Flask(__name__)
+# #171 (AU-2/3/12): without this, app.logger's own INFO-level lines fall under
+# the root logger's default WARNING floor and never reach `docker logs` — only
+# the ES-backed write_audit() trail below was actually durable.
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 # --- Configuration ---
