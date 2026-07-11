@@ -20,6 +20,18 @@ Next unstarted item: **#171** — broker security events logged via bare
 `print()`, no persisted record of denied/replayed/invalid-signature attempts
 (AU-2/3/12).
 
+- [x] **#192** (unplanned, detection-engineering coverage review, filed
+  2026-07-09 — separate from the #164-#190 structural review) — collected
+  Windows Security/System events had no alert rules (4625/4648/4672/4732),
+  and key channels weren't collected at all (Security 1102, System 104/7040/
+  7045, WMI-Activity 5861, PowerShell 4103/4104). Added 12 new Sigma rules +
+  3 Elastic threshold-rule companions (count/cardinality logic the Sigma
+  fixture evaluator and lucene conversion can't express), new logsource-
+  conditioned ECS field mappings, `winlogbeat.yml` channel collection,
+  `test_threshold_rules.py`, coverage matrix regenerated (24 → 36 rows).
+  [PR #193](https://github.com/voltron-1/Suburban_SOC/pull/193) merged;
+  issue closed.
+
 - [x] **#164** — Broker: unvalidated `attacker_ip` reached the `nft`/SSH command
   sink (SI-10/PR.PS-06). [PR #178](https://github.com/voltron-1/Suburban_SOC/pull/178) merged; issue closed.
 - [x] **#165** — SLO metrics & threat hunts silently swallowed ES errors as false
@@ -113,6 +125,17 @@ CSS injection/SSRF via `presentational_hints`); a fix is available upstream
 (69.0/68.1), not yet bumped.
 
 ---
+
+## LAST SESSION — 2026-07-10
+
+- Detection-engineering coverage review (unplanned, separate track from the
+  #164-#190 structural review): filed and closed #192 same-session. 12 new
+  Sigma rules + 3 Elastic threshold companions covering Windows Security/
+  System/WMI/PowerShell event IDs that were either collected-but-unalerted
+  or not collected at all. [PR #193](https://github.com/voltron-1/Suburban_SOC/pull/193)
+  merged; branch `detections/issue-192-coverage-gaps` deleted post-merge
+  (squash merge — local branch cleaned up separately since git didn't
+  recognize it as an ancestor of `main`).
 
 ## LAST SESSION — 2026-07-08
 
