@@ -10,7 +10,7 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 ## NEXT UP
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
-Priority 2: #164-#170 merged; #171 PR open awaiting merge; #172 not yet started.**
+Priority 2: #164-#171 merged; #172 not yet started.**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
@@ -19,19 +19,28 @@ Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 Next unstarted item: **#172** — zero test coverage on the SOC reporting plane;
 agent runs on Flask dev server, not prod WSGI.
 
-- [~] **#171** — broker security events logged via bare `print()`, no
+- [x] **#171** — broker security events logged via bare `print()`, no
   persisted record of denied/replayed/invalid-signature attempts (AU-2/3/12).
-  Branch `remediation/p2-issue-171-nist`. All `print()` converted to
-  `logging`; new `write_denial()` persists every `_verify()` auth-failure to
-  `soc-audit-unassigned` via a new dedicated least-privilege `hive_mind_broker`
-  ES user (reuses the existing `soc_audit_appender` role, no new role).
-  37 tests passing; `security-auditor` (no exploitable issues) +
-  `code-reviewer` (one should-fix, resolved) both ran. Live-verified against
-  the running stack: real invalid-signature request → 401 + matching ES doc;
-  confirmed the account is create-only (403 on search/delete); confirmed
-  agent's `basicConfig` fix against a control case.
-  [PR #194](https://github.com/voltron-1/Suburban_SOC/pull/194) open,
-  awaiting review/merge.
+  All `print()` converted to `logging`; new `write_denial()` persists every
+  `_verify()` auth-failure to `soc-audit-unassigned` via a new dedicated
+  least-privilege `hive_mind_broker` ES user (reuses the existing
+  `soc_audit_appender` role, no new role). 37 tests passing; `security-auditor`
+  (no exploitable issues) + `code-reviewer` (one should-fix, resolved) both
+  ran. Live-verified against the running stack: real invalid-signature
+  request → 401 + matching ES doc; confirmed the account is create-only (403
+  on search/delete); confirmed agent's `basicConfig` fix against a control
+  case. [PR #194](https://github.com/voltron-1/Suburban_SOC/pull/194) merged
+  (rebased cleanly onto #183's fix first); issue closed.
+- [x] **#183** — `weasyprint==68.0` CVE (CVE-2026-49452, CSS injection via
+  presentational hints), surfaced by `pip-audit` failing on #171's PR (that
+  job scans the whole `requirements.txt`, not just the diff — the failure was
+  pre-existing, unrelated to #171 itself). Verified per-release against
+  PyPI's advisory data that 68.1 *still* carries the CVE — only 69.0 is
+  clear; confirmed no breaking-API impact on `weekly_ciso_report.py`'s only
+  call site. Live-verified: rendered a real PDF via a fresh venv and again
+  inside the rebuilt `soc_ai_agent` container.
+  [PR #195](https://github.com/voltron-1/Suburban_SOC/pull/195) merged;
+  issue closed.
 
 - [x] **#192** (unplanned, detection-engineering coverage review, filed
   2026-07-09 — separate from the #164-#190 structural review) — collected
@@ -126,18 +135,28 @@ agent runs on Flask dev server, not prod WSGI.
   [PR #191](https://github.com/voltron-1/Suburban_SOC/pull/191) merged;
   issue closed.
 
-P2 remaining (#171-#172) and P3 (backlog, #173-#177) are tracked on
+P2 remaining (#172) and P3 (backlog, #173-#177) are tracked on
 [Project Board #17](https://github.com/users/voltron-1/projects/17); working
 sequentially in descending priority order per the remediation protocol, one
 item at a time with explicit approval before each file change.
 
-Also filed this session (unrelated to the P1 fixes themselves, surfaced while
-investigating CI failures): #183 — `weasyprint==68.0` pinned in
-`scripts/setup/ai_agent/requirements.txt` has a disclosed CVE (CVE-2026-49452,
-CSS injection/SSRF via `presentational_hints`); a fix is available upstream
-(69.0/68.1), not yet bumped.
-
 ---
+
+## LAST SESSION — 2026-07-11
+
+- **#171** implemented, reviewed (`security-auditor` + `code-reviewer` in
+  parallel), live-verified, and merged — see NEXT UP for detail.
+  [PR #194](https://github.com/voltron-1/Suburban_SOC/pull/194).
+- **#183** (weasyprint CVE, filed 2026-07-08) fixed and merged same-session
+  after its `pip-audit` failure surfaced on #171's PR — turned out to be
+  pre-existing and unrelated to #171 itself, not a regression.
+  [PR #195](https://github.com/voltron-1/Suburban_SOC/pull/195), merged
+  first, #194 rebased cleanly onto it (disjoint files, no conflicts).
+- Process note: reported #194 as fully done before actually checking
+  `gh pr checks` against the real CI run — local verification (pytest/ruff/
+  mypy) is not a substitute for confirming the actual PR checks. Caught when
+  the user reported a CI failure; corrected by checking `gh pr checks` /
+  the check-runs API before any future "done" claim on a PR.
 
 ## LAST SESSION — 2026-07-10
 
