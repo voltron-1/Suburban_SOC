@@ -10,16 +10,18 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 ## NEXT UP
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
-Priority 2: #164-#172, #183 merged; #182 remaining. Priority 3: backlog
+Priority 2: #164-#172, #183 merged; #182 DEFERRED (needs interactive sudo at
+a real terminal — see DEFERRED section). Priority 3: backlog in progress
 (8 items — #173-#177, #184, #189-#190).**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#182** (priority:medium — the last P2 item) — safely
-narrow `CapabilityBoundingSet`/`User` for `zeek-host-capture.service`
-(follow-up to #167's reverted sandboxing attempt). After that, P3 backlog.
+Next unstarted item: **#173** — repo-root clutter and dead scripts
+(`audit_repo.sh`, `validate_soc.sh`, `scripts/agile` duplicates, 3
+near-duplicate stream scripts). #182 picked back up once sudo is available
+interactively.
 
 - [x] **#172** — zero test coverage on the SOC reporting plane
   (`slo_metrics.py`/`run_hunts.py`/`weekly_ciso_report.py`); agent ran on
@@ -231,6 +233,14 @@ Prior session (per merged PR history):
 
 ## DEFERRED
 
+- [!] **#182** — safely narrow `CapabilityBoundingSet`/`User` for
+  `zeek-host-capture.service`. Requires an interactive `systemd-run` trial
+  against the *live* capture service before touching the installed unit
+  (per the issue's own explicit caution — a prior hardening attempt on this
+  exact service caused a production crash-loop, #167). No passwordless sudo
+  in this environment, and a sudo password must never be typed into this
+  chat. Reason: needs the user at a real terminal with interactive sudo;
+  picking up again in a session where that's available.
 - [ ] Follow-up issue (to file) — #161 coverage/robustness leftovers surfaced in review:
   standalone `Invalid user <x> from <ip>` sshd line (no verb) not parsed; numeric captures
   (`source.port`, `process.pid`) land as keyword not `long`; add `tls.*`/`process.pid` to
