@@ -1,3 +1,15 @@
+"""
+app.py — Hive-Mind broker: authenticated router-block dispatcher (#109).
+
+The AI agent's slim container has no ssh/sudo, so it routes containment here
+over an HMAC-signed webhook (/webhook/dispatch); Kibana can also hit
+/webhook/alert directly to draft a block for human approval (/pending,
+/approve). The broker owns the per-tenant router inventory (WS0.3 — a block
+never reaches another tenant's routers) and the §12.4 permanent exclusion
+list (never dispatched, signed or not), and applies the nftables block over
+SSH via dispatcher.py.
+"""
+
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 import uvicorn
 import hmac

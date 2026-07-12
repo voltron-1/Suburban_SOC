@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Suburban SOC Developer Onboarding (Linux/Mac/WSL)
 
 echo -e "\e[36m=================================================\e[0m"

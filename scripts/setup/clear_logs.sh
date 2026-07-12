@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # clearing Zeek log files (reset environment)
 # audit P3: set -euo pipefail + guard the destructive rm so an unset/empty LOG_DIR
 # can never expand to `rm -rf /*`. Deletes the CONTENTS of the dir, not the dir.

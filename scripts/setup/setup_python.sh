@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 echo "🐍 Setting up isolated Python environment for Suburban-SOC..."
 

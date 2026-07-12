@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-# =============================================================================
-# run_hunts.py — WS2.2: execute the versioned threat-hunt library on a schedule.
-#
-# Loads every hunt in hunts/*.yml (hypothesis + ATT&CK technique + data source +
-# query), runs its query against Elasticsearch over a window, records a finding to
-# the `soc-hunts` index, and prints a report. Findings that recur are promotion
-# candidates for a detection (hunt -> detection loop, WS2.1).
-#
-# Requires: requests, PyYAML. Env (auto-loaded from scripts/setup/.env):
-#   ES_URL, ES_USER, ES_PASS/ELASTIC_PASSWORD, HUNT_WINDOW (default now-7d).
-#
-# Cron: see configs/hunts/hunts.cron.
-# =============================================================================
+"""
+run_hunts.py — WS2.2: execute the versioned threat-hunt library on a schedule.
+
+Loads every hunt in hunts/*.yml (hypothesis + ATT&CK technique + data source +
+query), runs its query against Elasticsearch over a window, records a finding to
+the `soc-hunts` index, and prints a report. Findings that recur are promotion
+candidates for a detection (hunt -> detection loop, WS2.1).
+
+Requires: requests, PyYAML. Env (auto-loaded from scripts/setup/.env):
+  ES_URL, ES_USER, ES_PASS/ELASTIC_PASSWORD, HUNT_WINDOW (default now-7d).
+
+Cron: see configs/hunts/hunts.cron.
+"""
 import json
 import os
 import sys

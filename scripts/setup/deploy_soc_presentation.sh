@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ==============================================================================
 # SUBURBAN-SOC: Automated Presentation Setup
 # 

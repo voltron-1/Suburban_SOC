@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # isolate.sh — Suburban-SOC MAC-based device isolation (STANDALONE / MANUAL TOOL)
 # Phase C: OpenWrt uci MAC-based device isolation

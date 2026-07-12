@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Zeek RUN command — Offline PCAP Analysis
 # When PCAP_FILE points to a real file, analyzes ONLY that file (the path the
 # menu passes). Otherwise falls back to processing every *.pcap in

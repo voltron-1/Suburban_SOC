@@ -1,3 +1,12 @@
+"""
+dispatcher.py — SSH-dispatches nftables blocks to the router fleet.
+
+Enforces the §12.4 permanent exclusion list (fails closed if it can't be
+read) and §12.3's SSH host-key verification (audit P1-3 — strict by default;
+BROKER_INSECURE_SSH=true opts out for a lab/first-run only). Concurrently
+blocks an IP across every router in a tenant's inventory.
+"""
+
 import asyncio
 import asyncssh
 import ipaddress

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # =============================================================================
 # Suburban-SOC Pipeline Automation Script
 # SOP Reference: docs/SOP-001-pipeline-operations.md
