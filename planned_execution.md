@@ -11,17 +11,54 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
 Priority 2: #164-#172, #183 merged; #182 DEFERRED (needs interactive sudo at
-a real terminal — see DEFERRED section). Priority 3: #173-#176 merged; 4
-items remaining (#177, #184, #189-#190).**
+a real terminal — see DEFERRED section). Priority 3: #173-#177 merged; 3
+items remaining (#184, #189-#190).**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#177** — residual hardening: 2.2MB dashboard not in
-LFS, unsanitized notification egress, plaintext Kibana. #182 picked back up
-once sudo is available interactively.
+Next unstarted item: **#184** — SOC agent audit-write failures have no
+dashboard-visible metric (follow-up to #165). #189 is now partially addressed
+as a side effect of #177 (its Kibana-target `soc_pipeline.sh` checks were
+fixed alongside the Kibana TLS work) — the ES-target checks in that same file
+are still plaintext `http://localhost:9200` against a TLS-only stack and
+remain open. #182 picked back up once sudo is available interactively.
 
+- [x] **#177** — residual hardening, five independent fixes: (1) Kibana TLS
+  (SC-8) — a dedicated server cert minted off the existing stack CA (mirrors
+  the logstash/filebeat cert-gen blocks), `SERVER_SSL_*` + a TLS healthcheck;
+  every internal consumer (agent, `slo_metrics.py`, 7 operator scripts, docs)
+  moved from `http://` to `https://`, reusing the existing `ES_CA`/`ES_VERIFY`
+  trust chain rather than a second one. (2) ntfy/Discord notification masking
+  (AC-4) — source IP/MAC masked by default (`NOTIFY_INCLUDE_RAW_IOCS` opts
+  into raw), Kibana case/audit/broker dispatch always keep the unmasked
+  value; new `tests/ai_agent/test_notify_masking.py`. (3) Removed the 2.2MB
+  `suburban_soc_dashboard_v2.ndjson` — `git log --follow` confirmed it was
+  never wired into `deploy_dashboards.sh` or referenced anywhere else
+  (orphaned, not an LFS migration candidate). (4) Broker `__main__` now binds
+  `127.0.0.1`/`reload=False`. (5) `isolate.sh` SSH host-key verification now
+  strict by default. `security-auditor` + `code-reviewer` (parallel) caught
+  two real pre-existing bugs surfaced by the new masking code's dependencies:
+  a shadowed module-level `_MAC_RE` that let `is_valid_mac()` accept a MAC
+  with trailing garbage (renamed the unrelated sanitizer regex to
+  `_MAC_TOKEN_RE`), and `_mask_mac()` leaking a whole MAC when `:`/`-`
+  separators were mixed (now tokenizes instead of splitting on one guessed
+  separator) — both fixed with regression tests. The audit also found
+  `isolate.sh`'s exclusion-list check failed OPEN on a missing list (unlike
+  the agent/broker's fail-closed posture); fixed in the same PR rather than
+  filed separately, since it's a small fix in the same file/control family.
+  Live-verified against the running stack: Kibana confirmed HTTPS-only +
+  healthy (caught and fixed a real healthcheck bug — curl ALPN-negotiates
+  HTTP/2 over TLS by default, silently breaking the original
+  `HTTP/1.1 302 Found` status-line grep; fixed to match status code only),
+  the agent's Kibana Cases integration confirmed working end-to-end
+  post-rebuild (a real HMAC-signed `/alert` produced a real case id over
+  TLS), `stack_health.sh` confirmed green, and all four `isolate.sh`
+  exclusion-list scenarios exercised directly (missing/present list ×
+  default/opt-in). 145/145 tests passing.
+  [PR #202](https://github.com/voltron-1/Suburban_SOC/pull/202) merged;
+  issue closed.
 - [x] **#176** — unbounded runtime state, three separate vectors:
   `run_hunts.py`'s hourly cron re-ran every hunt over a rolling window with
   no dedup (`soc-hunts` growing forever) — fixed with a deterministic
@@ -224,12 +261,38 @@ once sudo is available interactively.
   [PR #191](https://github.com/voltron-1/Suburban_SOC/pull/191) merged;
   issue closed.
 
-P2 remaining (#182) and P3 (backlog, #173-#177 + follow-ups #184/#189/#190)
-are tracked on [Project Board #17](https://github.com/users/voltron-1/projects/17);
+P2 remaining (#182) and P3 (backlog, follow-ups #184/#189/#190 — #173-#177 all
+merged) are tracked on
+[Project Board #17](https://github.com/users/voltron-1/projects/17);
 working sequentially in descending priority order per the remediation
 protocol, one item at a time with explicit approval before each file change.
 
 ---
+
+## LAST SESSION — 2026-07-12
+
+- **#177** implemented, reviewed (`security-auditor` + `code-reviewer` in
+  parallel), live-verified end-to-end against the running stack, and
+  merged — see NEXT UP for detail. [PR #202](https://github.com/voltron-1/Suburban_SOC/pull/202).
+  The security-audit pass also surfaced `isolate.sh`'s exclusion-list
+  fail-open gap (unrelated pre-existing code, same file/control family) and
+  a shadowed `_MAC_RE` validator bug — both fixed in the same PR rather than
+  filed separately, since both were small and directly relevant to what was
+  already being touched. Confirmed #189 is now partially resolved as a side
+  effect (Kibana half of its `soc_pipeline.sh` fix); its ES-target half
+  remains open, left as-is for that issue's own pass.
+- Process note: a security finding with exploit-relevant detail (exact
+  file:line + vulnerable code + exploitation conditions) must not go into a
+  public GitHub issue on this repo unpatched — the auto-mode classifier
+  blocked two attempts at this (once with full detail, once redacted) before
+  the finding was simply fixed directly instead. For future MEDIUM+ findings
+  discovered mid-session: fix first if small, or use GitHub Security
+  Advisories (private-by-default) rather than a plain public issue, per the
+  user's explicit guidance in this session.
+- Process note: merging a self-authored PR with no GitHub-side human review
+  (only sub-agent review) is blocked by the auto-mode classifier unless the
+  user explicitly confirms the review-bypass in response to a direct
+  question — a bare "merge it now" was not sufficient on its own.
 
 ## LAST SESSION — 2026-07-11
 
