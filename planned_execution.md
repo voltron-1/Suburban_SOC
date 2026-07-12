@@ -11,17 +11,41 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
 Priority 2: #164-#172, #183 merged; #182 DEFERRED (needs interactive sudo at
-a real terminal — see DEFERRED section). Priority 3: #173-#175 merged; 5
-items remaining (#176-#177, #184, #189-#190).**
+a real terminal — see DEFERRED section). Priority 3: #173-#176 merged; 4
+items remaining (#177, #184, #189-#190).**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#176** — unbounded runtime state: soc-hunts
-duplication, approval queue growth, shared /tmp PDF path. #182 picked back
-up once sudo is available interactively.
+Next unstarted item: **#177** — residual hardening: 2.2MB dashboard not in
+LFS, unsanitized notification egress, plaintext Kibana. #182 picked back up
+once sudo is available interactively.
 
+- [x] **#176** — unbounded runtime state, three separate vectors:
+  `run_hunts.py`'s hourly cron re-ran every hunt over a rolling window with
+  no dedup (`soc-hunts` growing forever) — fixed with a deterministic
+  per-day `_id` so ES's `index` op upserts instead of appending; both the
+  agent's and broker's append-only approval-queue JSONL files grew forever
+  — new `compact_agent_approval_queue.py`/`compact_broker_approval_queue.py`
+  archive fully-resolved, aged-out entries, coordinated with the live
+  services via a stable lock-file path (flocking the mutable data file
+  directly doesn't compose safely with atomic replace); `weekly_ciso_report.py`
+  moved its PDF output off a fixed, world-readable `/tmp` path to a `0700`
+  `reports/` dir with per-run filenames and retention pruning.
+  `security-auditor` + `code-reviewer` (parallel) each caught a real bug:
+  an unlocked "claimed" marker write that bypassed the whole point of the
+  new flock, and a crash-durability gap in the original truncate-in-place
+  rewrite — both fixed (the latter via a stable lock file + atomic
+  temp-file replace, after realizing the reviewers' suggested naive fix
+  would have introduced a *worse* silent-data-loss race). Live-verified
+  against the running stack: full pending→claimed→resolution sequence,
+  both compaction scripts against the real live queues, PDF path/perms via
+  a real triggered report, and the ES upsert mechanic directly. Also caught
+  two stray runtime lock-artifact files that nearly got committed;
+  `.gitignore` updated so that can't happen again.
+  [PR #200](https://github.com/voltron-1/Suburban_SOC/pull/200) merged;
+  issue closed.
 - [x] **#175** — convention drift: standardized all 12 remaining
   `#!/bin/bash` scripts to `#!/usr/bin/env bash` (0 bare left across 39
   tracked `.sh` files); converted 6 Python modules to proper PEP 257 module
