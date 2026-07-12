@@ -11,20 +11,53 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
 Priority 2: #164-#172, #183 merged; #182 DEFERRED (needs interactive sudo at
-a real terminal — see DEFERRED section). Priority 3: #173-#177 merged; 3
-items remaining (#184, #189-#190).**
+a real terminal — see DEFERRED section). Priority 3: #173-#177, #184 merged;
+2 items remaining (#189-#190).**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#184** — SOC agent audit-write failures have no
-dashboard-visible metric (follow-up to #165). #189 is now partially addressed
-as a side effect of #177 (its Kibana-target `soc_pipeline.sh` checks were
-fixed alongside the Kibana TLS work) — the ES-target checks in that same file
-are still plaintext `http://localhost:9200` against a TLS-only stack and
-remain open. #182 picked back up once sudo is available interactively.
+Next unstarted item: **#189** — `soc_pipeline.sh` health checks probe
+`http://` against a TLS-only ES/Kibana stack (always fail). Its Kibana-target
+half is already fixed as a side effect of #177; the ES-target checks
+(`http://localhost:9200`) remain open. #190 (`reindex-existing.sh` infinite
+recursion) after that. #182 picked back up once sudo is available
+interactively.
 
+- [x] **#184** — SOC agent audit-write failures had no dashboard-visible
+  metric (follow-up to #165). `write_audit()`'s except block now best-effort
+  writes a failure-marker doc to a new per-tenant `soc-agent-health-<tenant>`
+  index (its own nested try/except — the "never raise" contract is
+  unchanged); `logstash_writer`'s ES role extended to that index pattern,
+  reusing the agent's existing credential; new `metric_audit_write_failures()`
+  in `slo_metrics.py`, wired into the existing generic breach/alert/dashboard
+  machinery — 1-2 failures in the rolling window tolerated, 3+ breaches
+  (`SLO_AUDIT_WRITE_FAIL_MAX`, default 2, combined with the existing strict
+  `>` comparator). Built via subagent-driven development (implementer +
+  task-reviewer per task, final whole-branch review on `opus`). Two real bugs
+  surfaced and fixed during task review: the originally-planned threshold
+  default (3) combined with the existing comparator actually meant "breach at
+  4+," not "3+" — corrected to 2; the new metric's query was missing the
+  `WINDOW` range filter used by every sibling metric, making it an all-time
+  count instead of a rolling one — fixed to match. The final whole-branch
+  review found a more significant gap: `write_audit()` (and the new marker
+  write) only caught connection-level failures — `requests.post` doesn't
+  raise on HTTP 4xx/5xx, and ES's `_bulk` API can return HTTP 200 with an
+  embedded per-item rejection, which is exactly the case that matters most
+  ("ES up, write silently rejected"). Fixed (with explicit sign-off, since it
+  touched the pre-existing primary audit-write path) by checking the bulk
+  response body inside the existing try/except, unifying detection with no
+  duplicated logic. Live verification against the running stack caught two
+  more real bugs no mocked test surfaced: an ES role missing the
+  `auto_configure` privilege silently rejected the new index's writes (the
+  live trigger for the bulk-response-checking finding above), and a
+  `docker compose up -d <service>` gotcha where the `provision` service
+  re-running silently reverts whatever the `roles` service last applied,
+  requiring `roles` to be re-run after any dependent-service redeploy — a
+  pre-existing infra behavior, not introduced by this issue, worth a future
+  look. [PR #203](https://github.com/voltron-1/Suburban_SOC/pull/203) merged;
+  issue closed.
 - [x] **#177** — residual hardening, five independent fixes: (1) Kibana TLS
   (SC-8) — a dedicated server cert minted off the existing stack CA (mirrors
   the logstash/filebeat cert-gen blocks), `SERVER_SSL_*` + a TLS healthcheck;
@@ -293,6 +326,18 @@ protocol, one item at a time with explicit approval before each file change.
   (only sub-agent review) is blocked by the auto-mode classifier unless the
   user explicitly confirms the review-bypass in response to a direct
   question — a bare "merge it now" was not sufficient on its own.
+- **#184** implemented via subagent-driven development (brainstorm → spec →
+  plan → 4 tasks, each with an implementer + task-reviewer subagent, plus a
+  final whole-branch review) and merged — see NEXT UP for detail.
+  [PR #203](https://github.com/voltron-1/Suburban_SOC/pull/203). Confirmed
+  the same review-bypass confirmation requirement applies to every
+  self-authored PR in this session, not just the first one.
+- Process note: the user added an explicit multi-phase execution gating rule
+  to this repo's CLAUDE.md mid-session (execute one phase at a time; show
+  diff + summary before any commit/push/deploy; wait for explicit go-ahead
+  between phases) — applies going forward, including to this file's own
+  update-on-merge habit (previously automatic per an earlier session's
+  memory note; now gated like any other push).
 
 ## LAST SESSION — 2026-07-11
 
