@@ -205,9 +205,11 @@ def metric_audit_write_failures():
     """Count of write_audit() failures in the window (#184).
 
     Every doc in soc-agent-health-* IS a failure marker — nothing else writes
-    there — so a plain count over the window is the metric, no extra filter.
+    there — so a windowed count is the metric, no extra filter beyond the
+    time range.
     """
-    return _count("soc-agent-health-*", {"match_all": {}})
+    win = {"range": {"@timestamp": {"gte": WINDOW}}}
+    return _count("soc-agent-health-*", win)
 
 
 def main():
