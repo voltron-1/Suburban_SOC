@@ -15,7 +15,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$HERE/.env" ]] && { set -a; . "$HERE/.env"; set +a; }
-KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
 NTFY_TOPIC="${NTFY_TOPIC:-}"
 # Shared ES creds + TLS + es helpers (issue #156). Soft mode: a health monitor must
 # keep checking other components even when ES creds are absent, so don't fail-fast.
@@ -43,8 +43,8 @@ echo "==> SOC stack health $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 es_status="$(es -m 6 "$ES_URL/_cluster/health" | grep -o '"status":"[a-z]*"' | cut -d'"' -f4)"
 [[ "$es_status" == "green" || "$es_status" == "yellow" ]] && check elasticsearch 0 "$es_status" || check elasticsearch 1 "${es_status:-unreachable}"
 
-# Kibana — overall status level.
-# es()'s ES_TLS flags (-k/--cacert) are no-ops against the http:// Kibana URL.
+# Kibana — overall status level. #177: Kibana is TLS-only now (same stack CA as ES),
+# so es()'s ES_TLS flags (-k/--cacert) are load-bearing here too, not a no-op.
 kb_level="$(es -m 6 "$KIBANA_URL/api/status" | grep -o '"level":"[a-z]*"' | head -1 | cut -d'"' -f4)"
 [[ "$kb_level" == "available" ]] && check kibana 0 "$kb_level" || check kibana 1 "${kb_level:-unreachable}"
 

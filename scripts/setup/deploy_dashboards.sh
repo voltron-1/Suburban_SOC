@@ -12,10 +12,10 @@
 #
 # Env overrides:
 #   ES_URL       (default https://localhost:9200 — security is always on)
-#   KIBANA_URL   (default http://localhost:5601)
+#   KIBANA_URL   (default https://localhost:5601 — #177: Kibana is TLS-only now)
 #   ES_USER      (default elastic)
 #   ES_PASS      (default $ELASTIC_PASSWORD from scripts/setup/.env)
-#   ES_CA        (path to ca.crt; if unset, falls back to -k against localhost)
+#   ES_CA        (path to ca.crt; fails closed without it unless ES_INSECURE=true)
 # =============================================================================
 set -euo pipefail
 
@@ -36,13 +36,14 @@ if [[ -f "$SCRIPT_DIR/.env" ]]; then
   set -a; . "$SCRIPT_DIR/.env"; set +a
 fi
 
-# Security is always on (WS0.1): ES is HTTPS + authenticated.
-KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+# Security is always on (WS0.1): ES is HTTPS + authenticated. #177: Kibana is now
+# TLS-only too (same stack CA), so KIBANA_URL defaults to https.
+KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
 # Shared ES creds + TLS + helpers (issue #156).
 source "$SCRIPT_DIR/lib/es_common.sh"
-# Basic-auth (ES + Kibana) and combined ES auth+TLS, from the shared lib's arrays.
-AUTH=("${ES_AUTH[@]}")
-ES_CURL=("${ES_AUTH[@]}" "${ES_TLS[@]}")
+# Basic-auth + TLS (ES + Kibana share both — same creds, same CA). Used for every
+# ES and Kibana call below (#177: TLS is now load-bearing for Kibana calls too).
+AUTH=("${ES_AUTH[@]}" "${ES_TLS[@]}")
 
 DASHBOARDS=(
   "executive_dashboard.ndjson"
@@ -61,7 +62,7 @@ DASHBOARDS=(
 # 1. Pre-flight — Elasticsearch + Kibana reachable
 # -----------------------------------------------------------------------------
 blue "==> [1/7] Validating Elasticsearch at ${ES_URL}"
-if ! curl -fsS "${ES_CURL[@]}" "${ES_URL}" >/dev/null 2>&1; then
+if ! curl -fsS "${AUTH[@]}" "${ES_URL}" >/dev/null 2>&1; then
   red "ERROR: Elasticsearch not reachable/authenticated at ${ES_URL}. Is the stack up (docker compose up -d) and ES_PASS correct?"
   exit 1
 fi
@@ -134,7 +135,7 @@ if [[ -d "$WATCHER_DIR" ]]; then
   for w in "$WATCHER_DIR"/*.json; do
     [[ -e "$w" ]] || continue
     wid="$(basename "$w" .json)"
-    code=$(curl -s -o /dev/null -w '%{http_code}' "${ES_CURL[@]}" \
+    code=$(curl -s -o /dev/null -w '%{http_code}' "${AUTH[@]}" \
       -X PUT "${ES_URL}/_watcher/watch/${wid}" \
       -H 'Content-Type: application/json' --data-binary @"$w" || true)
     if [[ "$code" =~ ^20 ]]; then

@@ -45,14 +45,14 @@ Executive dashboard's SOAR panels additionally use **`soar-actions-pattern`**
 ### Linux / WSL / macOS
 ```bash
 ./scripts/setup/deploy_dashboards.sh
-# Override targets if not on localhost:
-ES_URL=http://es-host:9200 KIBANA_URL=http://kbn-host:5601 ./scripts/setup/deploy_dashboards.sh
+# Override targets if not on localhost (#177: Kibana is TLS-only now):
+ES_URL=https://es-host:9200 KIBANA_URL=https://kbn-host:5601 ./scripts/setup/deploy_dashboards.sh
 ```
 
 ### Windows (PowerShell)
 ```powershell
 .\scripts\setup\deploy_dashboards.ps1
-$env:KIBANA_URL = "http://192.168.1.50:5601"; .\scripts\setup\deploy_dashboards.ps1
+$env:KIBANA_URL = "https://192.168.1.50:5601"; .\scripts\setup\deploy_dashboards.ps1
 ```
 
 The script: validates ES + Kibana → provisions the `logstash-pattern` data view →
@@ -62,7 +62,7 @@ summary. Re-running is **idempotent** (overwrite import).
 
 > **Manual import (single dashboard):**
 > ```bash
-> curl -X POST "http://localhost:5601/api/saved_objects/_import?overwrite=true" \
+> curl -X POST "https://localhost:5601/api/saved_objects/_import?overwrite=true" \
 >   -H "kbn-xsrf: true" --form file=@configs/server/executive_dashboard.ndjson
 > ```
 
@@ -70,12 +70,12 @@ summary. Re-running is **idempotent** (overwrite import).
 
 ## 4. Verify Each Dashboard Has Data
 
-1. Open `http://<host>:5601/app/dashboards` and confirm all five appear.
+1. Open `https://<host>:5601/app/dashboards` and confirm all five appear.
 2. Confirm each dashboard ID resolves:
    ```bash
    for id in executive-dashboard network-dashboard-v3 endpoint-dashboard \
              dataquality-dashboard soc-navigation-hub; do
-     curl -s "http://localhost:5601/api/saved_objects/dashboard/$id" \
+     curl -s "https://localhost:5601/api/saved_objects/dashboard/$id" \
        | grep -o "\"id\":\"$id\"" && echo "  OK $id"
    done
    ```

@@ -51,13 +51,20 @@ LLM_MODEL          = os.environ.get("LLM_MODEL",          "gpt-4")
 # (analyze_alert_with_ai referenced this but it was never defined — NameError 500
 # on every /alert; the dead SOAR trigger + the pre-#109 crash-loop hid it.)
 LLM_ALLOW_HOSTED   = os.environ.get("LLM_ALLOW_HOSTED",   "false").lower() == "true"
+# #177: ntfy/Discord are third-party services — a raw source IP/MAC in that
+# outbound text identifies an internal asset to them. Mask by default (last
+# IPv4 octet / MAC OUI-only); explicit opt-in restores full IOCs for analysts
+# who need to act from the notification alone. Mirrors LLM_ALLOW_HOSTED's
+# default-safe / explicit-opt-in shape. Case tracking, audit log, and the
+# broker dispatch always get the unmasked value regardless of this flag.
+NOTIFY_INCLUDE_RAW_IOCS = os.environ.get("NOTIFY_INCLUDE_RAW_IOCS", "false").lower() == "true"
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 # WS2.3: Kibana Cases — every /alert becomes a tracked case (state/owner/timeline),
 # tenant-scoped to the alert's Kibana space, with the AI summary + SOAR action
 # attached and closeable with a disposition. Needs a Kibana user holding the
 # generalCases feature privilege (provisioned as `soc_agent` by docker-compose setup).
 # Unset creds degrade gracefully — case tracking is skipped, /alert still works.
-KIBANA_URL         = os.environ.get("KIBANA_URL",         "http://kibana:5601")
+KIBANA_URL         = os.environ.get("KIBANA_URL",         "https://kibana:5601")
 KIBANA_AGENT_USER  = os.environ.get("KIBANA_AGENT_USER",  "")
 KIBANA_AGENT_PASS  = os.environ.get("KIBANA_AGENT_PASS",  "")
 CASES_OWNER        = "cases"  # generic Stack Cases (generalCases feature)
@@ -392,7 +399,14 @@ def is_excluded(ip: str = "", mac: str = ""):
 # 0b. PROMPT SANITISER — telemetry stays on campus  (CDP §4)
 # =============================================================================
 _IP_RE  = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
-_MAC_RE = re.compile(r"\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b")
+# Deliberately distinct from the anchored `_MAC_RE` validator above (line ~151):
+# this one is unanchored on purpose, to find/redact a MAC anywhere inside free-form
+# prompt text. Reusing the name `_MAC_RE` here used to silently shadow the module-
+# level validator regex, so `is_valid_mac()` (which also reads that name) matched
+# any string merely *starting* with a MAC instead of requiring the whole value to be
+# one (audit #177 follow-up) — caught because the new notification-masking helpers
+# depend on `is_valid_mac()` being a real validator, not a prefix check.
+_MAC_TOKEN_RE = re.compile(r"\b(?:[0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}\b")
 _HOST_RE = re.compile(r"\b(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}\b")
 
 
@@ -404,13 +418,62 @@ def sanitize_for_llm(text: str) -> str:
     flip to a hosted endpoint can't accidentally leak raw telemetry.
     """
     text = _IP_RE.sub("[REDACTED_IP]", str(text))
-    text = _MAC_RE.sub("[REDACTED_MAC]", text)
+    text = _MAC_TOKEN_RE.sub("[REDACTED_MAC]", text)
     text = _HOST_RE.sub("[REDACTED_HOST]", text)
     return text
 
 
 def _is_hosted_endpoint(url: str) -> bool:
     return not re.search(r"(localhost|127\.0\.0\.1|ollama|::1)", url or "")
+
+
+# =============================================================================
+# 0c. NOTIFICATION IOC MASKING — ntfy/Discord are third-party egress (#177)
+# =============================================================================
+def _mask_ip(ip: str) -> str:
+    """Zero the host-identifying part of an IP for outbound notifications.
+
+    IPv4: last octet (203.0.113.42 -> 203.0.113.0). IPv6: truncated to its /64
+    network (2001:db8::1 -> 2001:db8::) via ipaddress, not string-splitting —
+    a naive split on ":" only handles fully-expanded addresses and silently
+    passes every "::"-compressed address (the common form) through unmasked.
+    Anything that isn't a valid IP (already "unknown", malformed) passes
+    through unchanged — this is a display courtesy, not a validator.
+    """
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if addr.version == 4:
+        octets = str(addr).split(".")
+        octets[-1] = "0"
+        return ".".join(octets)
+    return str(ipaddress.ip_network(f"{addr}/64", strict=False).network_address)
+
+
+def _mask_mac(mac: str) -> str:
+    """Reduce a MAC to its OUI (first 3 octets) for outbound notifications.
+
+    `_MAC_RE` allows `:`/`-` independently per separator position (e.g.
+    "AA:BB-CC:DD-EE:FF" validates), so splitting on a single guessed separator
+    (whichever appears first) could leave every octet past that guess unmasked.
+    Tokenize into alternating octet/separator pieces and blank only the last
+    three octet tokens, preserving each position's original separator exactly
+    (audit #177 follow-up).
+    """
+    if not is_valid_mac(mac):
+        return mac
+    tokens = re.findall(r"[0-9A-Fa-f]{2}|[:\-]", mac)
+    tokens[6] = tokens[8] = tokens[10] = "xx"
+    return "".join(tokens)
+
+
+def _mask_notify_ioc(value: str) -> str:
+    """Mask a value of unknown IP-vs-MAC shape (e.g. §12.4's `excluded`)."""
+    if not value:
+        return value
+    value = str(value)
+    return _mask_mac(value) if is_valid_mac(value) else _mask_ip(value)
 
 
 # =============================================================================
@@ -653,10 +716,12 @@ def _cases_enabled() -> bool:
 
 
 def _kibana(method, path, tenant, **kw):
+    # #177: Kibana now serves TLS (SC-8) on the same stack CA as ES — reuse ES_VERIFY
+    # rather than introduce a second CA-path env var for an identical trust root.
     return requests.request(
         method, f"{_kibana_base(tenant)}{path}",
         headers={"kbn-xsrf": "true", "Content-Type": "application/json"},
-        auth=(KIBANA_AGENT_USER, KIBANA_AGENT_PASS), timeout=8, **kw)
+        auth=(KIBANA_AGENT_USER, KIBANA_AGENT_PASS), verify=ES_VERIFY, timeout=8, **kw)
 
 
 def create_case(tenant, severity, ai_summary, source_ip, source_mac, extra_tags=None):
@@ -770,6 +835,11 @@ def handle_kibana_webhook():
     safe_ip   = target_ip if is_valid_ip(target_ip) else "unknown"
     tenant    = safe_tenant(data.get("tenant_id"))  # WS0.3: scopes response + notify
 
+    # #177: ntfy/Discord notification text gets a masked IOC by default; the
+    # case, audit trail, and broker dispatch below always use safe_ip/valid_mac.
+    notify_ip  = safe_ip if NOTIFY_INCLUDE_RAW_IOCS else _mask_ip(safe_ip)
+    notify_mac = valid_mac if NOTIFY_INCLUDE_RAW_IOCS else _mask_mac(valid_mac)
+
     # Step 1: AI triage
     ai_summary = analyze_alert_with_ai(raw_details)
 
@@ -782,11 +852,12 @@ def handle_kibana_webhook():
     # Checked first so neither the autonomous path nor a draft can target it.
     excluded = is_excluded(ip=target_ip, mac=target_mac)
     if excluded:
+        notify_excluded = excluded if NOTIFY_INCLUDE_RAW_IOCS else _mask_notify_ioc(excluded)
         app.logger.warning("Alert targets excluded asset %s — no action taken.", excluded)
         send_soc_alert(
             title=f"{severity.upper()}: Alert on PROTECTED asset — no action",
             message=(
-                f"Alert targets {excluded}, on the permanent exclusion list.\n"
+                f"Alert targets {notify_excluded}, on the permanent exclusion list.\n"
                 f"No isolation taken or drafted. Investigate manually.\n\n"
                 f"AI Analysis:\n{ai_summary}"
             ),
@@ -813,18 +884,27 @@ def handle_kibana_webhook():
     # with a format-validated MAC. Every other case is drafted for human approval.
     if AUTONOMOUS_ISOLATION and severity == "critical" and valid_mac:
         ok, detail = _execute_isolation(valid_mac, safe_ip, tenant)
+        # #177: the broker's `detail` string embeds the raw IP verbatim (e.g. "IP
+        # 203.0.113.42 blocked on 1/1 router(s)") — mask it there too, or it defeats
+        # the notify_ip masking two words earlier in the same ntfy message.
+        notify_detail = detail
+        if not NOTIFY_INCLUDE_RAW_IOCS:
+            if safe_ip and safe_ip != "unknown":
+                notify_detail = notify_detail.replace(safe_ip, notify_ip)
+            if valid_mac:
+                notify_detail = notify_detail.replace(valid_mac, notify_mac)
         send_soc_alert(
             title="CRITICAL: Autonomous Isolation" if ok else "CRITICAL: Auto-isolation FAILED",
             message=(
                 f"{'NODE ISOLATED' if ok else 'ISOLATION FAILED'}\n"
-                f"IP: {safe_ip} | MAC: {valid_mac}\nDetail: {detail}\n\n"
+                f"IP: {notify_ip} | MAC: {notify_mac}\nDetail: {notify_detail}\n\n"
                 f"AI Analysis:\n{ai_summary}"
             ),
             priority=5,
             tags="skull,lock,robot" if ok else "warning,lock,robot",
             tenant=tenant,
         )
-        send_discord_alert(device_ip=safe_ip, device_mac=valid_mac, ai_summary=ai_summary, tenant=tenant)
+        send_discord_alert(device_ip=notify_ip, device_mac=notify_mac, ai_summary=ai_summary, tenant=tenant)
         log_soar_action(
             "quarantine_mac" if ok else "analyst_review",
             safe_ip, valid_mac, ai_summary, severity, tenant=tenant,
@@ -868,7 +948,7 @@ def handle_kibana_webhook():
     send_soc_alert(
         title=f"{severity.upper()}: Response DRAFTED — approval required",
         message=(
-            f"Drafted: {action['recommended_action']} for {safe_ip or valid_mac or 'unknown'}.\n"
+            f"Drafted: {action['recommended_action']} for {notify_ip or notify_mac or 'unknown'}.\n"
             f"Approve via POST /approve (id={action['id']}).\n\n"
             f"AI Analysis:\n{ai_summary}"
         ),

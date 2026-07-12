@@ -21,8 +21,8 @@ This document contains every bash command needed to deploy and test the Suburban
 > and TLS, so it is reachable at **`https://localhost:9200`** and **requires authentication**.
 > Before `docker compose up -d`, copy `scripts/setup/.env.example` → `scripts/setup/.env`
 > and set strong `ELASTIC_PASSWORD`, `KIBANA_PASSWORD`, `LOGSTASH_PASSWORD`, and a
-> 32+ char `KIBANA_ENCRYPTION_KEY`. Kibana (`http://localhost:5601`) now requires login
-> as `elastic`.
+> 32+ char `KIBANA_ENCRYPTION_KEY`. Kibana (`https://localhost:5601` — #177: TLS-only)
+> now requires login as `elastic`.
 >
 > Any `curl http://localhost:9200/...` example below must be run as:
 > ```bash
@@ -406,10 +406,11 @@ Look for: `@timestamp`, `source.ip`, `destination.ip`, `destination.geo`, `proto
 
 ```bash
 ip addr show eth0 | grep 'inet '
-# Then open in your Windows browser: http://<WSL-IP>:5601
+# Then open in your Windows browser: https://<WSL-IP>:5601
 ```
 
-> On native Linux, use `http://localhost:5601` directly.
+> On native Linux, use `https://localhost:5601` directly. (#177: Kibana is TLS-only —
+> your browser will warn about the self-signed stack CA; that's expected.)
 
 ### Step 19: Create Kibana Data View
 

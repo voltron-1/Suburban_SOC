@@ -22,6 +22,14 @@
 #   - SSH key ~/.ssh/id_ed25519_hivemind must be authorized on the router
 #   - OPENWRT_HOST env var set to router IP (default: 192.168.1.1)
 #   - OPENWRT_USER env var set (default: root)
+#   - The router's host key must be pinned in ISOLATE_KNOWN_HOSTS (default
+#     ~/.ssh/known_hosts) — one-time bootstrap:
+#       ssh-keyscan -t ed25519 "$OPENWRT_HOST" >> ~/.ssh/known_hosts
+#     ISOLATE_INSECURE_SSH=true skips this for a lab/first-run only (#177).
+#   - The §12.4 exclusion list (governance/exclusion_list.txt by default) must be
+#     readable — this script fails closed (refuses to act) if it isn't, matching
+#     the agent/broker's posture. ISOLATE_ALLOW_NO_EXCLUSIONS=true opts back into
+#     proceeding without it for a lab/first-run only.
 # =============================================================================
 
 set -euo pipefail
@@ -69,18 +77,41 @@ if [[ -f "$EXCLUSION_LIST" ]]; then
       exit 3
     fi
   done < "$EXCLUSION_LIST"
+elif [[ "${ISOLATE_ALLOW_NO_EXCLUSIONS:-false}" == "true" ]]; then
+  echo "[WARN] ISOLATE_ALLOW_NO_EXCLUSIONS=true — exclusion list not found at $EXCLUSION_LIST; proceeding WITHOUT infra protection (lab/first-run only; do not use in production)." >&2
 else
-  echo "[WARN] Exclusion list not found at $EXCLUSION_LIST — proceeding without infra protection." >&2
+  # Fail CLOSED (mirrors the agent's EXCLUSION_UNVERIFIABLE / broker handling): an
+  # unreadable list must never silently widen what this script is willing to
+  # quarantine. ISOLATE_ALLOW_NO_EXCLUSIONS=true opts back into the old
+  # proceed-anyway behavior for a lab/first-run only.
+  echo "[ERROR] Exclusion list not found at $EXCLUSION_LIST — refusing to act without it." >&2
+  echo "        Restore the list, or set ISOLATE_ALLOW_NO_EXCLUSIONS=true to proceed without it (lab/first-run only)." >&2
+  exit 4
 fi
 
 echo "[*] Initiating quarantine for device: $TARGET_MAC"
 echo "[*] Connecting to OpenWrt router at $OPENWRT_HOST..."
 
+# --- SSH host-key verification (#177, mirrors dispatcher.py's BROKER_KNOWN_HOSTS/
+# BROKER_INSECURE_SSH). This was always StrictHostKeyChecking=no, so a MITM on the
+# router path could capture this root SSH session. Strict by default; the router's
+# host key must be pinned first (see the Prerequisites comment above).
+# ISOLATE_INSECURE_SSH=true restores the old no-verification behaviour for a
+# lab/first-run only — it logs loudly.
+ISOLATE_KNOWN_HOSTS="${ISOLATE_KNOWN_HOSTS:-$HOME/.ssh/known_hosts}"
+ISOLATE_INSECURE_SSH="${ISOLATE_INSECURE_SSH:-false}"
+if [[ "$ISOLATE_INSECURE_SSH" == "true" ]]; then
+  echo "[WARN] ISOLATE_INSECURE_SSH=true — SSH host-key verification is DISABLED (lab/first-run only; do not use in production)." >&2
+  SSH_HOST_KEY_OPTS=(-o StrictHostKeyChecking=no)
+else
+  SSH_HOST_KEY_OPTS=(-o StrictHostKeyChecking=yes -o "UserKnownHostsFile=${ISOLATE_KNOWN_HOSTS}")
+fi
+
 # --- Execute uci firewall rule injection via SSH (idempotent) ---
 # If a SOAR_QUARANTINE rule with the same name already exists, skip the
 # add+restart cycle. Avoids accumulating duplicate uci rules on re-fires.
 ssh -i "$SSH_KEY" \
-    -o StrictHostKeyChecking=no \
+    "${SSH_HOST_KEY_OPTS[@]}" \
     -o ConnectTimeout=10 \
     "${OPENWRT_USER}@${OPENWRT_HOST}" \
     "if uci show firewall | grep -q \"name='${RULE_NAME}'\"; then \

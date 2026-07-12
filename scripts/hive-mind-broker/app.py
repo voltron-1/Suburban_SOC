@@ -381,4 +381,8 @@ async def approve(request: Request):
 
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
+    # #177: dead in production (the container CMD runs `uvicorn app:app` directly,
+    # never this block) — but a checked-in dev-mode default (all-interfaces bind +
+    # autoreload) is still a footgun if anyone runs this file directly. Loopback +
+    # no reload.
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
