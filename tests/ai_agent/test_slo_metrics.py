@@ -148,6 +148,21 @@ class MetricFunctionTests(unittest.TestCase):
             with self.assertRaises(slo_metrics.MetricUnavailable):
                 slo_metrics.metric_parse_error_pct()
 
+    def test_audit_write_failures_raises_on_es_failure(self):
+        with mock.patch.object(slo_metrics, "es", side_effect=ConnectionError("refused")):
+            with self.assertRaises(slo_metrics.MetricUnavailable):
+                slo_metrics.metric_audit_write_failures()
+
+    def test_audit_write_failures_returns_count_on_success(self):
+        with mock.patch.object(slo_metrics, "es",
+                               return_value=_FakeResponse(200, {"count": 5})):
+            self.assertEqual(slo_metrics.metric_audit_write_failures(), 5)
+
+    def test_audit_write_failures_returns_zero_when_healthy(self):
+        with mock.patch.object(slo_metrics, "es",
+                               return_value=_FakeResponse(200, {"count": 0})):
+            self.assertEqual(slo_metrics.metric_audit_write_failures(), 0)
+
 
 class EsKbWrapperTests(unittest.TestCase):
     """Cover the real es()/kb() request wrappers — every test above mocks them
@@ -213,7 +228,7 @@ class MainExitCodeTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
     def _mock_all_metrics(self, mttd=0.0, mttr=0.0, coverage=12.0, fp_pct=0.0,
-                           ingest_lag=10.0, parse_err=0.0):
+                           ingest_lag=10.0, parse_err=0.0, audit_write_failures=0.0):
         return [
             mock.patch.object(slo_metrics, "metric_mttd", return_value=mttd),
             mock.patch.object(slo_metrics, "metric_mttr", return_value=mttr),
@@ -221,6 +236,8 @@ class MainExitCodeTests(unittest.TestCase):
             mock.patch.object(slo_metrics, "metric_false_positive_pct", return_value=fp_pct),
             mock.patch.object(slo_metrics, "metric_ingest_lag_seconds", return_value=ingest_lag),
             mock.patch.object(slo_metrics, "metric_parse_error_pct", return_value=parse_err),
+            mock.patch.object(slo_metrics, "metric_audit_write_failures",
+                               return_value=audit_write_failures),
             mock.patch.object(slo_metrics, "es", return_value=_FakeResponse(200, {})),
         ]
 
@@ -236,6 +253,30 @@ class MainExitCodeTests(unittest.TestCase):
         self.assertEqual(code, 2)
         ntfy_post.assert_called_once()
         self.assertIn("mttd_minutes", ntfy_post.call_args.kwargs["data"].decode())
+
+    def test_audit_write_failures_below_threshold_does_not_breach(self):
+        with contextlib.ExitStack() as stack, \
+             mock.patch.object(slo_metrics, "NTFY_TOPIC", ""):
+            for p in self._mock_all_metrics(audit_write_failures=2.0):
+                stack.enter_context(p)
+            code = self._run_main_capturing_exit()
+        self.assertEqual(code, 0)
+
+    def test_audit_write_failures_at_threshold_breaches(self):
+        # NOTE: default target is 3 and breach is strictly-greater (val > target,
+        # same convention as every other lower-is-better metric in this file, e.g.
+        # mttd_minutes/mttr_minutes/ingest_lag_seconds/parse_error_pct) — hitting
+        # the target exactly is "ok", not a breach. 4.0 is the first value that
+        # actually breaches; see task-3-report.md for why this differs from the
+        # task brief's literal 3.0.
+        with contextlib.ExitStack() as stack, \
+             mock.patch.object(slo_metrics, "NTFY_TOPIC", "test-topic"), \
+             mock.patch.object(slo_metrics.requests, "post") as ntfy_post:
+            for p in self._mock_all_metrics(audit_write_failures=4.0):
+                stack.enter_context(p)
+            code = self._run_main_capturing_exit()
+        self.assertEqual(code, 2)
+        self.assertIn("audit_write_failures", ntfy_post.call_args.kwargs["data"].decode())
 
     def test_ntfy_failure_is_swallowed_not_fatal(self):
         # A downed ntfy.sh must not crash main() or change the breach exit code.

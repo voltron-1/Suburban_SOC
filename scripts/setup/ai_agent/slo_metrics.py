@@ -54,11 +54,13 @@ TARGETS = {
     "false_positive_pct":  float(os.environ.get("SLO_FP_MAX_PCT", "10")),
     "ingest_lag_seconds":  float(os.environ.get("SLO_INGEST_LAG_MAX_S", "300")),
     "parse_error_pct":     float(os.environ.get("SLO_PARSE_ERR_MAX_PCT", "1")),
+    "audit_write_failures": float(os.environ.get("SLO_AUDIT_WRITE_FAIL_MAX", "3")),
 }
 # Comparator per metric: True = lower is better (value <= target).
 LOWER_BETTER = {
     "mttd_minutes": True, "mttr_minutes": True, "coverage_techniques": False,
     "false_positive_pct": True, "ingest_lag_seconds": True, "parse_error_pct": True,
+    "audit_write_failures": True,
 }
 # Fail closed: for these metrics an unmeasurable value (None) is itself a breach,
 # not a benign "n/a". A dead/unreachable pipeline produces no fresh docs, so
@@ -199,6 +201,15 @@ def metric_parse_error_pct():
     return round(100.0 * errs / total, 3) if total else 0.0
 
 
+def metric_audit_write_failures():
+    """Count of write_audit() failures in the window (#184).
+
+    Every doc in soc-agent-health-* IS a failure marker — nothing else writes
+    there — so a plain count over the window is the metric, no extra filter.
+    """
+    return _count("soc-agent-health-*", {"match_all": {}})
+
+
 def main():
     if not ES_PASS:
         print("ERROR: ES_PASS / ELASTIC_PASSWORD required", file=sys.stderr)
@@ -211,6 +222,7 @@ def main():
         "false_positive_pct": metric_false_positive_pct,
         "ingest_lag_seconds": metric_ingest_lag_seconds,
         "parse_error_pct": metric_parse_error_pct,
+        "audit_write_failures": metric_audit_write_failures,
     }
     values, errors = {}, {}
     for name, fn in metric_fns.items():
