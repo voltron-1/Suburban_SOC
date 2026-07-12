@@ -801,9 +801,17 @@ def write_audit(action, actor, tenant, outcome="", target="", detail=""):
     # op_type=create (append-only) via the bulk create form.
     ndjson = '{"create":{}}\n' + json.dumps(doc) + "\n"
     try:
-        requests.post(f"{ES_HOST}/soc-audit-{tenant}/_bulk", data=ndjson,
+        r = requests.post(f"{ES_HOST}/soc-audit-{tenant}/_bulk", data=ndjson,
                       headers={"Content-Type": "application/x-ndjson"},
                       auth=(ES_USER, ES_PASS), verify=ES_VERIFY, timeout=5)
+        # ES's _bulk endpoint can return HTTP 200 with an embedded per-item error
+        # (e.g. a 403 from a missing role privilege, a mapping conflict, or an
+        # ILM write-block) — requests.post never raises for that, so an
+        # unchecked response silently "succeeds" while the audit record is
+        # actually dropped. Escalate both that case and a non-200 into the same
+        # except-driven health-marker path below (#184).
+        if r.status_code != 200 or r.json().get("errors"):
+            raise RuntimeError(f"audit bulk write rejected: HTTP {r.status_code}: {r.text[:500]}")
     except Exception as e:  # noqa: BLE001
         app.logger.error("Failed to write audit record: %s", e)
         _write_audit_health_marker(action, tenant, e)
@@ -818,18 +826,22 @@ def _write_audit_health_marker(action, tenant, error):
     this ALSO fails (e.g. total ES outage), that's already caught by
     stack_health.sh / the ingest-lag SLO, not this function's job to escalate further.
     """
-    doc = {
-        "@timestamp":    datetime.now(timezone.utc).isoformat(),
-        "tenant.id":     tenant,
-        "event.action":  "audit_write_failed",
-        "target_action": action,
-        "error":         str(error),
-    }
-    ndjson = '{"create":{}}\n' + json.dumps(doc) + "\n"
     try:
-        requests.post(f"{ES_HOST}/soc-agent-health-{tenant}/_bulk", data=ndjson,
+        doc = {
+            "@timestamp":    datetime.now(timezone.utc).isoformat(),
+            "tenant.id":     tenant,
+            "event.action":  "audit_write_failed",
+            "target_action": action,
+            "error":         str(error),
+        }
+        ndjson = '{"create":{}}\n' + json.dumps(doc) + "\n"
+        r = requests.post(f"{ES_HOST}/soc-agent-health-{tenant}/_bulk", data=ndjson,
                       headers={"Content-Type": "application/x-ndjson"},
                       auth=(ES_USER, ES_PASS), verify=ES_VERIFY, timeout=5)
+        # Same embedded-error case as write_audit() above: a 200 with
+        # "errors": true means the marker itself was silently dropped.
+        if r.status_code != 200 or r.json().get("errors"):
+            raise RuntimeError(f"health-marker bulk write rejected: HTTP {r.status_code}: {r.text[:500]}")
     except Exception as e:  # noqa: BLE001
         app.logger.warning("Failed to write audit-write-failure health marker: %s", e)
 
