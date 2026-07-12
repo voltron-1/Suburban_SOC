@@ -20,6 +20,7 @@ import uuid
 import os
 import re
 import threading
+import fcntl
 import logging
 import httpx
 from datetime import datetime, timezone
@@ -67,6 +68,8 @@ ES_VERIFY = ES_CA if ES_CA else True  # fail closed: never silently disable TLS 
 AUTONOMOUS_BLOCK_ENABLED = os.getenv("AUTONOMOUS_BLOCK_ENABLED", "false").lower() == "true"
 
 APPROVAL_QUEUE = os.getenv("APPROVAL_QUEUE", "approval_queue.jsonl")
+# audit #176: a stable cross-process lock path — see _append_action().
+_QUEUE_LOCK_PATH = APPROVAL_QUEUE + ".lock"
 _queue_lock = threading.Lock()
 
 # Tenant slug (WS0.3) — same grammar as agent_app/logstash/provision_tenant.sh.
@@ -111,9 +114,26 @@ async def write_denial(reason: str, request: Request, detail: str = "") -> None:
 
 
 def _append_action(action: dict) -> None:
+    """Append a resolved/drafted action to the approval queue (audit log).
+
+    audit #176: flocks _QUEUE_LOCK_PATH — a path that is never itself
+    replaced/truncated — rather than APPROVAL_QUEUE directly. A separate OS
+    process (compact_broker_approval_queue.py, run via cron) can't see
+    _queue_lock at all, so cross-process safety has to come from flock; but
+    flocking the *data* file doesn't compose safely with that script's atomic
+    replace: a fresh open(APPROVAL_QUEUE, "a") that resolves the path right
+    before a concurrent os.replace(), then blocks in flock() until after it,
+    would end up writing to the now-orphaned pre-replace inode and silently
+    lose the append. Locking a path that's never replaced avoids that.
+    """
     with _queue_lock:
-        with open(APPROVAL_QUEUE, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(action) + "\n")
+        with open(_QUEUE_LOCK_PATH, "a") as lock_fh:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+            try:
+                with open(APPROVAL_QUEUE, "a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(action) + "\n")
+            finally:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
 
 
 def _read_queue():

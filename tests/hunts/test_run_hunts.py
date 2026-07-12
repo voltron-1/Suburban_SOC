@@ -137,10 +137,34 @@ class MainExitCodeTests(unittest.TestCase):
         bulk_call = post.call_args_list[-1]
         sent = bulk_call.kwargs["data"]
         # The finding doc for HUNT-TEST-A must carry finding:true and the real count.
-        finding_line = [line for line in sent.splitlines() if "HUNT-TEST-A" in line][0]
-        doc = json.loads(finding_line)
+        # (Not the preceding bulk action line — audit #176's deterministic _id
+        # embeds the hunt id there too, so a bare substring match would grab
+        # either line.)
+        parsed = [json.loads(line) for line in sent.splitlines() if line.strip()]
+        doc = next(d for d in parsed if d.get("hunt", {}).get("id") == "HUNT-TEST-A")
         self.assertTrue(doc["finding"])
         self.assertEqual(doc["match_count"], 3)
+
+    def test_bulk_action_uses_deterministic_per_day_id(self):
+        # audit #176: same hunt, same day -> same _id, so a re-run overwrites
+        # (upserts) the prior doc via ES's index op instead of accumulating a
+        # new one every hourly cron tick.
+        import datetime as _dt
+        today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
+        with mock.patch.object(run_hunts.SESSION, "post") as post:
+            post.side_effect = [
+                _FakeResponse(200, {"count": 0}),
+                _FakeResponse(200, {"count": 0}),
+                _FakeResponse(200, {}),
+            ]
+            self._run_main_capturing_exit()
+        sent = post.call_args_list[-1].kwargs["data"]
+        parsed = [json.loads(line) for line in sent.splitlines() if line.strip()]
+        actions = [p for p in parsed if "index" in p]
+        ids = {a["index"]["_id"] for a in actions}
+        self.assertEqual(ids, {f"HUNT-TEST-A:{today}", f"HUNT-TEST-B:{today}"})
+        for a in actions:
+            self.assertEqual(a["index"]["_index"], "soc-hunts")
 
 
 class MainNoHuntsAndMissingCredsTests(unittest.TestCase):

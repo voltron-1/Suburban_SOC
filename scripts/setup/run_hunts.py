@@ -79,7 +79,15 @@ def main():
     if not hunts:
         print("No hunts found in hunts/", file=sys.stderr)
         sys.exit(1)
-    now = datetime.now(timezone.utc).isoformat()
+    now_dt = datetime.now(timezone.utc)
+    now = now_dt.isoformat()
+    # audit #176: cron runs this hourly (configs/hunts/hunts.cron), and every
+    # run re-evaluates the full rolling HUNT_WINDOW — without a stable _id,
+    # each run appends a fresh doc per hunt, so soc-hunts grows unbounded
+    # (hunts x 24/day forever). A deterministic per-day _id makes the bulk
+    # "index" op an upsert: same hunt, same day -> the latest run's result
+    # overwrites the prior one, bounding growth to hunts x days.
+    day_bucket = now_dt.strftime("%Y-%m-%d")
     bulk, findings, hunt_errors = [], 0, 0
     print(f"Threat hunts @ {now}  (window {WINDOW})")
     print(f"  {'hunt'.ljust(10)} {'attack'.ljust(12)} {'count':>7}  finding")
@@ -103,7 +111,12 @@ def main():
                "status": h.get("status", "active")}, "attack": h.get("attack", []),
                "data_source": h.get("data_source"), "match_count": count,
                "threshold": threshold, "finding": finding}
-        bulk.append('{"index":{"_index":"soc-hunts"}}')
+        # Fall back to the filename stem if a hunt has no id — otherwise every
+        # id-less hunt would share the literal string "None" and collide onto
+        # the same per-day doc as each other.
+        hunt_key = h.get("id") or path.stem
+        doc_id = f"{hunt_key}:{day_bucket}"
+        bulk.append(json.dumps({"index": {"_index": "soc-hunts", "_id": doc_id}}))
         bulk.append(json.dumps(doc))
     index_failed = False
     if bulk:

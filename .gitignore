@@ -79,6 +79,8 @@ node_modules/
 scripts/setup/.env
 scripts/setup/certs/
 **/approval_queue.jsonl
+**/approval_queue.jsonl.lock
+**/approval_queue.archive.jsonl
 
 # Python virtual environments
 .venv/
