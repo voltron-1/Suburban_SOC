@@ -11,17 +11,32 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
 Priority 2: #164-#172, #183 merged; #182 DEFERRED (needs interactive sudo at
-a real terminal — see DEFERRED section). Priority 3: #173-#174 merged; 6
-items remaining (#175-#177, #184, #189-#190).**
+a real terminal — see DEFERRED section). Priority 3: #173-#175 merged; 5
+items remaining (#176-#177, #184, #189-#190).**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#175** — convention drift: mixed shebangs, date-stamp
-formats, docstring style; stale README ref. #182 picked back up once sudo
-is available interactively.
+Next unstarted item: **#176** — unbounded runtime state: soc-hunts
+duplication, approval queue growth, shared /tmp PDF path. #182 picked back
+up once sudo is available interactively.
 
+- [x] **#175** — convention drift: standardized all 12 remaining
+  `#!/bin/bash` scripts to `#!/usr/bin/env bash` (0 bare left across 39
+  tracked `.sh` files); converted 6 Python modules to proper PEP 257 module
+  docstrings (`agent_app.py`, broker's `app.py`/`dispatcher.py`/
+  `inventory.py`, `slo_metrics.py`, `run_hunts.py` — verified via
+  `ast.get_docstring()`); removed README's stale `/wiki-temp` reference
+  (confirmed via `git log` the gitlink was already resolved pre-session)
+  plus a second stale entry it had drifted into, `/scripts/agile` (deleted
+  in #173); new `docs/CONVENTIONS.md` to stop the drift going forward
+  (shebang/docstring style + dashed `YYYY-MM-DD` date-stamps, not a
+  retroactive rename). No functional changes — pure cosmetic/hygiene, so
+  skipped the usual agent-based code review this time and relied on lint +
+  the full affected test suite (141 tests) instead.
+  [PR #199](https://github.com/voltron-1/Suburban_SOC/pull/199) merged;
+  issue closed.
 - [x] **#174** — no Python package structure; `sys.path` hacks scattered
   across 6 test files; one unpinned requirements file. Offered two designs;
   the lower-risk one was chosen — pytest's native `pythonpath` config
