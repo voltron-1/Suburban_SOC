@@ -54,27 +54,43 @@ This write is wrapped in its **own** nested `try/except`. If it also fails (e.g.
 log at `WARNING` (the primary failure is already logged at `ERROR`; this is a secondary, expected-
 possible event) and return — no retry chain, no further fallback.
 
+**Addendum (found during live verification, not in the original design):** `requests.post` does not
+raise on HTTP 4xx/5xx, and Elasticsearch's `_bulk` endpoint can return HTTP 200 with an embedded
+per-item error (e.g. a permissions or mapping rejection) — a "successful" response that isn't
+actually a successful write. Both the primary audit write and the health-marker write now check
+the response status code and the bulk response's `errors` field, raising inside the same `try` so
+detection is unified with the existing connection-level exception handling (no duplicated logging/
+marker-write logic). This was not a hypothetical: an ES role missing the `auto_configure`
+privilege caused exactly this failure mode during this feature's own rollout, silently, until
+traced by hand — see the `configs/elasticsearch/roles/logstash_writer.json` privilege list above.
+
 ### 2. ES role change
 
 The agent authenticates as `logstash_internal` (role `logstash_writer`) for all its ES writes,
 including the existing `soar-actions-<tenant>` stream. `logstash_writer`'s `indices` grant in
-`docker-compose.yml`'s `provision` service gets `"soc-agent-health-*"` added alongside the existing
-`"logstash-*"`/`"soar-actions-*"` patterns. No new user, role, or password — this data isn't
-sensitive/tamper-critical the way the audit trail itself is (that's exactly why it's fine to share
-the less-restrictive `create+write` role rather than get its own `soc_audit_appender`-style
-create-only role).
+`configs/elasticsearch/roles/logstash_writer.json` — the actual applied source of truth, via a
+separate `roles` one-shot service that overwrites `docker-compose.yml`'s inline bootstrap JSON
+after `provision` runs — gets `"soc-agent-health-*"` added alongside the existing
+`"logstash-*"`/`"soar-actions-*"`/`"asset-inventory-*"` patterns. No new user, role, or password —
+this data isn't sensitive/tamper-critical the way the audit trail itself is (that's exactly why
+it's fine to share the less-restrictive `create+write` role rather than get its own
+`soc_audit_appender`-style create-only role). Live verification also surfaced that ES's implicit
+index auto-creation via a `_bulk` "create" op requires the `auto_configure` privilege specifically
+— `create_index`/`manage` alone aren't sufficient — so that privilege was added too.
 
 ### 3. New SLO metric
 
 `slo_metrics.py` gains `metric_audit_write_failures()`, using the existing `_count()` helper against
-`soc-agent-health-*` with a `match_all` query over the existing `WINDOW` (`now-7d` default) — nothing
-else ever writes to that index, so every doc in it *is* a failure, no extra filter needed. A
-wildcard `_count` against zero matching indices (the common case — no failures ever) returns `0`
-successfully; it does not error the way an exact non-existent index name would.
+`soc-agent-health-*` with a `{"range": {"@timestamp": {"gte": WINDOW}}}` filter — matching
+`metric_parse_error_pct()`'s exact windowing pattern — over the existing `WINDOW` (`now-7d`
+default). Nothing else ever writes to that index, so every doc in it *is* a failure, no extra
+filter beyond the time range needed. A wildcard `_count` against zero matching indices (the common
+case — no failures ever) returns `0` successfully; it does not error the way an exact non-existent
+index name would.
 
 Wired in exactly like the other five metrics:
 
-- `TARGETS["audit_write_failures"] = float(os.environ.get("SLO_AUDIT_WRITE_FAIL_MAX", "3"))`
+- `TARGETS["audit_write_failures"] = float(os.environ.get("SLO_AUDIT_WRITE_FAIL_MAX", "2"))`
 - `LOWER_BETTER["audit_write_failures"] = True`
 - **Not** added to `BREACH_IF_NA` — an unmeasurable *query failure* still raises `MetricUnavailable`
   via `_count()`'s existing exception handling (same as every other metric), but a genuine zero-count
@@ -82,9 +98,11 @@ Wired in exactly like the other five metrics:
 - Added to the `metric_fns` dict in `main()`.
 
 That's the entire dashboard/alerting integration: `main()` already handles breach evaluation,
-indexing to `soc-slo-metrics`, and the ntfy alert generically for anything in `metric_fns`. Target
-of `3` means a single transient failure doesn't breach; three or more within the rolling window
-does — resolves the "transient vs. sustained" distinction from the issue directly.
+indexing to `soc-slo-metrics`, and the ntfy alert generically for anything in `metric_fns`. `main()`'s
+existing breach comparator is strict (`val > target`), so a target of `2` means 1-2 failures in the
+window don't breach; 3 or more does — resolves the "transient vs. sustained" distinction from the
+issue directly. (A target of `3` here, matching the "3" in the issue's own framing verbatim, would
+actually have meant "breach only above 3" i.e. 4+ — caught during implementation and corrected.)
 
 ## Testing
 

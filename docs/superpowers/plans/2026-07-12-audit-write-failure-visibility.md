@@ -12,7 +12,7 @@
 
 - `write_audit()`'s "never raise" contract must hold under **any** combination of failures (spec, Goals section).
 - The new index write reuses the agent's existing `logstash_internal` ES credential — no new user/role/password (spec, Design §2 + user's explicit choice during brainstorming).
-- Breach threshold defaults to `3` failures in the rolling window, overridable via `SLO_AUDIT_WRITE_FAIL_MAX` (spec, Design §3 + user's explicit choice during brainstorming).
+- Breach threshold: 1-2 failures in the rolling window tolerated, 3+ breaches, overridable via `SLO_AUDIT_WRITE_FAIL_MAX` (spec, Design §3 + user's explicit choice during brainstorming). **Note:** Task 3 below originally specified a target default of `"3"`, which — combined with `main()`'s existing strict `val > target` comparator — would actually have meant "breach only above 3" (4+), not "3+". This was caught during implementation (see Task 3's fix-round commits) and corrected to a target default of `"2"`, which combined with the same comparator correctly means "3+ breaches." The shipped code uses `"2"`; treat the `"3"` appearing in Task 3's original step-by-step text below as superseded.
 - No new dashboard panel, endpoint, or ILM policy — out of scope (spec, Non-goals).
 - Reference spec: `docs/superpowers/specs/2026-07-12-audit-write-failure-visibility-design.md`.
 
