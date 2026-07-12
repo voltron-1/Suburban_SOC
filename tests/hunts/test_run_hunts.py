@@ -6,12 +6,11 @@ run_hunts.py must distinguish "a hunt's ES query failed" from "a hunt
 genuinely found 0 matches", and must exit non-zero if any hunt failed to
 query or the final bulk index write failed — it must never silently exit 0.
 
-Run:  python tests/hunts/test_run_hunts.py     (or: pytest tests/hunts)
+Run:  pytest tests/hunts/test_run_hunts.py
 """
 
 import json
 import os
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,10 +19,7 @@ from unittest import mock
 # ES_PASS is read at import time; must be truthy or main() exits(1) immediately.
 os.environ["ES_PASS"] = "unit_test_pass"
 
-SETUP_DIR = Path(__file__).resolve().parents[2] / "scripts" / "setup"
-sys.path.insert(0, str(SETUP_DIR))
-
-import run_hunts  # noqa: E402
+import run_hunts
 
 
 HUNT_A = """

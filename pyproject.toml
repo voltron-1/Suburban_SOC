@@ -1,0 +1,24 @@
+[project]
+name = "suburban-soc"
+version = "0.0.0"
+description = "Suburban-SOC — SIEM/SOAR pipeline. Each deployed service (scripts/hive-mind-broker, scripts/setup/ai_agent) ships its own Dockerfile + requirements.txt; this file exists for repo-wide tooling config, not as a build/installable package."
+requires-python = ">=3.11,<3.12"
+
+# audit #174: single source of truth for pytest's import path, replacing manual
+# sys.path.insert() calls scattered across test files and CI's cd-into-the-
+# broker-directory workaround (.github/workflows/soar-tests.yml). None of the
+# directories below are installed packages — pytest just needs them importable
+# as flat top-level modules, exactly as each service's own entrypoint
+# (gunicorn/uvicorn) already resolves them in production.
+[tool.pytest.ini_options]
+# Verified no module-basename collision across these 5 dirs as of #174. Order
+# matters if that ever changes: pytest inserts each entry at the front of
+# sys.path in turn, so the FIRST entry listed here wins any future basename
+# collision (shadows same-named modules from directories listed after it).
+pythonpath = [
+  "scripts/hive-mind-broker",
+  "scripts/setup/ai_agent",
+  "scripts/setup",
+  "scripts/setup/lib",
+  "tests/detections",
+]
