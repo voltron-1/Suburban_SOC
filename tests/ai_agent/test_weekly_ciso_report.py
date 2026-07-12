@@ -12,6 +12,7 @@ Run:  pytest tests/ai_agent/test_weekly_ciso_report.py
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -143,13 +144,13 @@ class CreatePdfReportTests(unittest.TestCase):
         metrics = {"total_alerts": 0, "average_mttd_minutes": 0,
                    "nist_breakdown": {f: 0 for f in wcr.NIST_FUNCTIONS}, "demo_mode": True}
         with tempfile.TemporaryDirectory() as tmp:
-            out_path = os.path.join(tmp, "report.pdf")
-            with mock.patch.object(wcr, "PDF_FILENAME", out_path):
+            out_dir = os.path.join(tmp, "reports")
+            with mock.patch.object(wcr, "PDF_OUTPUT_DIR", out_dir):
                 result = wcr.create_pdf_report(metrics, "Paragraph one.\n\nParagraph two.")
-            self.assertEqual(result, out_path)
-            self.assertTrue(os.path.isfile(out_path))
-            self.assertGreater(os.path.getsize(out_path), 0)
-            with open(out_path, "rb") as fh:
+            self.assertTrue(result.startswith(out_dir))
+            self.assertTrue(os.path.isfile(result))
+            self.assertGreater(os.path.getsize(result), 0)
+            with open(result, "rb") as fh:
                 self.assertTrue(fh.read(5).startswith(b"%PDF-"))
 
     def test_renders_real_pdf_with_nist_breakdown_percentages(self):
@@ -157,11 +158,59 @@ class CreatePdfReportTests(unittest.TestCase):
                    "nist_breakdown": {"Identify": 5, "Protect": 15, "Detect": 60,
                                       "Respond": 15, "Recover": 5}, "demo_mode": False}
         with tempfile.TemporaryDirectory() as tmp:
-            out_path = os.path.join(tmp, "report.pdf")
-            with mock.patch.object(wcr, "PDF_FILENAME", out_path):
+            out_dir = os.path.join(tmp, "reports")
+            with mock.patch.object(wcr, "PDF_OUTPUT_DIR", out_dir):
                 result = wcr.create_pdf_report(metrics, "Some narrative.")
-            self.assertTrue(os.path.isfile(out_path))
-            self.assertEqual(result, out_path)
+            self.assertTrue(os.path.isfile(result))
+            self.assertTrue(result.startswith(out_dir))
+
+    def test_output_dir_created_owner_only(self):
+        metrics = {"total_alerts": 0, "average_mttd_minutes": 0,
+                   "nist_breakdown": {}, "demo_mode": False}
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = os.path.join(tmp, "reports")
+            with mock.patch.object(wcr, "PDF_OUTPUT_DIR", out_dir):
+                wcr.create_pdf_report(metrics, "Narrative.")
+            # audit #176 (SC-28): not world-readable — owner-only.
+            self.assertEqual(os.stat(out_dir).st_mode & 0o777, 0o700)
+
+    def test_each_run_gets_a_distinct_filename(self):
+        metrics = {"total_alerts": 0, "average_mttd_minutes": 0,
+                   "nist_breakdown": {}, "demo_mode": False}
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = os.path.join(tmp, "reports")
+            with mock.patch.object(wcr, "PDF_OUTPUT_DIR", out_dir):
+                first = wcr.create_pdf_report(metrics, "Narrative one.")
+                time.sleep(1.1)  # filenames are second-precision timestamps
+                second = wcr.create_pdf_report(metrics, "Narrative two.")
+            self.assertNotEqual(first, second)
+            self.assertTrue(os.path.isfile(first))
+            self.assertTrue(os.path.isfile(second))
+
+    def test_prunes_old_reports_beyond_retention_count(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = os.path.join(tmp, "reports")
+            os.makedirs(out_dir)
+            # Pre-seed more report files than the retention count, with distinct
+            # mtimes so "oldest" is unambiguous.
+            paths = []
+            for i in range(5):
+                p = os.path.join(out_dir, f"Weekly_NIST_Security_Report_fake-{i}.pdf")
+                with open(p, "wb") as fh:
+                    fh.write(b"%PDF-1.7 fake")
+                os.utime(p, (1000 + i, 1000 + i))
+                paths.append(p)
+            with mock.patch.object(wcr, "PDF_OUTPUT_DIR", out_dir), \
+                 mock.patch.object(wcr, "PDF_RETENTION_COUNT", 3):
+                metrics = {"total_alerts": 0, "average_mttd_minutes": 0,
+                           "nist_breakdown": {}, "demo_mode": False}
+                wcr.create_pdf_report(metrics, "Narrative.")
+            remaining = sorted(os.listdir(out_dir))
+            # 5 pre-seeded + 1 new = 6 candidates; retention=3 must prune to 3.
+            self.assertEqual(len(remaining), 3)
+            # The 2 oldest pre-seeded files must be the ones pruned.
+            self.assertNotIn(os.path.basename(paths[0]), remaining)
+            self.assertNotIn(os.path.basename(paths[1]), remaining)
 
 
 class SendToSlackTests(unittest.TestCase):

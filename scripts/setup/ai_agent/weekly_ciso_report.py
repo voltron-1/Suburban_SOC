@@ -18,6 +18,7 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import requests
 from jinja2 import Template
@@ -42,8 +43,17 @@ LLM_MODEL       = os.getenv("LLM_MODEL",         "gpt-4")
 NTFY_TOPIC      = os.getenv("NTFY_TOPIC",        "")  # shared with agent_app; set in .env (audit P2-6)
 SLACK_TOKEN     = os.getenv("SLACK_BOT_TOKEN",   "")
 SLACK_CHANNEL   = os.getenv("SLACK_CHANNEL_ID",  "")
-PDF_OUTPUT_DIR  = os.getenv("PDF_OUTPUT_DIR",    "/tmp")
-PDF_FILENAME    = os.path.join(PDF_OUTPUT_DIR, "Weekly_NIST_Security_Report.pdf")
+# audit #176 (SC-28): was a fixed /tmp path — predictable, shared, world-readable
+# when run standalone on a host (not just inside the agent's own container).
+# Defaults to a dedicated subdirectory next to this script instead: inside the
+# container that's /app/reports (owned solely by the non-root appuser per the
+# Dockerfile's `chown -R appuser:appuser /app`); run standalone it's a
+# repo-local dir, never a shared system temp directory either way.
+PDF_OUTPUT_DIR  = os.getenv("PDF_OUTPUT_DIR", str(Path(__file__).resolve().parent / "reports"))
+# How many past reports to keep on disk before pruning the oldest — otherwise
+# moving off a fixed, overwritten filename just trades one unbounded-growth
+# problem (#176) for another.
+PDF_RETENTION_COUNT = int(os.getenv("PDF_RETENTION_COUNT", "12"))
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -300,21 +310,47 @@ _HTML_TEMPLATE = """
 """
 
 
+_REPORT_FILENAME_PREFIX = "Weekly_NIST_Security_Report"
+
+
+def _prune_old_reports(directory: Path, keep: int) -> None:
+    """Delete all but the `keep` most-recently-modified reports (audit #176) —
+    otherwise per-run filenames just trade one unbounded-growth problem for
+    another."""
+    reports = sorted(directory.glob(f"{_REPORT_FILENAME_PREFIX}_*.pdf"),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+    for stale in reports[keep:]:
+        try:
+            stale.unlink()
+        except OSError as exc:
+            log.warning("Failed to prune old report %s: %s", stale, exc)
+
+
 def create_pdf_report(metrics: dict, narrative: str) -> str:
     """
     Renders the Jinja2 HTML template and converts to PDF via WeasyPrint.
     Returns the absolute path to the saved PDF.
     """
-    log.info("Compiling PDF report -> %s", PDF_FILENAME)
+    out_dir = Path(PDF_OUTPUT_DIR)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    os.chmod(out_dir, 0o700)  # audit #176 (SC-28): owner-only, defense in depth
+
+    # audit #176: per-run filename, not a fixed one — a fixed name is a
+    # predictable "latest report" path even after moving off shared /tmp.
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H-%M-%SZ")
+    pdf_path = str(out_dir / f"{_REPORT_FILENAME_PREFIX}_{stamp}.pdf")
+
+    log.info("Compiling PDF report -> %s", pdf_path)
     rendered = Template(_HTML_TEMPLATE).render(
         date=datetime.now().strftime("%B %d, %Y"),
         year=datetime.now().year,
         metrics=metrics,
         narrative=narrative,
     )
-    HTML(string=rendered).write_pdf(PDF_FILENAME)
-    log.info("PDF saved: %s", PDF_FILENAME)
-    return PDF_FILENAME
+    HTML(string=rendered).write_pdf(pdf_path)
+    log.info("PDF saved: %s", pdf_path)
+    _prune_old_reports(out_dir, PDF_RETENTION_COUNT)
+    return pdf_path
 
 
 # ---------------------------------------------------------------------------

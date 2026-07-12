@@ -20,6 +20,7 @@ import hmac
 import hashlib
 import ipaddress
 import threading
+import fcntl
 import requests
 import logging
 from datetime import datetime, timezone
@@ -105,6 +106,8 @@ APPROVAL_QUEUE = os.environ.get(
     "APPROVAL_QUEUE",
     str((Path(__file__).resolve().parent / "approval_queue.jsonl")),
 )
+# audit #176: a stable cross-process lock path — see _append_pending_action_locked().
+_QUEUE_LOCK_PATH = APPROVAL_QUEUE + ".lock"
 _queue_lock = threading.Lock()
 # audit #172: any status other than "pending" means the action is no longer
 # awaiting approval — "claimed" marks one mid-execution (see approve_action).
@@ -518,8 +521,31 @@ def send_discord_alert(device_ip: str, device_mac: str, ai_summary: str, tenant:
 def _append_pending_action(action: dict) -> None:
     """Append a drafted action to the approval queue (append-only audit log)."""
     with _queue_lock:
-        with open(APPROVAL_QUEUE, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(action) + "\n")
+        _append_pending_action_locked(action)
+
+
+def _append_pending_action_locked(action: dict) -> None:
+    """Same as _append_pending_action(), for a caller that already holds
+    _queue_lock as part of a larger atomic read-check-append section (e.g.
+    approve_action()'s TOCTOU fix — see #172).
+
+    audit #176: flocks _QUEUE_LOCK_PATH — a path that is never itself
+    replaced/truncated — rather than APPROVAL_QUEUE directly. A separate OS
+    process (compact_agent_approval_queue.py, run via cron) can't see
+    _queue_lock at all, so cross-process safety has to come from flock; but
+    flocking the *data* file doesn't compose safely with that script's atomic
+    replace: a fresh open(APPROVAL_QUEUE, "a") that resolves the path right
+    before a concurrent os.replace(), then blocks in flock() until after it,
+    would end up writing to the now-orphaned pre-replace inode and silently
+    lose the append. Locking a path that's never replaced avoids that.
+    """
+    with open(_QUEUE_LOCK_PATH, "a") as lock_fh:
+        fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
+        try:
+            with open(APPROVAL_QUEUE, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(action) + "\n")
+        finally:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
 
 
 def _read_queue():
@@ -912,9 +938,12 @@ def approve_action():
         action = pending.get(action_id)
         if not action:
             return jsonify({"error": f"no pending action {action_id}"}), 404
-        with open(APPROVAL_QUEUE, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps({"id": action_id, "ts": time.time(),
-                                  "status": "claimed", "approver": approver}) + "\n")
+        # audit #176: was a raw open().write() here — bypassed the flock in
+        # _append_pending_action() entirely (advisory locks aren't enforced
+        # against writers that never take them), so a concurrent compaction
+        # run could silently drop this claim marker.
+        _append_pending_action_locked({"id": action_id, "ts": time.time(),
+                                        "status": "claimed", "approver": approver})
 
     _t0 = time.time()
     action_tenant = safe_tenant(action.get("tenant"))
