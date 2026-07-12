@@ -11,17 +11,34 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 **Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
 Priority 2: #164-#172, #183 merged; #182 DEFERRED (needs interactive sudo at
-a real terminal — see DEFERRED section). Priority 3: #173 merged; 7 items
-remaining (#174-#177, #184, #189-#190).**
+a real terminal — see DEFERRED section). Priority 3: #173-#174 merged; 6
+items remaining (#175-#177, #184, #189-#190).**
 Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
 2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
 #185, #189-#190), all linked to
 [Project Board #17](https://github.com/users/voltron-1/projects/17).
 
-Next unstarted item: **#174** — no Python package structure; `sys.path`
-hacks in tests, one unpinned requirements file. #182 picked back up once
-sudo is available interactively.
+Next unstarted item: **#175** — convention drift: mixed shebangs, date-stamp
+formats, docstring style; stale README ref. #182 picked back up once sudo
+is available interactively.
 
+- [x] **#174** — no Python package structure; `sys.path` hacks scattered
+  across 6 test files; one unpinned requirements file. Offered two designs;
+  the lower-risk one was chosen — pytest's native `pythonpath` config
+  (root `pyproject.toml`) over converting the broker/agent into real
+  installed packages with relative imports and Dockerfile CMD rewrites, so
+  zero changes to either production entrypoint. Single-sourced the Python
+  version via `.python-version` across all 5 workflows. Left the broker's
+  CI `working-directory` workaround in place — tested removing it first,
+  which broke 7 tenant-routing tests because `app.py`'s
+  `Inventory("inventory.yaml")` resolves relative to CWD, not `__file__` (a
+  separate, pre-existing issue out of scope this pass). Two real gaps
+  caught before merge: `code-reviewer` found `test_es_client.py`'s
+  `sys.path.insert` wasn't actually removed (only its docstring was), and
+  the first real CI run caught that `detections.yml` never installed
+  `pytest` in the first place (the old bare-`python` invocation didn't need
+  it). [PR #198](https://github.com/voltron-1/Suburban_SOC/pull/198)
+  merged; issue closed.
 - [x] **#173** — repo-root clutter and dead scripts: deleted `audit_repo.sh`
   (stale foreign repo slug) and `validate_soc.sh` (superseded by
   `stack_health.sh`/`verify_*.sh`); moved the two `UIW_*.html` deliverables
