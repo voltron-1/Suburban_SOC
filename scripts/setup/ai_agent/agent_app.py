@@ -806,6 +806,32 @@ def write_audit(action, actor, tenant, outcome="", target="", detail=""):
                       auth=(ES_USER, ES_PASS), verify=ES_VERIFY, timeout=5)
     except Exception as e:  # noqa: BLE001
         app.logger.error("Failed to write audit record: %s", e)
+        _write_audit_health_marker(action, tenant, e)
+
+
+def _write_audit_health_marker(action, tenant, error):
+    """Best-effort dashboard-visible signal for a failed audit write (#184).
+
+    A single failure doc in soc-agent-health-<tenant>; slo_metrics.py counts these
+    over its rolling window so a SUSTAINED run of failures breaches an SLO (and
+    alerts), while a one-off transient blip does not. Must never raise itself — if
+    this ALSO fails (e.g. total ES outage), that's already caught by
+    stack_health.sh / the ingest-lag SLO, not this function's job to escalate further.
+    """
+    doc = {
+        "@timestamp":    datetime.now(timezone.utc).isoformat(),
+        "tenant.id":     tenant,
+        "event.action":  "audit_write_failed",
+        "target_action": action,
+        "error":         str(error),
+    }
+    ndjson = '{"create":{}}\n' + json.dumps(doc) + "\n"
+    try:
+        requests.post(f"{ES_HOST}/soc-agent-health-{tenant}/_bulk", data=ndjson,
+                      headers={"Content-Type": "application/x-ndjson"},
+                      auth=(ES_USER, ES_PASS), verify=ES_VERIFY, timeout=5)
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning("Failed to write audit-write-failure health marker: %s", e)
 
 
 # =============================================================================
