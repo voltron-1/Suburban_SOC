@@ -1,3 +1,10 @@
+"""
+inventory.py — loads the per-tenant router inventory (inventory.yaml).
+
+WS0.3 tenant isolation: get_routers_for_tenant() returns only a given
+tenant's routers, so the broker never broadcasts a block across tenants.
+"""
+
 import yaml
 import os
 import logging

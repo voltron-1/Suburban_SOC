@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Install a systemd drop-in that sets TENANT_ID for the host Filebeat service.
 # Run with: sudo bash scripts/setup/install_filebeat_tenant_dropin.sh [<tenant-slug>]
 #

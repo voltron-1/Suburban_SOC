@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Install Filebeat 9.x — matches ELK stack version (9.3.2)
 # Run with: sudo bash scripts/setup/install_filebeat.sh
 

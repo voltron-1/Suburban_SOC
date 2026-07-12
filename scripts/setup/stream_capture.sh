@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SOP-001: Stream live traffic from a capture source through the Zeek container.
 # Replaces the formerly-separate stream_bat0_data.sh / stream_br_lan_data.sh /
 # stream_raw_data.sh (#173) — same behavior per source, parameterized by mode

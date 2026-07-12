@@ -1,3 +1,16 @@
+"""
+agent_app.py — Suburban-SOC AI agent / SOAR webhook listener.
+
+Receives HMAC-signed Kibana alert webhooks (/alert), runs AI triage, and
+enforces the CDP §12.3/§12.4 response model: autonomous isolation is
+deliberately off by default (a critical alert with a valid MAC is DRAFTED for
+human approval via /pending + /approve, not auto-executed), and §12.4
+protected assets are never isolated or even drafted. Containment itself is
+routed to the hive-mind-broker over a second HMAC-signed webhook (the slim
+agent container has no ssh/sudo). Also serves /weekly-report, wiring in the
+CISO reporting pipeline (weekly_ciso_report.py).
+"""
+
 import os
 import re
 import json

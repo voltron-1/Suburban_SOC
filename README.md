@@ -257,14 +257,12 @@ This project encompasses the design, development, and testing of an advanced **n
 ├── /evidence                   # Pipeline proof — hashes and Kibana screenshots
 │   └── /screenshots
 ├── /reports                    # Final project report (mirrors GitHub Wiki)
-├── /scripts                    # All automation and setup scripts
-│   ├── /agile                  # GitHub project board & issue management scripts
-│   └── /setup                  # Pipeline setup, capture, and AI agent scripts
-│       ├── /ai_agent           # SOC AI agent (Flask webhook, LLM triage, ntfy)
-│       ├── /hive-mind-broker   # (../) HMAC router-block dispatcher (FastAPI)
-│       ├── docker-compose.yml  # ELK + AI agent stack (mounts ../../configs/logstash.conf)
-│       └── soc_pipeline.sh     # Interactive SOP automation menu
-└── /wiki-temp                  # GitHub Wiki source files (submodule)
+└── /scripts                    # All automation and setup scripts
+    └── /setup                  # Pipeline setup, capture, and AI agent scripts
+        ├── /ai_agent           # SOC AI agent (Flask webhook, LLM triage, ntfy)
+        ├── /hive-mind-broker   # (../) HMAC router-block dispatcher (FastAPI)
+        ├── docker-compose.yml  # ELK + AI agent stack (mounts ../../configs/logstash.conf)
+        └── soc_pipeline.sh     # Interactive SOP automation menu
 ```
 
 ## Setup & Installation
@@ -339,7 +337,6 @@ This project is licensed under the MIT License. (Make sure you include a `LICENS
 * **Live threat-intel feed is empty until refreshed (audit P2-23).** `configs/intel/intel.dat` ships only two RFC-5737/`.invalid` TEST placeholders; real indicators (and the `T1105` C2 detection path) only populate after `configs/intel/refresh_intel.sh` runs (cron, 6h).
 * **Detection tests validate logic, not live firing (audit P2-21).** `tests/detections/` replays fixtures through a Sigma evaluator and CI converts every rule to Lucene — this proves rule *logic*, not that the compiled query fires against a live index. End-to-end firing is exercised by `tests/anomaly_simulation/` (manual).
 * **A few Sigma rules are coarse (P3, detection-tuning backlog).** e.g. `mshta_remote` matches any `http` substring and `whoami /all` is a standalone medium alert; they lack structured `filter` false-positive exclusions. Tuning is iterative.
-* **`wiki-temp` is an uninitialized gitlink (audit P2-17).** It tracks a wiki commit with no `.gitmodules`, so it shows perpetually "modified". Register it properly (`.gitmodules` + URL) or `git rm --cached wiki-temp` — a deliberate decision about the wiki workflow.
 * The default ntfy topic (`subsoc-alerts`) is guessable; ntfy topics are unauthenticated, so set a unique `NTFY_TOPIC` in `.env` (P3). Some docs still reference a fixed lab router IP — parameterize per environment.
 
 

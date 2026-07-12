@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-# =============================================================================
-# slo_metrics.py — WS2.4: self-measuring SOC metrics & SLOs.
-#
-# Computes the SOC's own performance metrics against defined targets, indexes them
-# to the `soc-slo-metrics` index (for the SLO dashboard), and raises an ntfy alert
-# if any SLO is breached. Run on a schedule (cron) alongside refresh_intel.sh.
-#
-#   MTTD  (mean time to detect)      <= 30 min   — detection-engine alerts
-#   MTTR  (automated response)       <= 5  min   — soar-actions response.latency_seconds
-#   Detection coverage               >= 10 tech  — docs/detections/attack-coverage.json
-#   False-positive rate              <= 10 %     — Kibana cases disposition tags
-#   Ingest lag                       <= 300 s    — newest logstash-security event age
-#   Parse-error (drop) rate          <= 1  %     — pipeline.error over the window
-#
-# Pure stdlib (requests). Env (auto-loaded from scripts/setup/.env):
-#   ES_URL, ES_USER, ES_PASS/ELASTIC_PASSWORD, KIBANA_URL, NTFY_TOPIC.
-# Targets overridable via SLO_<NAME> env (e.g. SLO_MTTD_MAX_MIN=20).
-# =============================================================================
+"""
+slo_metrics.py — WS2.4: self-measuring SOC metrics & SLOs.
+
+Computes the SOC's own performance metrics against defined targets, indexes them
+to the `soc-slo-metrics` index (for the SLO dashboard), and raises an ntfy alert
+if any SLO is breached. Run on a schedule (cron) alongside refresh_intel.sh.
+
+  MTTD  (mean time to detect)      <= 30 min   — detection-engine alerts
+  MTTR  (automated response)       <= 5  min   — soar-actions response.latency_seconds
+  Detection coverage               >= 10 tech  — docs/detections/attack-coverage.json
+  False-positive rate              <= 10 %     — Kibana cases disposition tags
+  Ingest lag                       <= 300 s    — newest logstash-security event age
+  Parse-error (drop) rate          <= 1  %     — pipeline.error over the window
+
+Pure stdlib (requests). Env (auto-loaded from scripts/setup/.env):
+  ES_URL, ES_USER, ES_PASS/ELASTIC_PASSWORD, KIBANA_URL, NTFY_TOPIC.
+Targets overridable via SLO_<NAME> env (e.g. SLO_MTTD_MAX_MIN=20).
+"""
 import json
 import os
 import sys

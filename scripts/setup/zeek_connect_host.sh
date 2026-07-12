@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # SOP-001-E: Interactive Zeek Host Monitor
 # Runs Zeek directly on the host's eth0 interface with threat intel loaded.
 # Requires NET_ADMIN and NET_RAW capabilities (sudo).
