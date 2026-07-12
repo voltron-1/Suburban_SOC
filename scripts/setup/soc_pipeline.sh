@@ -271,11 +271,13 @@ run_prereq_checks() {
         warn "Elasticsearch not reachable or auth failed - ensure ELK stack is running and password is correct."
     fi
 
-    # Test Kibana frontend availability
-    if curl -s --connect-timeout 3 http://localhost:5601 &>/dev/null; then
+    # Test Kibana frontend availability. #177: Kibana is TLS-only now (self-signed
+    # stack CA) — this is a bare reachability ping, not an authenticated call, so -k
+    # is acceptable here (matches this script's existing no-CA-verification style).
+    if curl -sk --connect-timeout 3 https://localhost:5601 &>/dev/null; then
         pass "Kibana is reachable (port 5601)"
     else
-        warn "Kibana not reachable - open http://localhost:5601 after starting ELK stack"
+        warn "Kibana not reachable - open https://localhost:5601 after starting ELK stack"
     fi
 
     echo ""
@@ -529,8 +531,10 @@ run_sop_005() {
     fi
 
     echo -e "\n${BOLD}Step 4: Verify Kibana${NC}"
-    if curl -s --connect-timeout 5 http://localhost:5601 &>/dev/null; then
-        pass "Kibana reachable at http://localhost:5601"
+    # #177: Kibana is TLS-only now (self-signed stack CA); -k is fine for this bare
+    # reachability ping.
+    if curl -sk --connect-timeout 5 https://localhost:5601 &>/dev/null; then
+        pass "Kibana reachable at https://localhost:5601"
     else
         warn "Kibana not reachable - check Docker containers"
     fi
@@ -573,7 +577,7 @@ run_sop_005() {
 
     echo -e "\n${BOLD}Step 8: Confirm data in Kibana${NC}"
     info "Open Kibana -> Discover -> Index pattern: logstash-*"
-    info "URL: http://localhost:5601"
+    info "URL: https://localhost:5601"
     pass "Pipeline startup sequence complete"
 }
 

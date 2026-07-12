@@ -64,7 +64,7 @@ input {
 ## 4. Visualizing the Data (Kibana)
 With the pipeline fully flowing (Zeek -> Filebeat -> Logstash), the final step was simply to view the data.
 
-1. You navigated to `http://localhost:5601`.
+1. You navigated to `https://localhost:5601`.
 2. In **Stack Management > Data Views**, you created a dynamic index pattern by defining `logstash-*`, allowing Kibana to map all incoming data from Logstash automatically.
 3. You set the timestamp field to `@timestamp`.
 

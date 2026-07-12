@@ -18,7 +18,8 @@
 #   ./provision_tenant.sh <tenant-slug>          # e.g. home-smith
 #
 # Env (auto-loaded from ./.env):
-#   ES_URL (default https://localhost:9200), KIBANA_URL (default http://localhost:5601)
+#   ES_URL (default https://localhost:9200), KIBANA_URL (default https://localhost:5601
+#   — #177: Kibana is TLS-only now, same stack CA as ES)
 #   ES_USER/ES_PASS (default elastic / $ELASTIC_PASSWORD), ES_CA (optional)
 # =============================================================================
 set -euo pipefail
@@ -38,7 +39,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
 
-KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
 # Shared ES creds + TLS + helpers (issue #156).
 source "$SCRIPT_DIR/lib/es_common.sh"
 AUTH=("${ES_AUTH[@]}"); TLS=("${ES_TLS[@]}")
@@ -46,7 +47,9 @@ AUTH=("${ES_AUTH[@]}"); TLS=("${ES_TLS[@]}")
 ROLE="tenant_${TENANT//-/_}_viewer"
 USER="tenant_${TENANT//-/_}"
 TENANT_PW="${TENANT_PW:-$(openssl rand -base64 18)}"
-KARGS=(-s -H 'kbn-xsrf: true' -H 'Content-Type: application/json' "${AUTH[@]}")
+# #177: Kibana now serves TLS on the same stack CA as ES — KARGS (used for every
+# Kibana call below) gets TLS[@] too, not just AUTH[@].
+KARGS=(-s -H 'kbn-xsrf: true' -H 'Content-Type: application/json' "${AUTH[@]}" "${TLS[@]}")
 
 blue "==> [1/4] Creating Kibana space '${TENANT}'"
 curl "${KARGS[@]}" -o /dev/null -w '    space -> HTTP %{http_code}\n' \

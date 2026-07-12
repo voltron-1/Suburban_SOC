@@ -25,7 +25,7 @@
 #   ./scripts/setup/deploy_detections.sh            # convert + import (+ enable)
 #   ./scripts/setup/deploy_detections.sh --no-enable # import disabled rules
 #   DETECTION_INDEX='logstash-*' ./deploy_detections.sh
-# Env: KIBANA_URL (http://localhost:5601), ES_USER (elastic),
+# Env: KIBANA_URL (https://localhost:5601 — #177: Kibana is TLS-only now), ES_USER (elastic),
 #      ES_PASS/ELASTIC_PASSWORD, DETECTION_INDEX (logstash-*).
 # =============================================================================
 set -euo pipefail
@@ -38,7 +38,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
 
-KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
 # Shared ES creds + TLS + helpers (issue #156).
 source "$SCRIPT_DIR/lib/es_common.sh"
 DETECTION_INDEX="${DETECTION_INDEX:-logstash-*}"

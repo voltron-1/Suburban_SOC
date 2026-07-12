@@ -43,7 +43,7 @@ import es_client  # noqa: E402
 ES_URL = os.environ.get("ES_URL", "https://localhost:9200")
 ES_USER = os.environ.get("ES_USER", "elastic")
 ES_PASS = os.environ.get("ES_PASS") or os.environ.get("ELASTIC_PASSWORD", "")
-KIBANA_URL = os.environ.get("KIBANA_URL", "http://localhost:5601")
+KIBANA_URL = os.environ.get("KIBANA_URL", "https://localhost:5601")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")
 WINDOW = os.environ.get("SLO_WINDOW", "now-7d")
 
@@ -95,7 +95,9 @@ def es(method, path, body=None):
 
 
 def kb(path):
-    return SESSION.get(f"{KIBANA_URL}{path}",
+    # #177: Kibana now serves TLS (SC-8) on the same stack CA as ES — reuse ES_VERIFY
+    # rather than introduce a second CA-path env var for an identical trust root.
+    return SESSION.get(f"{KIBANA_URL}{path}", verify=ES_VERIFY,
                         headers={"kbn-xsrf": "true"}, timeout=15)
 
 

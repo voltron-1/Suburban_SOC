@@ -14,7 +14,7 @@ This runbook expands each section of the issue into ordered, copy-pasteable step
 # Run all ES/Kibana commands with the stack creds (auto-loaded from the setup .env).
 cd scripts/setup && set -a && source .env && set +a
 ES_URL="${ES_URL:-https://localhost:9200}"
-KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"  # #177: Kibana is TLS-only now
 AUTH="-u ${ES_USER:-elastic}:${ES_PASS:-$ELASTIC_PASSWORD}"
 # TLS is on; use -k for the self-signed dev CA (or point --cacert at the CA).
 ES() { curl -s -k $AUTH "$@"; }

@@ -289,7 +289,7 @@ Before you begin, ensure you have the following:
 4.  **Deploy Containers:**
     From `scripts/setup/`, run `docker compose up -d`. A one-shot `setup` service generates
     the TLS CA/certs and provisions service accounts; then Elasticsearch (`https://localhost:9200`),
-    Logstash, Kibana (`http://localhost:5601`, login as `elastic`), and the AI agent come up.
+    Logstash, Kibana (`https://localhost:5601`, login as `elastic`), and the AI agent come up.
 
 ### 3. Usage:
 1.  **Architecture Flow:**
@@ -299,7 +299,7 @@ Before you begin, ensure you have the following:
 2.  **Running the Pipeline:**
     Execute the relevant bash scripts in `/scripts/setup/` to begin streaming raw PCAP data over SSH.
 3.  **Viewing Reports:**
-    Navigate to Kibana (e.g., `http://localhost:5601`) to view the real-time visualizations and log queries.
+    Navigate to Kibana (e.g., `https://localhost:5601`) to view the real-time visualizations and log queries.
 
 ## Contribution Guidelines
 Please see our Wiki for detailed procedures on contributing to this project. We follow Agile methodologies including sprint tracking and GitHub Issue Management.

@@ -19,7 +19,8 @@
 #   ./erase_tenant.sh <tenant-slug> --yes      # non-interactive (runbook/automation)
 #   ./erase_tenant.sh <tenant-slug> --dry-run  # show what WOULD be deleted
 #
-# Env (auto-loaded from ./.env): ES_URL, KIBANA_URL, ES_USER/ES_PASS, ES_CA.
+# Env (auto-loaded from ./.env): ES_URL, KIBANA_URL (default https://localhost:5601
+# — #177: Kibana is TLS-only now, same stack CA as ES), ES_USER/ES_PASS, ES_CA.
 # =============================================================================
 set -euo pipefail
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -40,7 +41,7 @@ DRY=0; ASSUME_YES=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
-KIBANA_URL="${KIBANA_URL:-http://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
 # Shared ES creds + TLS + es()/es_code() (issue #156).
 source "$SCRIPT_DIR/lib/es_common.sh"
 
@@ -103,7 +104,8 @@ echo "    DELETE ${AUDIT_IDX} -> HTTP $(es_code -X DELETE "${ES_URL}/${AUDIT_IDX
 blue "==> [4/4] Removing access artifacts (role / user / space / data view)"
 echo "    user  -> HTTP $(es_code -X DELETE "${ES_URL}/_security/user/${USER}")"
 echo "    role  -> HTTP $(es_code -X DELETE "${ES_URL}/_security/role/${ROLE}")"
-KARGS=(-s -H 'kbn-xsrf: true' "${ES_AUTH[@]}")
+# #177: Kibana now serves TLS on the same stack CA as ES — add ES_TLS[@], not just auth.
+KARGS=(-s -H 'kbn-xsrf: true' "${ES_AUTH[@]}" "${ES_TLS[@]}")
 echo "    space -> HTTP $(curl "${KARGS[@]}" -o /dev/null -w '%{http_code}' -X DELETE "${KIBANA_URL}/api/spaces/space/${TENANT}" || echo "n/a")"
 
 # Final erasure receipt to the shared audit trail.
