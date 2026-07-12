@@ -263,16 +263,10 @@ class MainExitCodeTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
     def test_audit_write_failures_at_threshold_breaches(self):
-        # NOTE: default target is 3 and breach is strictly-greater (val > target,
-        # same convention as every other lower-is-better metric in this file, e.g.
-        # mttd_minutes/mttr_minutes/ingest_lag_seconds/parse_error_pct) — hitting
-        # the target exactly is "ok", not a breach. 4.0 is the first value that
-        # actually breaches; see task-3-report.md for why this differs from the
-        # task brief's literal 3.0.
         with contextlib.ExitStack() as stack, \
              mock.patch.object(slo_metrics, "NTFY_TOPIC", "test-topic"), \
              mock.patch.object(slo_metrics.requests, "post") as ntfy_post:
-            for p in self._mock_all_metrics(audit_write_failures=4.0):
+            for p in self._mock_all_metrics(audit_write_failures=3.0):
                 stack.enter_context(p)
             code = self._run_main_capturing_exit()
         self.assertEqual(code, 2)

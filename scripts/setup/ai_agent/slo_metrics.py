@@ -54,7 +54,7 @@ TARGETS = {
     "false_positive_pct":  float(os.environ.get("SLO_FP_MAX_PCT", "10")),
     "ingest_lag_seconds":  float(os.environ.get("SLO_INGEST_LAG_MAX_S", "300")),
     "parse_error_pct":     float(os.environ.get("SLO_PARSE_ERR_MAX_PCT", "1")),
-    "audit_write_failures": float(os.environ.get("SLO_AUDIT_WRITE_FAIL_MAX", "3")),
+    "audit_write_failures": float(os.environ.get("SLO_AUDIT_WRITE_FAIL_MAX", "2")),
 }
 # Comparator per metric: True = lower is better (value <= target).
 LOWER_BETTER = {
