@@ -9,21 +9,51 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 ## NEXT UP
 
-**Phase: Structural Health Review Remediation — Priority 1 (Critical) COMPLETE.
-Priority 2: #164-#172, #183 merged; #182 DEFERRED (needs interactive sudo at
-a real terminal — see DEFERRED section). Priority 3: #173-#177, #184 merged;
-2 items remaining (#189-#190).**
-Source: repo-wide structural/NIST-CSF-2.0/SP-800-53-Rev.5-aligned review,
-2026-07-08 — 14 issues filed (#164-#177), 5 more filed since (#182-#183,
-#185, #189-#190), all linked to
-[Project Board #17](https://github.com/users/voltron-1/projects/17).
+**Phase: Post-remediation execution plan — Phase B (P3 script fixes).**
+Approved plan (2026-07-16, Fable 5 planning session): Phase 0 triage of all 9
+open issues (each classification adversarially verified, 9/9 agreement) →
+execute-now = #189, #190, #204-#208; #201 closed as superseded; #182 stays
+DEFERRED. Phase sequence: **A gate integrity — COMPLETE** → B P3 fixes (#189,
+#190) → C compliance foundation (#204, #205) → D detection/pipeline logic
+(#206, #208 — gated Logstash-restart sign-off) → E SOP standardization (#207,
+5 sequential PRs) → F three-lens audit (soc-architect / red-team-architect
+[Opus 4.8] / purple-team-architect [Opus 4.8], security-diff-framing
+vocabulary) → G remediation reserve (gated fix-now vs backlog split). Execution
+model: Sonnet 5 for phases A-E. Standing constraints for the rest of this plan:
+no Logstash start/restart until #208 merges (the bind-mounted
+`configs/logstash.conf` already carries #208's translate filters pointing at
+an unmounted `lookups/` dir with invalid stub CSVs); selective staging only
+across the dirty working tree spanning #204-#208 (never `git add -A`); the
+in-tree `README.md` is a stale pre-#192 overwrite — #204 owns saving the
+drafted Compliance bullet and restoring from HEAD.
 
-Next unstarted item: **#189** — `soc_pipeline.sh` health checks probe
-`http://` against a TLS-only ES/Kibana stack (always fail). Its Kibana-target
-half is already fixed as a side effect of #177; the ES-target checks
-(`http://localhost:9200`) remain open. #190 (`reindex-existing.sh` infinite
-recursion) after that. #182 picked back up once sudo is available
-interactively.
+Phase A (gate integrity) — **COMPLETE 2026-07-16**:
+- [x] Branch protection enabled on `main`: 9 required status checks (`Analyze
+  (python)`, `detections`, `shellcheck (bash)`, `ruff (python)`,
+  `mypy (python)`, `yamllint (configs)`,
+  `pytest-cov >= 70% (slo_metrics / run_hunts / weekly_ciso_report)`,
+  `gitleaks`, `SOAR auth / exclusion / approval / tenant-scoping`); no
+  required reviews (solo-maintainer repo — the session-level review-bypass
+  confirmation stays the human gate); `enforce_admins: false` so chore
+  pushes to `main` (e.g. this file's own update-on-merge habit) keep working;
+  `allow_force_pushes`/`allow_deletions` now `false` for all collaborators
+  (closes the gap #168's structural review originally flagged). Verified via
+  `gh api repos/voltron-1/Suburban_SOC/branches/main/protection`. This was
+  #168's explicitly deferred "separate explicit sign-off" repo-settings
+  change — obtained this session before applying.
+- [x] **#201** closed as superseded — PR #202 (merged 2026-07-12) delivered
+  every acceptance criterion here (Kibana HTTPS-only, all internal consumers
+  migrated to `https://`, TLS-aware healthcheck, live-verified end-to-end)
+  before #201 was even filed; the ticket was simply left orphaned-open.
+  Closed with a comment citing the specific evidence per file/line.
+
+Next unstarted item: **Phase B — #189** — `soc_pipeline.sh` ES health checks
+still probe `http://localhost:9200` against the TLS-only stack (Kibana half
+already fixed by #177/PR #202); fix in-place via `es_common.sh`'s fail-closed
+CA-verified pattern, not delegated to `stack_health.sh` (side effects +
+creds-prompt-flow mismatch). #190 (`reindex-existing.sh` `es()`/`esj()`
+infinite recursion — a 1-line-wrapper rename across 6 call sites) follows in
+the same phase, independent parallel branch.
 
 - [x] **#184** — SOC agent audit-write failures had no dashboard-visible
   metric (follow-up to #165). `write_audit()`'s except block now best-effort
@@ -294,13 +324,43 @@ interactively.
   [PR #191](https://github.com/voltron-1/Suburban_SOC/pull/191) merged;
   issue closed.
 
-P2 remaining (#182) and P3 (backlog, follow-ups #184/#189/#190 — #173-#177 all
-merged) are tracked on
-[Project Board #17](https://github.com/users/voltron-1/projects/17);
-working sequentially in descending priority order per the remediation
-protocol, one item at a time with explicit approval before each file change.
+#182 remains DEFERRED (see DEFERRED section — needs an interactive-sudo
+terminal session). All other structural-review follow-ups (#184, #189, #190)
+plus the new Area 1-5 compliance wave (#204-#208) are now sequenced by the
+Phase A-G plan above; [Project Board #17](https://github.com/users/voltron-1/projects/17)
+continues to track everything.
 
 ---
+
+## LAST SESSION — 2026-07-16
+
+- Planning session (Fable 5, read-only until approval): inventoried all 9 open
+  issues plus the uncommitted working tree, which turned out to be a
+  deliberate 2026-07-15 bulk port seeding a new "Area 1-5" compliance-mapping
+  issue wave (#204-#208, filed same day). Ran a Phase 0 triage — one
+  read-only classifier + one adversarial verifier per issue, plus dedicated
+  CI-gate and working-tree recon passes — landing on 9/9 verifier agreement:
+  execute-now = #189, #190, #204-#208 (7, all reversible); stale-or-wont-fix =
+  #201 (superseded by already-merged PR #202); decision-gated = #182 (needs
+  the maintainer at a real terminal with interactive sudo, stays DEFERRED).
+  User approved the execute-now set, the #201 close, keeping #182 deferred,
+  and adding branch-protection enablement as a gated front-of-plan item (main
+  had zero required checks, force-push, or deletion protection — CI passing
+  was convention-only, per #168's explicit deferral).
+- Built and adversarially reviewed a per-item implementation spec (acceptance
+  criteria, exact files, test plan, verification commands, branch/PR name,
+  rollback) for all 8 approved items; every review surfaced concrete
+  corrections (stale line-count/file-count claims, non-runnable verification
+  commands, missing irreversible-action checkpoints, factual mismatches
+  against live fixtures) that are now folded into the plan as execution
+  requirements rather than left implicit.
+- Phase A (gate integrity) executed same session — see NEXT UP for detail:
+  branch protection applied to `main` (9 required checks, no required
+  reviews, admins exempt, force-push/deletion blocked) after an explicit
+  payload sign-off; #201 closed with an evidence-cited comment.
+- Full plan (phases A-G, CI gate spec, three-lens audit scope, remediation
+  reserve) written via the plan-mode workflow; this file is the execution
+  view derived from it going forward.
 
 ## LAST SESSION — 2026-07-12
 
