@@ -102,10 +102,23 @@ fi
 # heredoc always wins, since python3 - reads its own script FROM stdin first),
 # which silently produced an empty NDJSON on every run. Only stdout is
 # redirected to a file; the heredoc supplies the script source as intended.
-ENABLE="$ENABLE" DETECTION_INDEX="$DETECTION_INDEX" RAW_PATH="$RAW" python3 > "$NDJSON" <<'PY'
-import json, os
+ENABLE="$ENABLE" DETECTION_INDEX="$DETECTION_INDEX" RAW_PATH="$RAW" RULES_DIR="$RULES_DIR" python3 > "$NDJSON" <<'PY'
+import json, os, yaml, glob
 idx = os.environ["DETECTION_INDEX"].split(",")
 enable = os.environ["ENABLE"] == "1"
+rules_dir = os.environ["RULES_DIR"]
+
+# Pre-parse tags from YAMLs to preserve compliance metadata
+yaml_tags = {}
+for f in glob.glob(os.path.join(rules_dir, "*.yml")):
+    with open(f) as fdoc:
+        try:
+            doc = yaml.safe_load(fdoc)
+            if "id" in doc and "tags" in doc:
+                yaml_tags[doc["id"]] = doc["tags"]
+        except Exception:
+            pass
+
 with open(os.environ["RAW_PATH"]) as fh:
     for line in fh:
         line = line.strip()
@@ -114,6 +127,15 @@ with open(os.environ["RAW_PATH"]) as fh:
         r = json.loads(line)
         r["index"] = idx
         r["enabled"] = enable
+        
+        # Merge compliance/custom tags missing from pySigma backend output
+        rid = r.get("rule_id")
+        if rid in yaml_tags:
+            existing_tags = set(r.get("tags", []))
+            for t in yaml_tags[rid]:
+                existing_tags.add(t)
+            r["tags"] = sorted(list(existing_tags))
+            
         print(json.dumps(r))
 PY
 green "    converted $count rules (index=$DETECTION_INDEX, enabled=$([[ $ENABLE -eq 1 ]] && echo true || echo false))"
