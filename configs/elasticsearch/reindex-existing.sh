@@ -54,7 +54,7 @@ for arg in "$@"; do
   esac
 done
 
-es() { esj --max-time 600 "$@"; }   # json + long timeout for _reindex (shared helper, issue #156)
+es_reindex() { esj --max-time 600 "$@"; }   # json + long timeout for _reindex (shared helper, issue #156)
 # Count docs in an index/pattern; prints an integer (0 if absent). The `tr -d` strips
 # any CR — some python builds (e.g. Windows python on WSL) emit CRLF, which would
 # otherwise contaminate string comparisons below.
@@ -102,7 +102,7 @@ for SRC in "${SOURCES[@]}"; do
   # Fresh target each run (idempotent re-runs).
   es -o /dev/null -X DELETE "$ES_URL/$TGT" >/dev/null 2>&1 || true
 
-  RESP="$(es -X POST "$ES_URL/_reindex?wait_for_completion=true&refresh=true" -d "{
+  RESP="$(es_reindex -X POST "$ES_URL/_reindex?wait_for_completion=true&refresh=true" -d "{
     \"conflicts\":\"proceed\",
     \"source\":{\"index\":\"$SRC\",\"size\":2000},
     \"dest\":{\"index\":\"$TGT\",\"op_type\":\"create\"}

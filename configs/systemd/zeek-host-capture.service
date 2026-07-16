@@ -31,6 +31,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN
 # Default interface; override via /etc/default/zeek-host-capture (optional).
 Environment=CAPTURE_IFACE=eth0
 EnvironmentFile=-/etc/default/zeek-host-capture
