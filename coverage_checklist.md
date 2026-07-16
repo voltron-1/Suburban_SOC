@@ -45,4 +45,5 @@ Operational to-dos (Windows lane):
 
 ## Global
 - [ ] `python3 tests/validate_emulation_map.py` returns 0 fail
+- [x] Map emulation->detection pairs to [compliance_matrix.md](compliance_matrix.md)
 - [ ] Commit map + new rules + sims together
