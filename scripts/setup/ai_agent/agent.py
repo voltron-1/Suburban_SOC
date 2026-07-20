@@ -962,7 +962,7 @@ class Agent:
             add_case_comment(ctx.tenant_id, case_id, f"§12.4: alert targets PROTECTED asset `{excluded}` — no action taken.")
             close_case(ctx.tenant_id, case_id, "no_action_protected_asset")
             write_audit("alert_excluded_asset", "soc-ai-agent", ctx.tenant_id, outcome="no_action", target=str(excluded), detail=f"case={case_id}")
-            return "NO_ACTION", str(excluded), True, None
+            return "NO_ACTION", str(excluded), True, ""
 
         # Autonomous
         if AUTONOMOUS_ISOLATION and ctx.severity == "critical" and ctx.target_mac:
@@ -984,7 +984,7 @@ class Agent:
             if ok:
                 close_case(ctx.tenant_id, case_id, "true_positive_contained")
             write_audit("autonomous_isolation", "soc-ai-agent", ctx.tenant_id, outcome="executed" if ok else "failed", target=ctx.target_ip, detail=detail)
-            return ("EXECUTED" if ok else "ESCALATED"), detail, ok, None
+            return ("EXECUTED" if ok else "ESCALATED"), detail, ok, ""
 
         # Draft
         action = {
