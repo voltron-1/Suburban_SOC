@@ -23,7 +23,9 @@ def generate_dedup_key(tenant_id: str, target_ip: str, target_mac: str, severity
     raw = f"{tenant_id}|{target_ip}|{target_mac}|{severity}|{bucket}"
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
 
-def write_checkpoint(tenant_id: str, alert_id: str, phase: str, context: dict = None):
+from typing import Optional, Dict, Any
+
+def write_checkpoint(tenant_id: str, alert_id: str, phase: str, context: Optional[Dict[str, Any]] = None):
     """Upserts a phase transition to the agent-checkpoints-<tenant> index."""
     index = f"agent-checkpoints-{tenant_id}"
     url = f"{ES_HOST}/{index}/_doc/{alert_id}"
@@ -40,7 +42,7 @@ def write_checkpoint(tenant_id: str, alert_id: str, phase: str, context: dict = 
     res.raise_for_status()
     logger.info(f"Checkpoint written: {alert_id} -> {phase}")
 
-def read_checkpoint(tenant_id: str, alert_id: str) -> dict:
+def read_checkpoint(tenant_id: str, alert_id: str) -> Optional[Dict[str, Any]]:
     """Loads the latest checkpoint from ES for crash resume/idempotency."""
     index = f"agent-checkpoints-{tenant_id}"
     url = f"{ES_HOST}/{index}/_doc/{alert_id}"

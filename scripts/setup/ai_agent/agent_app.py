@@ -3,6 +3,8 @@ agent_app.py — Suburban-SOC AI agent / SOAR webhook listener.
 """
 
 import logging
+import threading
+from weekly_ciso_report import run_reporting_pipeline
 from flask import Flask, request, jsonify
 
 
@@ -64,8 +66,6 @@ def approve_action():
 
 # 5. CISO REPORTING ENDPOINTS
 # =============================================================================
-from weekly_ciso_report import run_reporting_pipeline
-import threading
 @app.route("/weekly-report", methods=["POST"])
 def trigger_weekly_report():
     """
