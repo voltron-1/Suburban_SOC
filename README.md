@@ -134,6 +134,10 @@ plane (M8) — these are work items within those milestones, not milestone compl
   routes to per-tenant `logstash-security-<tenant>-*` indices with least-privilege ES
   roles (`provision_tenant.sh`); the agent and broker scope every response — isolation
   routing and notifications — to the alerting tenant's routers/topics, never broadcast.
+- **Compliance & Standardization (In Progress).** Integrated a robust compliance matrix
+  mapped to NIST CSF, 800-171/53, and CIS Controls. Enhanced the Elastic pipeline
+  with ABAC (Attribute-Based Access Control) lookups via `translate` filters and
+  standardized all Playbooks and SOPs using structural templates.
 
 ## Architecture
 
@@ -225,9 +229,9 @@ This project encompasses the design, development, and testing of an advanced **n
 1.  **Group Project Presentation:**
     * A presentation showcasing the project's objectives, architecture, and outcomes.
 2.  **Group Project Report (GitHub Wiki):**
-    * For full project documentation, progress notes, and the final report, please visit our [Project Wiki](../../wiki).
+    * For full project documentation, progress notes, and the final report, please visit our [Project Wiki](https://github.com/voltron-1/Suburban_SOC/wiki).
 3.  **GitHub Project with Agile Artifacts:**
-    * A GitHub Project board utilized for Agile project management.
+    * A GitHub Project board ([Behavioral_Based_Detection_for_Distributed_Networks](https://github.com/users/voltron-1/projects/17)) utilized for Agile project management, currently tracking the NIST CSF and SOC-CMM gap analysis implementation.
 4.  **GitHub Repository:**
     * The complete source code and configurations for the Suburban-SOC Network Pipeline.
 
@@ -275,7 +279,7 @@ Before you begin, ensure you have the following:
 ### 2. Installation Steps:
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/sterlinggarnett/Suburban_SOC.git
+    git clone https://github.com/voltron-1/Suburban_SOC.git
     cd Suburban_SOC
     ```
 2.  **Configure Agents:**
@@ -304,7 +308,7 @@ Before you begin, ensure you have the following:
 ## Contribution Guidelines
 Please see our Wiki for detailed procedures on contributing to this project. We follow Agile methodologies including sprint tracking and GitHub Issue Management.
 
-**Commit Approach:** This team uses **Delegated Commits**. All commits are routed through the designated Project Lead before being merged to the main branch. See our [Wiki: Commit-Approach](../../wiki/Commit-Approach) page for full details.
+**Commit Approach:** This team uses **Delegated Commits**. All commits are routed through the designated Project Lead before being merged to the main branch. See our [Wiki: Commit-Approach](https://github.com/voltron-1/Suburban_SOC/wiki/Commit-Approach) page for full details.
 
 ## Testing & Validation
 ### 1. Automated Testing:
@@ -314,7 +318,7 @@ Please see our Wiki for detailed procedures on contributing to this project. We 
 
 ### 3. Evidence & Real-Telemetry Validation:
 * Dashboard and detection evidence must come from **real telemetry, not mock data**. The [`tests/anomaly_simulation/`](tests/anomaly_simulation) suite drives real techniques end-to-end (port scan `T1046`, SSH brute force `T1110`, EICAR download, live intel match), and `verify_detections.py` confirms the signals reached the SIEM.
-* The full re-validation effort - evidence checklist (all dashboards + the detection->SOAR loop + platform integrity), reviewer instructions, and the SOC metrics to record (MTTD / MTTR / coverage / ingest-lag / SLO attainment) - is tracked in **[issue #147](https://github.com/sterlinggarnett/Suburban_SOC/issues/147)**. Some existing `evidence/` screenshots predate this and are being re-captured (audit **P0-4**).
+* The full re-validation effort - evidence checklist (all dashboards + the detection->SOAR loop + platform integrity), reviewer instructions, and the SOC metrics to record (MTTD / MTTR / coverage / ingest-lag / SLO attainment) - is tracked in **[issue #147](https://github.com/voltron-1/Suburban_SOC/issues/147)**. Some existing `evidence/` screenshots predate this and are being re-captured (audit **P0-4**).
 
 ## License
 This project is licensed under the MIT License. (Make sure you include a `LICENSE` file to accompany this).

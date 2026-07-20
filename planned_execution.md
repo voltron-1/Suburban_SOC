@@ -18,7 +18,9 @@ DEFERRED. Phase sequence: **A gate integrity — COMPLETE** → B P3 fixes (#189
 (#206, #208 — gated Logstash-restart sign-off) → E SOP standardization (#207,
 5 sequential PRs) → F three-lens audit (soc-architect / red-team-architect
 [Opus 4.8] / purple-team-architect [Opus 4.8], security-diff-framing
-vocabulary) → G remediation reserve (gated fix-now vs backlog split). Execution
+vocabulary) → G remediation reserve (gated fix-now vs backlog split) → H agent
+orchestration refactor (Perceive→Think→Act→Check loop, ES-backed checkpoints,
+retry logic — 6 components, §12.3 human gate preserved). Execution
 model: Sonnet 5 for phases A-E. Standing constraints for the rest of this plan:
 no Logstash start/restart until #208 merges (the bind-mounted
 `configs/logstash.conf` already carries #208's translate filters pointing at
@@ -327,8 +329,70 @@ the same phase, independent parallel branch.
 #182 remains DEFERRED (see DEFERRED section — needs an interactive-sudo
 terminal session). All other structural-review follow-ups (#184, #189, #190)
 plus the new Area 1-5 compliance wave (#204-#208) are now sequenced by the
-Phase A-G plan above; [Project Board #17](https://github.com/users/voltron-1/projects/17)
+Phase A-H plan above; [Project Board #17](https://github.com/users/voltron-1/projects/17)
 continues to track everything.
+
+Phase H (agent orchestration refactor):
+Refactor the monolithic `handle_kibana_webhook()` in
+`scripts/setup/ai_agent/agent_app.py` into an explicit `Agent` class with a
+two-phase Perceive→Think→Act→Check loop. The §12.3 human gate is structural:
+Phase 1 (`/alert`) parks at `PENDING_APPROVAL`; Phase 2 (`/approve`) triggers
+execution. ES-backed checkpoints enable crash recovery and idempotency. No new
+infrastructure dependencies — uses existing ES.
+
+  Component 1 — Agent Core (`agent.py`, NEW):
+  - [ ] `Agent` class with `run()` (Phase 1) and `execute_approved()` (Phase 2)
+  - [ ] `perceive()` — parse, validate, sanitise inputs, open Kibana case
+  - [ ] `think()` — LLM triage with retry + circuit breaker
+  - [ ] `act()` — §12.3/§12.4 decision gate: DRAFTED (default), EXECUTED
+        (autonomous only), or NO_ACTION (excluded asset)
+  - [ ] `check()` — verify outcome, set terminal state (PENDING_APPROVAL,
+        CLOSED, or ESCALATED)
+  - [ ] `execute_approved()` — Phase 2 entry point: Act(execute) → Check(verify)
+  - [ ] `AlertContext` frozen dataclass — typed, immutable between phases
+  - [ ] `AgentResult` dataclass — status code + serialisable response
+
+  Component 2 — Checkpoint Store (`checkpoints.py`, NEW):
+  - [ ] `write_checkpoint()` — upsert phase transition to `agent-checkpoints`
+        ES index, keyed by alert_id
+  - [ ] `read_checkpoint()` — load latest checkpoint for crash resume
+  - [ ] `is_duplicate()` — idempotency gate (terminal phase = reject)
+  - [ ] `is_awaiting_approval()` — validates PENDING_APPROVAL state for
+        Phase 2 entry
+
+  Component 3 — Retry Logic (`retry.py`, NEW):
+  - [ ] `@retry` decorator — exponential backoff on transient failures
+  - [ ] Apply to `analyze_alert_with_ai()` (LLM call — 3× retry)
+  - [ ] Apply to `dispatch_block_via_broker()` (broker call — 3× retry)
+  - [ ] Non-transient errors (4xx) do NOT retry
+
+  Component 4 — Refactor `agent_app.py` (MODIFY):
+  - [ ] `/alert` → thin shell delegating to `Agent.run()` (Phase 1)
+  - [ ] `/approve` → delegate post-claim execution to
+        `Agent.execute_approved()` (Phase 2)
+  - [ ] Retain HMAC auth, `_queue_lock` atomic claim, JSONL queue
+  - [ ] Move input parsing, LLM call, exclusion check, isolation/draft logic,
+        SOAR logging, case management into `agent.py`
+
+  Component 5 — Tests (`test_agent.py`, NEW):
+  - [ ] Phase 1 tests: perceive validates inputs, think retries on timeout,
+        think does not retry on 4xx, act drafts by default, act respects
+        exclusion list, checkpoint resume, duplicate alert idempotent
+  - [ ] Phase 2 tests: execute_approved calls broker, escalates on failure,
+        rejects wrong state, loads checkpoint from ES
+  - [ ] Human gate integrity: `run()` with `AUTONOMOUS_ISOLATION=false` never
+        calls `dispatch_block_via_broker()`; no code path from `run()` to
+        `execute_approved()`
+
+  Component 6 — ES Index Template (`agent-checkpoints-template.json`, NEW):
+  - [ ] Index template for `agent-checkpoints` (30-day ILM retention)
+  - [ ] Fields: `alert_id`, `phase`, `context` (JSON), `@timestamp`,
+        `tenant.id`
+  - [ ] Deploy to `configs/` following existing `soar-actions-*` template pattern
+
+  Resolved Architecture Decisions:
+  - Alert ID sourcing: uses a Semantic Deduplication Key (hash of tenant+IP+severity+5m_bucket)
+  - Check-phase depth: uses Hybrid Asynchronous approach (Agent fast-returns EXECUTED, slo_metrics.py cron runs the 60s active ES verification)
 
 ---
 
