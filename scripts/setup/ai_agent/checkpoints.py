@@ -1,3 +1,4 @@
+from typing import Optional, Dict, Any
 import os
 import time
 import hashlib
@@ -22,8 +23,6 @@ def generate_dedup_key(tenant_id: str, target_ip: str, target_mac: str, severity
     bucket = int(time.time()) // 300
     raw = f"{tenant_id}|{target_ip}|{target_mac}|{severity}|{bucket}"
     return hashlib.sha256(raw.encode('utf-8')).hexdigest()
-
-from typing import Optional, Dict, Any
 
 def write_checkpoint(tenant_id: str, alert_id: str, phase: str, context: Optional[Dict[str, Any]] = None):
     """Upserts a phase transition to the agent-checkpoints-<tenant> index."""

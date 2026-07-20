@@ -1,3 +1,5 @@
+from .checkpoints import write_checkpoint, read_checkpoint, is_duplicate, is_awaiting_approval, generate_dedup_key
+from .retry import retry
 """
 agent_app.py — Suburban-SOC AI agent / SOAR webhook listener.
 
@@ -849,9 +851,7 @@ def _write_audit_health_marker(action, tenant, error):
 # =============================================================================
 
 from dataclasses import dataclass
-from typing import Optional, Any
-from .checkpoints import write_checkpoint, read_checkpoint, is_duplicate, is_awaiting_approval, generate_dedup_key
-from .retry import retry
+from typing import Optional
 
 @dataclass(frozen=True)
 class AlertContext:
