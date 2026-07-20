@@ -265,16 +265,17 @@ run_prereq_checks() {
 
     # Test Elasticsearch API connection using the provided credentials
     # Connect-timeout prevents hanging if the service is down
-    if curl -sk -u "${ES_USER}:${ES_PASS}" --connect-timeout 3 https://localhost:9200/_cluster/health &>/dev/null; then
+    ES_CA="${ES_CA:-/certs/ca/ca.crt}"
+    if curl -s --cacert "$ES_CA" -u "${ES_USER}:${ES_PASS}" --connect-timeout 3 https://localhost:9200/_cluster/health &>/dev/null; then
         pass "Elasticsearch is reachable (port 9200)"
     else
         warn "Elasticsearch not reachable or auth failed - ensure ELK stack is running and password is correct."
     fi
 
-    # Test Kibana frontend availability. #177: Kibana is TLS-only now (self-signed
-    # stack CA) — this is a bare reachability ping, not an authenticated call, so -k
-    # is acceptable here (matches this script's existing no-CA-verification style).
-    if curl -sk --connect-timeout 3 https://localhost:5601 &>/dev/null; then
+    # Test Kibana frontend availability. #189: Kibana is TLS-only now (self-signed
+    # stack CA); use the CA to securely verify reachability, mirroring es_common.sh.
+    ES_CA="${ES_CA:-/certs/ca/ca.crt}"
+    if curl -s --cacert "$ES_CA" --connect-timeout 3 https://localhost:5601 &>/dev/null; then
         pass "Kibana is reachable (port 5601)"
     else
         warn "Kibana not reachable - open https://localhost:5601 after starting ELK stack"
@@ -513,7 +514,8 @@ run_sop_005() {
 
     echo -e "\n${BOLD}Step 2: ELK Stack${NC}"
     # Wait for the user to manually start ELK if it isn't already responsive
-    if curl -sk -u "${ES_USER}:${ES_PASS}" --connect-timeout 3 https://localhost:9200/_cluster/health &>/dev/null; then
+    ES_CA="${ES_CA:-/certs/ca/ca.crt}"
+    if curl -s --cacert "$ES_CA" -u "${ES_USER}:${ES_PASS}" --connect-timeout 3 https://localhost:9200/_cluster/health &>/dev/null; then
         pass "Elasticsearch already up"
     else
         warn "Elasticsearch not reachable. Start your ELK stack (docker compose up -d)"
@@ -523,7 +525,8 @@ run_sop_005() {
 
     echo -e "\n${BOLD}Step 3: Verify Elasticsearch${NC}"
     # Parse the specific 'status' field from the JSON health response
-    ES_STATUS=$(curl -sk -u "${ES_USER}:${ES_PASS}" https://localhost:9200/_cluster/health | grep -o '"status":"[^"]*"' | head -1)
+    ES_CA="${ES_CA:-/certs/ca/ca.crt}"
+    ES_STATUS=$(curl -s --cacert "$ES_CA" -u "${ES_USER}:${ES_PASS}" https://localhost:9200/_cluster/health | grep -o '"status":"[^"]*"' | head -1)
     if [ -n "$ES_STATUS" ]; then
         pass "Elasticsearch: $ES_STATUS"
     else
@@ -531,9 +534,9 @@ run_sop_005() {
     fi
 
     echo -e "\n${BOLD}Step 4: Verify Kibana${NC}"
-    # #177: Kibana is TLS-only now (self-signed stack CA); -k is fine for this bare
-    # reachability ping.
-    if curl -sk --connect-timeout 5 https://localhost:5601 &>/dev/null; then
+    # #189: Kibana is TLS-only now (self-signed stack CA); verify using CA.
+    ES_CA="${ES_CA:-/certs/ca/ca.crt}"
+    if curl -s --cacert "$ES_CA" --connect-timeout 5 https://localhost:5601 &>/dev/null; then
         pass "Kibana reachable at https://localhost:5601"
     else
         warn "Kibana not reachable - check Docker containers"
