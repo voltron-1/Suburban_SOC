@@ -1,39 +1,56 @@
-# SOP-010 — Tamper-Evident Audit Trail (WS3.3)
+# Executive Summary
+This Standard Operating Procedure (SOP) defines the tamper-evident audit trail for Suburban-SOC. It guarantees that every privileged response action and configuration deployment is immutably recorded with actor, action, timestamp, and tenant details.
 
-**Status:** Active · **Milestone:** M10 · **Workstream:** WS3.3 · **SOC 2:** Security
+## Name
+SOP-010 — Tamper-Evident Audit Trail
 
-## What is audited
-Every privileged **response** action the SOC takes is recorded with **who / what /
-when / tenant** to the append-only `soc-audit-<tenant>` index:
-`alert_excluded_asset`, `autonomous_isolation`, `response_drafted`,
-`response_approved` (each with `actor`, `event.action`, `event.outcome`, `target`,
-`tenant.id`, `@timestamp`). Config/rule **deploys** are recorded separately by
-WS3.5 (`soc-deploys` + git history).
+## Problem Statement
+Without an immutable audit trail, malicious actors or compromised accounts could silently alter detection rules or quarantine assets, then delete the logs to cover their tracks.
 
-The hive-mind-broker additionally records every **denied** request to its
-HMAC-signed webhooks — missing/invalid signature, invalid/stale timestamp, or a
-replayed signature (audit #171, AU-2/3/12) — as `broker_request_denied` to
-`soc-audit-unassigned` (no real tenant is known at auth-failure time). Uses its
-own least-privilege `hive_mind_broker` account, holding the same append-only
-`soc_audit_appender` role as the agent's.
+## Objectives
+- Record every privileged SOC response action.
+- Record every denied request at the broker layer.
+- Enforce a write-once (append-only) architecture where no entity can modify or delete audit records.
 
-## Tamper-evidence (write-once)
-The agent's ES account holds the **append-only `soc_audit_appender` role**
-(`create` privilege only — no `write`/`update`/`delete`/`manage`). It can ADD audit
-records but **cannot modify or delete** them. Verified: an UPDATE, a doc DELETE, and
-an index DELETE by the appender all return **403**. The audit indices are also
-captured in the daily SLM snapshot (`configs/elasticsearch/ilm/slm-policy.json`),
-giving an immutable off-cluster copy for the retention window.
+## Compliance
+- **NIST CSF**: PR.PT-1 (Audit/log records), DE.AE-3 (Event data collection).
+- **SOC 2**: Security (Logical Access, Audit Logging).
 
-## Native ES/Kibana audit logging (production add-on)
-Elasticsearch security **audit logging** (`xpack.security.audit.enabled=true`) records
-authentication/authorization events at the platform level, but it is a **Platinum/
-Enterprise** feature — not available on the basic license this MVP runs. On a licensed
-deployment, enable it in `docker-compose.yml` ES env and ship the audit log to the same
-immutable store. The application-level audit above covers the response/quarantine
-actions regardless of license.
+## MITRE ATT&CK Framework
+- Mitigates TA0005 Defense Evasion (T1070 Indicator Removal on Host) by ensuring audit logs cannot be modified even if the service account is compromised.
 
-## Acceptance (#104)
-- [x] Every privileged action queryable with who/what/when/tenant (`soc-audit-*`)
-- [x] Append-only / write-once store (create-only role; UPDATE/DELETE → 403)
-- [x] Retained immutably (daily SLM snapshot includes `soc-audit-*`)
+## Assumptions and Limitations
+- Elasticsearch basic license does not include native platform-level audit logging.
+- The `soc_audit_appender` role is correctly mapped to service accounts.
+
+# Analysis
+The audit trail is split into application-level logging (`soc-audit-<tenant>`, `soc-audit-unassigned`) and deployment logging (`soc-deploys`). The security relies entirely on the Elasticsearch RBAC restricting the service accounts to `create` privileges only.
+
+## Monitoring and Notifications
+The `soc-audit-*` indices are continuously monitored by the CCM (SOP-013) to ensure append-only permissions remain intact.
+
+## Playbook Verification
+To verify the audit trail's integrity:
+1. Attempt to UPDATE or DELETE a document in `soc-audit-unassigned` using the `hive_mind_broker` or `soc_agent` credentials.
+2. Verify that Elasticsearch returns a `403 Forbidden` response.
+
+## Recommended Response Action(s)
+
+### Identification
+To investigate a suspected unauthorized action or broker denial:
+- Query `soc-audit-<tenant>` for `event.action` types (`autonomous_isolation`, `alert_excluded_asset`).
+- Query `soc-audit-unassigned` for `broker_request_denied`.
+
+### Containment
+If audit trail tampering is suspected (e.g., records are missing or a 403 test returns 200 OK):
+- Immediately revoke the credentials of the compromised service accounts.
+- Restrict cluster access until roles are audited.
+
+### Eradication & Recovery
+To restore the integrity of the audit trail:
+1. Re-run `./scripts/setup/apply_roles.sh` to enforce the `soc_audit_appender` role.
+2. Verify the daily SLM snapshots are intact to recover any maliciously deleted indices, provided the snapshot repository was not also compromised.
+
+# References and Resources
+- `configs/elasticsearch/roles/soc_audit_appender.json`
+- `configs/elasticsearch/ilm/slm-policy.json`

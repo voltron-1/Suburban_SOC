@@ -1,72 +1,59 @@
-# SOP-013 — Continuous Control Monitoring (CCM)
+# Executive Summary
+This Standard Operating Procedure (SOP) defines the Continuous Control Monitoring (CCM) framework. It ensures SOC 2 technical controls are automatically evaluated on a schedule, alerting operators if any control regresses.
 
-**Control family:** Monitoring (SOC 2 CC4.1, CC7.1–CC7.2) · **Workstream:** WS3.7 (M10)
-**Owner:** SecOps · **Review cadence:** monthly + after any control change
+## Name
+SOP-013 — Continuous Control Monitoring (CCM)
 
-## Purpose
+## Problem Statement
+Point-in-time compliance audits do not prevent runtime drift. If TLS is disabled, backups fail, or RBAC roles are modified, the SOC must detect the regression immediately.
 
-SOC 2 Type II is about controls operating **continuously over a period**, not a
-point-in-time snapshot. This is the control that watches the other controls: it
-re-checks every M10 technical control against the live stack, records dated evidence,
-and alerts when a control **regresses**.
+## Objectives
+- Continuously evaluate 7 core technical controls (Encryption, RBAC, Audit, ILM, SLM, Scanning, Change Mgmt).
+- Write immutable evidence to the `soc-controls` index on every run.
+- Alert operators immediately upon any control failure.
 
-## What it checks
+## Compliance
+- **NIST CSF**: DE.CM-1 (Network/environment monitored), ID.GV-4 (Governance and risk management).
+- **SOC 2**: Monitoring (CC4.1, CC7.1–CC7.2).
 
-`scripts/setup/collect_control_evidence.sh` evaluates seven controls each run:
+## MITRE ATT&CK Framework
+- Mitigates TA0005 Defense Evasion by alerting when security controls are disabled.
 
-| ID | Control | SOC 2 | Evidence checked |
-|----|---------|-------|------------------|
-| C1 | Encryption in transit (WS3.1) | Confidentiality | `http` **and** `transport` TLS both `enabled=true` |
-| C2 | RBAC least privilege (WS3.2) | Security | all 6 expected roles present |
-| C3 | Audit trail append-only (WS3.3) | Security | `soc_audit_appender` grants **only** `create`/`create_index` |
-| C4 | Retention / ILM (WS0.5) | Security | `logstash-security-ilm` policy present |
-| C5 | Backups / SLM (WS2.5) | Availability | last snapshot succeeded, no failure newer than success |
-| C6 | Vulnerability scanning (WS3.6) | Security | `security-scan.yml` CI gate present |
-| C7 | Change management (WS3.5) | Security | deploys recorded to `soc-deploys` |
+## Assumptions and Limitations
+- The `collect_control_evidence.sh` script runs on a daily cron schedule.
+- The `soc-controls` data view is configured in Kibana.
 
-Each run writes one `create` doc per control to **`soc-controls`** (`control.id`,
-`control.name`, `control.status` ∈ {pass, fail, no_data}, `control.detail`, `soc2.tsc`,
-`@timestamp`). Evidence is immutable history (new docs per run) and is included in the
-daily SLM snapshot for retention.
+# Analysis
+The CCM script acts as the "control that watches the controls." It records dated evidence of passes and fails. The resulting data populates the "[SOC] SOC 2 Control Status" dashboard.
 
-## Regression alerting
+## Monitoring and Notifications
+If a control fails, the script pushes a high-priority alert to the configured `$NTFY_TOPIC`.
 
-If any control returns `fail`, the script pushes a high-priority **ntfy** alert to
-`$NTFY_TOPIC` and exits non-zero, so the scheduler (and the operator) sees the
-regression immediately. `CCM_NO_ALERT=1` suppresses the push (for ad-hoc runs).
+## Playbook Verification
+To verify the CCM is functioning:
+1. Open the "[SOC] SOC 2 Control Status (WS3.7)" dashboard in Kibana.
+2. Confirm recent evidence documents are present for all 7 controls.
+3. Verify the cron job is active (`crontab -l`).
 
-## Dashboard
+## Recommended Response Action(s)
 
-`configs/server/control_status_dashboard.ndjson` → **[SOC] SOC 2 Control Status (WS3.7)**
-in Kibana (deployed by `deploy_dashboards.sh`): a latest-status-per-control table, a
-status-mix donut, and a header. Filter `control.status : fail` to triage. The
-`soc-controls` data view is created on import.
+### Identification
+When a CCM alert fires or the cron job exits non-zero:
+- Open the Kibana dashboard and filter for `control.status : fail`.
+- Read the `control.detail` field to identify the specific failure (e.g., C5 snapshot failed).
 
-## Schedule
+### Containment
+- Acknowledge the alert.
+- Do not make hasty changes; investigate the root cause logged in the `control.detail`.
 
-Run on a timer (the "continuous" in CCM). Example cron (daily 02:00, after the 01:30
-SLM snapshot so C5 reflects the night's backup):
+### Eradication & Recovery
+Remediate based on the specific control failure:
+- **C1 (TLS off):** Recreate the stack from compose (`docker compose up -d`).
+- **C5 (Snapshot failed):** Verify `path.repo` on the ES node, then manually trigger the SLM policy.
+- **C2/C3 (Role drift):** Re-run `apply_roles.sh`.
+- **C4 (ILM missing):** Re-run `apply-lifecycle.sh`.
+After fixing the issue, manually run `bash collect_control_evidence.sh` to record the passing state and clear the dashboard failure.
 
-```cron
-0 2 * * *  cd /opt/suburban-soc/scripts/setup && \
-           ES_CA=$PWD/certs/ca.crt bash collect_control_evidence.sh >> /var/log/soc-ccm.log 2>&1
-```
-
-For SOC 2 audit, daily is the floor; many controls (C5 especially) are daily-cadence.
-The CI security scan (C6) and change log (C7) update on their own triggers; CCM records
-the standing state.
-
-## Regression response
-
-1. Alert fires (ntfy) / non-zero exit in the scheduler.
-2. Open the dashboard, filter `control.status : fail`, read `control.detail`.
-3. Remediate by control:
-   - **C1** TLS off → recreate the stack from compose (`docker compose up -d`); never `--no-deps` partial.
-   - **C5** snapshot failed → check `path.repo` is set on the node (the common cause — see SOP for WS2.5), re-run `apply-lifecycle.sh`, `_slm/.../_execute`.
-   - **C2/C3** role drift → re-run `apply_roles.sh`.
-   - **C4** ILM missing → re-run `apply-lifecycle.sh`.
-4. Re-run `collect_control_evidence.sh` to confirm green; the next `soc-controls` doc is the remediation evidence.
-
-> Validated WS3.7: the monitor **correctly caught a real C5 regression** (a snapshot
-> failed because the running node had lost `path.repo`); after re-executing the SLM
-> policy, C5 returned `pass` and all 7 controls were green.
+# References and Resources
+- `scripts/setup/collect_control_evidence.sh`
+- `configs/server/control_status_dashboard.ndjson`

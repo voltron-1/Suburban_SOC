@@ -1,85 +1,61 @@
-# SOP-012 — Privacy & Data Handling
+# Executive Summary
+This Standard Operating Procedure (SOP) defines the data-handling lifecycle for Suburban-SOC, covering what personal data is collected, how it is minimized, and how to execute right-to-erasure (GDPR/CCPA) requests.
 
-**Control family:** Privacy / Confidentiality (SOC 2 P1–P8, CC6.5) · **Workstream:** WS3.4 (M10)
-**Owner:** SecOps / Data Protection · **Review cadence:** quarterly + on new data source
+## Name
+SOP-012 — Privacy & Data Handling
 
-## Purpose
+## Problem Statement
+The SOC processes network and endpoint telemetry that may contain personal data (IPs, usernames). Over-collection or failure to delete this data on request violates privacy regulations.
 
-Suburban-SOC processes customer network + endpoint telemetry that may contain
-personal data. This SOP defines the **data-handling lifecycle** — what we collect,
-how we minimize it, how long we keep it, and how a tenant exercises **right-to-erasure**
-(GDPR Art. 17 / CCPA deletion).
+## Objectives
+- Minimize data at the point of capture (metadata only, no payloads).
+- Redact inline secrets and drop PII during Logstash ingest.
+- Provide a reliable, tamper-evident mechanism to permanently erase a tenant's data.
 
-## Principle: collect security signal, not user content
+## Compliance
+- **NIST CSF**: PR.DS-5 (Data minimization).
+- **SOC 2**: Privacy (P1–P8, CC6.5).
+- **GDPR / CCPA**: Right to Erasure.
 
-Three controls, applied in order — earliest wins:
+## MITRE ATT&CK Framework
+- (N/A for Privacy, but minimizing payload capture reduces the blast radius of TA0009 Collection).
 
-| # | Control | Where | What it does |
-|---|---------|-------|--------------|
-| 1 | **Capture scope** | `configs/zeek/local.zeek` (WS3.4) | Sensor logs connection/protocol **metadata only** — no packet payloads, no file carving, no basic-auth passwords, no cookies/auth headers. Data never captured can never leak. |
-| 2 | **Ingest minimization** | `configs/logstash.conf` Category 3.5 (WS3.4) | Defensively drops payload/secret fields (`http.*.body`, `cookie`, `authorization`, URL creds, `user.email/full_name`) and redacts inline secrets (`password=`, `token=`, `api_key=`) in `message` before indexing. |
-| 3 | **Retention limit** | ILM (WS0.5) + SLM (WS2.5) | Hot→delete lifecycle bounds how long any captured data lives; snapshots expire (45d). |
+## Assumptions and Limitations
+- The Zeek configuration is set to capture metadata only.
+- Immutable SLM snapshots will naturally age out erased data within 45 days.
 
-### What we deliberately keep
+# Analysis
+Data minimization is enforced via Zeek capture scopes and Logstash filters. When a tenant requests deletion, the `erase_tenant.sh` script purges their indices and shared documents, leaving an audit receipt.
 
-Usernames, source/destination IPs + MACs, DNS queries, TLS SNI, process/command-line,
-auth outcomes — these are **security signal** (attribution, C2/exfil, lateral movement)
-and are retained. Minimization removes *content and credentials*, not the metadata
-detection depends on.
+## Monitoring and Notifications
+Logstash actively monitors incoming logs for secrets (e.g., `password=`, `api_key=`) and redacts them inline before indexing.
 
-## Right-to-erasure
+## Playbook Verification
+To verify data handling controls:
+1. Review `configs/logstash.conf` to ensure redaction filters are active.
+2. Search Kibana for `[REDACTED]` to confirm the filters are triggering on live data.
 
-`scripts/setup/erase_tenant.sh <tenant-slug>` permanently removes **all** data for one
-tenant and records a tamper-evident receipt.
+## Recommended Response Action(s)
 
-```bash
-cd ~/projects/Suburban-SOC/scripts/setup
-./erase_tenant.sh acme-net --dry-run    # show scope, no changes
-./erase_tenant.sh acme-net              # interactive (type slug to confirm)
-./erase_tenant.sh acme-net --yes        # runbook / automation
-```
+### Identification
+To process a Data Subject Access Request (DSAR) or erasure request:
+- Verify the request authenticity.
+- Identify the tenant's slug (e.g., `acme-net`).
 
-It deletes:
+### Containment
+If a capture configuration accidentally collects payloads or secrets:
+- Immediately halt the capture scripts (SOP-001).
+- Use Kibana to locate and delete the accidental PII documents.
+- Update `local.zeek` or `logstash.conf` to block the leak.
 
-- per-tenant data streams `logstash-security-<tenant>`, `soar-actions-<tenant>`
-- the tenant audit index `soc-audit-<tenant>`
-- tenant docs in shared indices via `delete_by_query` on `tenant.id`
-  (`.alerts-security.*`, `asset-inventory-*`, `soar-actions-dynamic-*`)
-- access artifacts: tenant role, user, Kibana space
+### Eradication & Recovery
+To execute a Right-to-Erasure request:
+1. Run `./scripts/setup/erase_tenant.sh <tenant-slug> --yes`.
+2. Verify deletion: search for the tenant's indices (`logstash-security-<tenant>`) and expect a 404.
+3. Verify the tamper-evident receipt: check `soc-audit-unassigned` for the `tenant_erasure` event.
+4. If a strict legal deadline applies, manually delete the relevant snapshots from `suburban-soc-snapshots`.
 
-**Evidence:** the erasure is written to the append-only audit trail (WS3.3) as
-`event.action=tenant_erasure` (`in_progress` → `completed`) in `soc-audit-unassigned`,
-so the deletion itself is provable (who ran it, when, how many docs). The shared
-`unassigned` tenant is refused as a target.
-
-**Snapshots:** SLM snapshots are immutable and may still contain the tenant's data
-until they expire (≤45d, WS2.5). For a hard legal deadline, also delete the relevant
-snapshots from `suburban-soc-snapshots`; otherwise erasure completes on snapshot
-expiry. Record this in the erasure ticket.
-
-### Validation (performed WS3.4)
-
-Seeded tenant `erasetest` (data stream + audit index + shared `asset-inventory` doc),
-ran `erase_tenant.sh erasetest --yes`:
-
-- `logstash-security-erasetest` → **HTTP 404** (gone); `soc-audit-erasetest` → **404**
-- `asset-inventory` docs with `tenant.id=erasetest` → **0** (delete_by_query)
-- audit receipts present: `tenant_erasure` `in_progress` + `completed`
-
-Ingest minimization verified live: an event with `password=…/token=…/api_key=…` indexed
-as `password=[REDACTED] token=[REDACTED] api_key=[REDACTED]`, with `user=alice` preserved.
-
-## Data inventory (summary)
-
-| Data | Source | Personal data? | Retention | Erasure |
-|------|--------|----------------|-----------|---------|
-| Connection/DNS/TLS metadata | Zeek | IPs (pseudonymous) | ILM | per-tenant script |
-| Endpoint process/auth events | Winlogbeat/Filebeat | usernames | ILM | per-tenant script |
-| Detection alerts | Detection Engine | derived | ILM | `delete_by_query` |
-| Audit trail | app (WS3.3) | actor identity | SLM (immutable) | retained for compliance |
-
-## DSAR / access requests
-
-A tenant access request is served from that tenant's Kibana Space + data view
-(`provision_tenant.sh`); a tenant can only ever see its own slice (WS0.3 isolation,
-WS3.2 RBAC). Export via the Space's saved search. Erasure as above.
+# References and Resources
+- `configs/zeek/local.zeek`
+- `configs/logstash.conf`
+- `scripts/setup/erase_tenant.sh`
