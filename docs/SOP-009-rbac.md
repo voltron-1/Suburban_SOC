@@ -1,30 +1,58 @@
-# SOP-009 — RBAC & Least Privilege (WS3.2)
+# Executive Summary
+This Standard Operating Procedure (SOP) defines the Role-Based Access Control (RBAC) and least privilege model for Suburban-SOC. It specifies human and service account roles, ensuring entities can only perform their explicitly authorized tasks.
 
-**Status:** Active · **Milestone:** M10 · **Workstream:** WS3.2 · **SOC 2:** Security
+## Name
+SOP-009 — RBAC & Least Privilege
 
-## Roles (version-controlled in `configs/elasticsearch/roles/*.json`)
-| Role | Who/what | Privileges |
-|---|---|---|
-| `soc_analyst` | human analyst | **read** SOC data + alerts; Discover/Dashboard read; **Cases all**; SIEM read |
-| `soc_detection_engineer` | human detection eng | analyst + manage index templates; SIEM **all** (manage rules) |
-| `soc_admin` | human SOC admin | manage SOC indices/ILM/SLM + all Kibana — but **not** `manage_security` (no user/role admin → not a superuser) |
-| `logstash_writer` | Logstash service | write `logstash-*`/`soar-actions-*`/`asset-inventory-*` only |
-| `soc_agent_cases` | AI-agent service | `feature_generalCases.all` only (open/close cases) |
-| `tenant_*_viewer` | tenant viewer | read ONE tenant's indices + its space (provisioned by `provision_tenant.sh`) |
+## Problem Statement
+Excessive permissions allow lateral movement or accidental data destruction. Services and analysts must not operate as the `elastic` superuser, and distinct roles must exist for analysts, detection engineers, and administrators.
 
-Apply: `./scripts/setup/apply_roles.sh`. Service accounts (`logstash_internal`,
-`soc_agent`) use these roles — **no human or service uses the `elastic` superuser in
-normal operation**; `elastic` is break-glass only.
+## Objectives
+- Maintain version-controlled, explicit roles for human and service accounts.
+- Enforce least privilege for the Logstash writer and AI agent services.
+- Ensure the `elastic` superuser is restricted to break-glass scenarios.
 
-## Verification — negative tests
-`tests/rbac/test_rbac.sh` proves each account can do its job and **only** its job:
-- `soc_analyst` reads SOC data, but **cannot** delete an index or create a role (403);
-- `logstash_writer` writes its indices, but **cannot** read security alerts or create a
-  user (403).
+## Compliance
+- **NIST CSF**: PR.AC-4 (Access permissions managed, incorporating least privilege).
+- **SOC 2**: Security (Logical Access).
 
-**Validated:** all 6 checks pass.
+## MITRE ATT&CK Framework
+- Mitigates TA0004 Privilege Escalation (T1078 Valid Accounts) by scoping compromised accounts to the minimum viable privilege.
 
-## Acceptance (#103)
-- [x] Roles defined (tenant-viewer, analyst, detection-engineer, admin, service accounts)
-- [x] Services scoped to least-privilege accounts, not `elastic`
-- [x] Negative tests prove each account can only do its job
+## Assumptions and Limitations
+- The ELK stack security features (xpack.security) are enabled.
+- Roles are defined as JSON templates in `configs/elasticsearch/roles/`.
+
+# Analysis
+The environment distinguishes between operational roles (`soc_analyst`, `soc_detection_engineer`, `soc_admin`) and service roles (`logstash_writer`, `soc_agent_cases`, `tenant_*_viewer`). The `apply_roles.sh` script idempotently provisions these directly into Elasticsearch.
+
+## Monitoring and Notifications
+Privilege escalation attempts or 403 Forbidden errors for service accounts appear in the Elasticsearch audit logs and the `soc-audit-unassigned` index.
+
+## Playbook Verification
+To verify the RBAC rules:
+1. Run `./tests/rbac/test_rbac.sh` which executes negative tests.
+2. Ensure the output confirms that each role can only perform its authorized actions (e.g., `soc_analyst` gets a 403 when attempting to delete an index).
+
+## Recommended Response Action(s)
+
+### Identification
+If unauthorized access is suspected or a service encounters permission errors:
+- Review the user's role assignments in Kibana (Stack Management > Users).
+- Check Elasticsearch audit logs for 403 Forbidden events mapped to the user/service.
+
+### Containment
+To contain a compromised or misconfigured account:
+- Immediately disable the user in Kibana or reset their password.
+- If a service account is compromised, rotate its credentials and restart the affected service.
+
+### Eradication & Recovery
+To restore or update RBAC configurations:
+1. Edit the role definitions in `configs/elasticsearch/roles/*.json`.
+2. Apply the roles to the cluster: `./scripts/setup/apply_roles.sh`.
+3. Re-run `./tests/rbac/test_rbac.sh` to validate the negative tests pass.
+
+# References and Resources
+- `configs/elasticsearch/roles/`
+- `scripts/setup/apply_roles.sh`
+- `tests/rbac/test_rbac.sh`
