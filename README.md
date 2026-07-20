@@ -49,7 +49,7 @@ This project directly covers the following course modules from CIS 3353 — Comp
 ## Project Status
 
 Milestones mirror the [GitHub Milestones](https://github.com/sterlinggarnett/Suburban_SOC/milestones).
-M1–M6 are the completed MVP; M7–M10 follow the four phases of the
+M1–M6 are the completed MVP; M7–M11 follow the phases of the
 [SOC Maturity Roadmap](docs/SOC-maturity-roadmap.md).
 
 | Milestone | Title | Status |
@@ -64,6 +64,7 @@ M1–M6 are the completed MVP; M7–M10 follow the four phases of the
 | M8 | Detection Plane — NIST CSF Coverage & ATT&CK Depth (Phase 1) | ✅ Complete (5/5) |
 | M9 | Operational Maturity (SOC-CMM Level 3) (Phase 2) | ✅ Complete (5/5) |
 | M10 | SOC 2 Type II Technical Control Readiness (Phase 3) | ✅ Complete — 7/7 (WS3.1–3.7) |
+| M11 | Agent Orchestration & Compliance (Phase 4) | 🚧 In progress |
 
 > **What "✅ Complete" means here (scope note, audit P1-12/P1-13).** A milestone is
 > marked complete when its tracked issues/workstreams were implemented and merged —
