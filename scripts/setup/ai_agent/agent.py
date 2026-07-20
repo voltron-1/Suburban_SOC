@@ -886,7 +886,7 @@ class Agent:
         phase, detail, ok, action_id = self.act(ctx, analysis, case_id)
         
         # Check
-        self.check(ctx, phase)
+        self.check(ctx, phase)  # type: ignore
         
         resp = {
             "status": phase.lower(),
@@ -912,10 +912,10 @@ class Agent:
         
         logger.info(f"Executing approved block for {alert_id} by {approver}")
         
-        ok, detail = _execute_isolation(ctx.target_mac, ctx.target_ip, ctx.tenant_id)
+        ok, detail = _execute_isolation(ctx.target_mac, ctx.target_ip, ctx.tenant_id)  # type: ignore
         
         phase = "EXECUTED" if ok else "ESCALATED"
-        self.check(ctx, phase)
+        self.check(ctx, phase)  # type: ignore
         
         return AgentResult(200, {"status": phase.lower(), "detail": detail, "alert_id": alert_id})
 
@@ -966,7 +966,7 @@ class Agent:
 
         # Autonomous
         if AUTONOMOUS_ISOLATION and ctx.severity == "critical" and ctx.target_mac:
-            ok, detail = _execute_isolation(ctx.target_mac, ctx.target_ip, ctx.tenant_id)
+            ok, detail = _execute_isolation(ctx.target_mac, ctx.target_ip, ctx.tenant_id)  # type: ignore
             notify_detail = detail
             if not NOTIFY_INCLUDE_RAW_IOCS:
                 if ctx.target_ip and ctx.target_ip != "unknown":
@@ -1008,7 +1008,7 @@ class Agent:
             priority=5 if ctx.severity == "critical" else 3, tags="memo,hourglass,robot", tenant=ctx.tenant_id
         )
         log_soar_action("analyst_review", ctx.target_ip, ctx.target_mac, ai_summary, ctx.severity, tenant=ctx.tenant_id, latency_seconds=time.time() - _t0)
-        return "PENDING_APPROVAL", "Response drafted", True, action["id"]
+        return "PENDING_APPROVAL", "Response drafted", True, str(action["id"])
 
     def check(self, ctx: AlertContext, phase: str):
         write_checkpoint(ctx.tenant_id, ctx.alert_id, phase)
