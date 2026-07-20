@@ -2,9 +2,9 @@
 agent_app.py — Suburban-SOC AI agent / SOAR webhook listener.
 """
 
+from weekly_ciso_report import run_reporting_pipeline
 import logging
 import threading
-from weekly_ciso_report import run_reporting_pipeline
 from flask import Flask, request, jsonify
 
 

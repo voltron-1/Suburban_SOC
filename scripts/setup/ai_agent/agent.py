@@ -1,5 +1,3 @@
-from .checkpoints import write_checkpoint, read_checkpoint, is_duplicate, is_awaiting_approval, generate_dedup_key
-from .retry import retry
 """
 agent_app.py — Suburban-SOC AI agent / SOAR webhook listener.
 
@@ -12,12 +10,16 @@ routed to the hive-mind-broker over a second HMAC-signed webhook (the slim
 agent container has no ssh/sudo). Also serves /weekly-report, wiring in the
 CISO reporting pipeline (weekly_ciso_report.py).
 """
+from dataclasses import dataclass
+from typing import Optional
+from flask import request, jsonify
+from .checkpoints import write_checkpoint, read_checkpoint, is_duplicate, is_awaiting_approval, generate_dedup_key
+from .retry import retry
 
 import os
 import re
 import json
 import time
-import uuid
 import hmac
 import hashlib
 import ipaddress
@@ -30,7 +32,6 @@ from pathlib import Path
 
 
 # Import the CISO reporting pipeline (Task 4.1-4.5, Issue #51)
-from weekly_ciso_report import run_reporting_pipeline
 
 
 # #171 (AU-2/3/12): without this, logger's own INFO-level lines fall under
@@ -850,8 +851,6 @@ def _write_audit_health_marker(action, tenant, error):
 
 # =============================================================================
 
-from dataclasses import dataclass
-from typing import Optional
 
 @dataclass(frozen=True)
 class AlertContext:
