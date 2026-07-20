@@ -1,0 +1,26 @@
+{
+  "index_patterns": ["agent-checkpoints-*"],
+  "priority": 200,
+  "data_stream": {},
+  "_meta": {
+    "description": "Suburban-SOC Agent Orchestration Checkpoints. Stores phase transitions (PENDING_APPROVAL, EXECUTED) to enable idempotency and crash recovery for the agent loop. WS12.3: backed by a per-tenant data stream (agent-checkpoints-<tenant>) under ILM policy agent-checkpoints-ilm (30d retention).",
+    "managed_by": "configs/elasticsearch/apply-templates.sh"
+  },
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "refresh_interval": "1s",
+      "index.lifecycle.name": "agent-checkpoints-ilm"
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": { "type": "date" },
+        "tenant":     { "properties": { "id": { "type": "keyword" } } },
+        "alert_id":   { "type": "keyword" },
+        "phase":      { "type": "keyword" },
+        "context":    { "type": "object", "enabled": false }
+      }
+    }
+  }
+}

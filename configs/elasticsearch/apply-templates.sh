@@ -39,10 +39,17 @@ esj -o /dev/null -w '    -> HTTP %{http_code}\n' -X PUT \
   "$ES_URL/_index_template/soar-actions-template" \
   --data-binary "@$HERE/soar-actions-template.json"
 
+echo "==> Installing agent-checkpoints-template"
+esj -o /dev/null -w '    -> HTTP %{http_code}\n' -X PUT \
+  "$ES_URL/_index_template/agent-checkpoints-template" \
+  --data-binary "@$HERE/agent-checkpoints-template.json"
+
 echo "==> Dropping replicas to 0 on existing indices (single-node -> clears yellow)"
 esj -o /dev/null -w '    logstash-security-* -> HTTP %{http_code}\n' -X PUT \
   "$ES_URL/logstash-security-*/_settings" -d '{"index":{"number_of_replicas":0}}'
 esj -o /dev/null -w '    soar-actions-*      -> HTTP %{http_code}\n' -X PUT \
   "$ES_URL/soar-actions-*/_settings" -d '{"index":{"number_of_replicas":0}}'
+esj -o /dev/null -w '    agent-checkpoints-* -> HTTP %{http_code}\n' -X PUT \
+  "$ES_URL/agent-checkpoints-*/_settings" -d '{"index":{"number_of_replicas":0}}'
 
 echo "Done."
