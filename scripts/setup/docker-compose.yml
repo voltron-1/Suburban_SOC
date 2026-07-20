@@ -316,6 +316,7 @@ services:
         echo "logstash TLS material ready (WS3.1)"
     volumes:
       - certs:/usr/share/logstash/config/certs
+      - ../../configs/lookups:/usr/share/logstash/config/lookups
     networks:
       - soc-mesh-net
 
@@ -417,6 +418,7 @@ services:
       - 5044:5044
     volumes:
       - certs:/usr/share/logstash/config/certs
+      - ../../configs/lookups:/usr/share/logstash/config/lookups
       # Single source of truth: the repo-root pipeline config is mounted directly
       # (path is relative to this compose file at scripts/setup/). No copy/sync step.
       - ../../configs/logstash.conf:/usr/share/logstash/pipeline/logstash.conf

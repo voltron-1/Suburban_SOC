@@ -56,6 +56,9 @@ INCLUDE_EXPERIMENTAL="${INCLUDE_EXPERIMENTAL:-0}"
 
 # --- 1. Ensure the Sigma toolchain -------------------------------------------
 SIGMA="$(command -v sigma || true)"
+if [[ -n "$SIGMA" ]] && ! "$SIGMA" version 2>/dev/null | grep -qi "sigma"; then
+  SIGMA=""
+fi
 if [[ -z "$SIGMA" ]]; then
   [[ $NO_BUILD -eq 1 ]] && { red "ERROR: 'sigma' not on PATH and --no-build set."; exit 1; }
   VENV="$REPO_ROOT/.venv-detections"
