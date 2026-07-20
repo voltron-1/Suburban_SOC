@@ -21,7 +21,7 @@ def retry(max_attempts=3, base_backoff=1):
                     attempts += 1
                     if attempts == max_attempts:
                         raise
-                except Exception as e:
+                except Exception:
                     attempts += 1
                     if attempts == max_attempts:
                         raise

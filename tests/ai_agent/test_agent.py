@@ -1,6 +1,6 @@
 import pytest
-from unittest.mock import patch, MagicMock
-from agent import Agent, AlertContext
+from unittest.mock import patch
+from agent import Agent
 
 @pytest.fixture
 def agent():

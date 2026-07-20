@@ -5,6 +5,7 @@ agent_app.py — Suburban-SOC AI agent / SOAR webhook listener.
 import logging
 from flask import Flask, request, jsonify
 
+
 # Import everything else from our new core module
 from agent import (
     verify_signature, _require_signature, HMAC_HEADER, HMAC_TS_HEADER,
@@ -33,7 +34,8 @@ def handle_kibana_webhook():
 @app.route("/pending", methods=["GET"])
 def list_pending():
     auth_err = _require_signature()
-    if auth_err: return auth_err
+    if auth_err:
+        return auth_err
 
     try:
         pending = _read_queue()
@@ -45,7 +47,8 @@ def list_pending():
 @app.route("/approve", methods=["POST"])
 def approve_action():
     auth_err = _require_signature()
-    if auth_err: return auth_err
+    if auth_err:
+        return auth_err
 
     data = request.get_json(silent=True) or {}
     action_id = data.get("action_id")
