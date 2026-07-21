@@ -250,8 +250,21 @@ This project encompasses the design, development, and testing of an advanced **n
 │   ├── /server                 # Kibana dashboard exports (.ndjson)
 │   ├── /zeek                    # Zeek TLS/telemetry policy (local.zeek)
 │   └── /detections             # ECS field pipeline (suburban-soc-ecs.yml)
-├── /docs                       # Technical documentation
+├── /docs                       # Technical documentation and Standard Operating Procedures (SOPs)
 │   ├── SOP-001-pipeline-operations.md
+│   ├── SOP-003-dashboard-operations.md
+│   ├── SOP-004-data-retention.md
+│   ├── SOP-005-reliability.md
+│   ├── SOP-007-change-management.md
+│   ├── SOP-008-vuln-management.md
+│   ├── SOP-009-rbac.md
+│   ├── SOP-010-audit-trail.md
+│   ├── SOP-011-encryption.md
+│   ├── SOP-012-privacy-data-handling.md
+│   ├── SOP-013-ccm.md
+│   ├── SOP-022-anomaly-validation.md
+│   ├── SOP-147-evidence-validation-runbook.md
+│   ├── Playbook-Structure.md
 │   ├── Zeek_ELK_Pipeline.md
 │   ├── architecture-diagram.png
 │   ├── logstash_validation.md
