@@ -30,6 +30,27 @@ description = "Global allowlist"
 paths = [
   '''AUDIT_REPORT\.md''',      # the audit documents (redacted) examples of the leak
   '''\.gitleaks\.toml''',      # this config necessarily contains the patterns
+  # configs/server/suburban_soc_dashboards_bundle_final.ndjson: a Kibana saved-
+  # object export containing 3 inline `data:image/jpeg;base64,...` markdown-panel
+  # images (audit P2-16 made this file text/LF specifically so scanners CAN see
+  # its contents — this is that scanner doing its job, not a gap in it). The
+  # stock `aws-access-token` rule (`AKIA`/`AIDA`-prefixed 16-char pattern) false-
+  # positives on a byte run inside one image's base64 payload — confirmed by
+  # isolating the exact flagged offset and verifying it sits inside the
+  # `data:image/jpeg;base64,` URI, not adjacent to it. No other rule in the
+  # default set + this file's own elastic-inline-basic-auth rule fires anywhere
+  # in this file today (verified via a full working-tree + full-history scan).
+  # A `paths` entry (unlike the value-scoped `regexes` allowlist below, or a
+  # per-commit fingerprint) excludes the WHOLE file from EVERY rule, not just
+  # this one false positive — confirmed empirically: a real AKIA-style key
+  # appended to a copy of this file was not flagged with this entry active. A
+  # value/fingerprint-scoped allowlist would re-break on the image's own next
+  # edit (different bytes, different match), same as the two path entries
+  # above already accept for their own files. Judged an acceptable trade here
+  # because this file is a wholesale Kibana export (audit P2-16), not
+  # hand-edited prose a credential could get pasted into piecemeal — same
+  # reasoning this list already applies to AUDIT_REPORT.md.
+  '''configs/server/suburban_soc_dashboards_bundle_final\.ndjson''',
 ]
 regexes = [
   # Env-var references, not secrets: `elastic:$VAR`, `elastic:${VAR}` and the
