@@ -28,8 +28,13 @@ tags = ["password", "elasticsearch", "basic-auth"]
 [allowlist]
 description = "Global allowlist"
 paths = [
-  '''AUDIT_REPORT\.md''',      # the audit documents (redacted) examples of the leak
-  '''\.gitleaks\.toml''',      # this config necessarily contains the patterns
+  # Anchored (^...$) so an entry can only ever exempt the exact file it names.
+  # Unanchored, `AUDIT_REPORT\.md` would also exempt `notes_AUDIT_REPORT.md.bak`
+  # or a copy under any other directory — a silent hole, since the symptom of an
+  # over-broad allowlist is *fewer* findings, which nothing alerts on.
+  # tests/pipeline/test_gitleaks_allowlist.py enforces the anchoring.
+  '''^AUDIT_REPORT\.md$''',      # the audit documents (redacted) examples of the leak
+  '''^\.gitleaks\.toml$''',      # this config necessarily contains the patterns
 ]
 regexes = [
   # Env-var references, not secrets: `elastic:$VAR`, `elastic:${VAR}` and the
