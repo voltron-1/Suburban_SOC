@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_conn_icmp_tunnel_large",
+  "title": "Unusually Large ICMP Flow (Possible ICMP Tunnel)",
+  "ruleFile": "rules/sigma/net_zeek_conn_icmp_tunnel_large.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1095 — Non-Application Layer Protocol"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_conn_icmp_tunnel_large",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1095 — Non-Application Layer Protocol |\n| Severity (`level`) | medium |\n| Data source | Zeek conn |\n| Trigger condition | ICMP flow whose originator has sent more than 1,000,000 cumulative bytes across the whole tracked flow |\n\nDetects the data volume ICMP tunneling tools (icmpsh, ptunnel, icmptunnel) reach when moving real data, which ordinary ping traffic essentially never does. The rule states its own limit: `orig_bytes` is cumulative for the entire Zeek-tracked flow, not per packet, so it conflates duration with size — a very long-running monitoring flow can accumulate volume slowly, and flow duration must be checked alongside the byte count before escalating."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `proto` | rule detection block | ICMP flow selector |\n| `orig_bytes` | rule detection block | Cumulative originator bytes — the 1,000,000-byte threshold |\n| `id.orig_h` | event source (Zeek conn.log) | Internal sender — containment target |\n| `id.resp_h` | event source (Zeek conn.log) | Remote endpoint — primary TI artifact |\n| `duration` | event source (raw Zeek conn.log) | Separates a slow multi-day monitoring flow from a dense transfer |\n| `resp_bytes` | event source (raw Zeek conn.log) | Return-direction volume — tunnel channels are bidirectional |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `id.resp_h` (remote endpoint) → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: asset role of `id.orig_h` — is it a known monitoring server (Smokeping/Nagios/MTR host) with a documented reason to ping this destination continuously?\n- Compute effective rate (`orig_bytes` ÷ `duration`, from the raw conn.log): a dense burst is the tunnel shape; a trickle over days is the monitoring shape.\n- Volume alone is not a verdict — pair the byte count with the AbuseIPDB result or an internal case before calling the flow malicious."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host isolation. On AbuseIPDB ≥ 50% confirmation of `id.resp_h`, auto-add the IP to the perimeter blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   network.transport : \"icmp\" and source.bytes > 1000000\n   ```\n2. Duration and direction check: `duration` and `resp_bytes` are not indexed — the flow needs its raw conn.log record to separate a long-lived monitoring flow from a dense transfer and to see whether data flowed both ways.\n3. Endpoint pivot: sweep `id.orig_h`'s Sysmon process-creation events in the flow window for the process generating ICMP (tunnel clients run as ordinary user processes); follow the Windows Process Creation family baseline for what you find.\n4. False-positive checks: continuous ICMP-based network monitoring (Smokeping, Nagios, MTR, keepalive checks) running for a very long uninterrupted period against one destination; path-MTU discovery or diagnostic tooling issuing many deliberately oversized ping payloads (e.g. `ping -s`) in one troubleshooting session.\n**Escalation:** dense transfer rate from a non-monitoring host plus a responsible process identified on `id.orig_h` → treat as an active covert channel; promote to the high-severity flow (Tier B isolate of the sending host)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full conn.log slice for the `id.orig_h` ↔ `id.resp_h` pair before rollover — the byte/duration series is the channel evidence.\n- Block or rate-limit ICMP to the remote endpoint at the perimeter; if a tunnel client is found, hash its binary for VT, remove it, and remove whatever launcher persists it.\n- Review what data the sending host could reach — a confirmed tunnel is an exfiltration path, not just a C2 channel.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and both endpoints."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full conn.log slice for the `id.orig_h` ↔ `id.resp_h` pair before rollover — the byte/duration series is the channel evidence.",
+    "Block or rate-limit ICMP to the remote endpoint at the perimeter; if a tunnel client is found, hash its binary for VT, remove it, and remove whatever launcher persists it.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and both endpoints."
+  ],
+  "unmappedContent": []
+}

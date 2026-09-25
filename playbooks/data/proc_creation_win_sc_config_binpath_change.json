@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_sc_config_binpath_change",
+  "title": "Existing Service Reconfigured to a New Binary Path",
+  "ruleFile": "rules/sigma/proc_creation_win_sc_config_binpath_change.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence",
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1543.003 — Create or Modify System Process: Windows Service"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_sc_config_binpath_change",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence, Privilege Escalation |\n| Technique(s) | T1543.003 — Create or Modify System Process: Windows Service |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `sc.exe` (by image path or OriginalFileName) with a command line containing the ` config ` verb and `binpath=` |\n\nDetects `sc.exe config <service> binpath= <value>`, which changes what binary an already-existing service launches — stealthier than creating a new service because the service name, description, and any existing allow-listing stay unchanged; only the payload running under its identity changes. Stated blind spot (security review #233): the equivalent change via the Win32 `ChangeServiceConfigW` API or a raw registry write to the service's `ImagePath` never invokes sc.exe, and this rule has no visibility into either path."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\sc.exe`) |\n| `OriginalFileName` | rule detection block | PE metadata catches a renamed sc.exe |\n| `CommandLine` | rule detection block | Target service name and the new `binpath=` value — the payload to collect |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Patch-management agent vs. shell/script-host delivery |\n| `User` | event source (Sysmon EID 1) | Must be elevated to reconfigure a service; drives reset scope |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (sc.exe itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **new service binary** (collected from the `binpath=` value in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: change calendar for an in-place upgrade touching this service; service-inventory diff (what was the previous `binpath` value?); case history for the service name.\n- No external IP/domain artifact on this event.\n- Reconfiguration is only malicious with the citing VT verdict or an internal case ID; document the old-vs-new path diff either way."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier B — auto-isolate on TI-confirm: severity high → auto EDR-isolate the host when the new service binary's VT verdict is ≥ 5 malicious; account actions on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   (process.executable : *\\\\sc.exe or process.pe.original_file_name : \"sc.exe\") and process.args : *binpath=*\n   ```\n   The space-delimited ` config ` verb cannot be anchored in a KQL wildcard — read `process.args` in the results to separate `config` (this rule) from `create` (the sibling service-creation rule).\n2. Pivot: record the service's prior binary path, collect and hash the new target; check for a service start/restart and the new binary's own process-creation event following the change.\n3. False-positive check: legitimate IT/patch-management tooling repointing a service's binary during an in-place upgrade — correlate the target service name and new path against the change calendar.\n**Escalation:** new binpath points to a user-writable path, an unsigned binary, or embeds a command interpreter → page the IR lead; the payload runs with the service's (typically SYSTEM) identity."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Record the old and new `binpath` values and collect/hash the new target binary before reverting.\n- Revert the service to its verified original binary path, remove the planted binary, then audit all services on the host for the same modification window (covers the API/registry route this rule cannot see).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Record the old and new `binpath` values and collect/hash the new target binary before reverting.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

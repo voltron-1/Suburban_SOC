@@ -1,0 +1,88 @@
+{
+  "id": "auth_win_sedebug_special_logon",
+  "title": "Special-Privilege Logon Assigning SeDebugPrivilege (Windows Security 4672)",
+  "ruleFile": "rules/sigma/auth_win_sedebug_special_logon.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1078 — Valid Accounts; T1134 — Access Token Manipulation"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_sedebug_special_logon",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Privilege Escalation |\n| Technique(s) | T1078 — Valid Accounts; T1134 — Access Token Manipulation |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4672 (special privileges assigned to new logon) with SeDebugPrivilege in `PrivilegeList`, excluding SYSTEM (`SubjectUserSid` S-1-5-18, which receives it on every boot) |\n\nSeDebugPrivilege lets a process open and read the memory of any other process (e.g. LSASS) and is a common precursor to credential dumping or token theft. Requires the \"Audit Special Logon\" advanced audit subcategory, enabled by default in most modern audit-policy baselines."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the special-privilege logon event (4672) |\n| `PrivilegeList` | rule detection block | Contains SeDebugPrivilege; the other listed privileges give session context |\n| `SubjectUserSid` | rule detection block | SYSTEM is filtered; the SID of the privileged logon |\n| `SubjectUserName`, `SubjectDomainName` | event source (standard) | Human-readable account identity |\n| `SubjectLogonId` | event source (standard) | Correlate to the paired 4624 for logon type and source |\n| `Computer` | event source (standard) | Host where the privileged session exists |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only: is the account an expected debugging/backup/monitoring identity on this host (the rule's FP class); prior case history. No external artifact on this event — AbuseIPDB/OTX/VT not applicable.\n- A 4672 records capability, not action — never cite it alone as evidence of credential access."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium, internal-only enrichment → Tier D: enrich, queue for analyst review, no automation.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4672 and winlog.event_data.PrivilegeList : *SeDebugPrivilege* and not winlog.event_data.SubjectUserSid : \"S-1-5-18\"\n   ```\n2. Pair with the logon: match `SubjectLogonId` to its 4624 (logon type, source), then check whether the session actually used the capability — correlate the endpoint family's LSASS-access/credential-dump detections on `Computer` in the same window. Without that paired process telemetry the event is ambiguous and stays a context record, not a finding.\n3. False-positive check: legitimate debugging, backup, or monitoring software running under a non-SYSTEM administrative account that requires SeDebugPrivilege.\n**Escalation:** the same session trips a credential-access detection (e.g. LSASS dump) → escalate under that rule's Tier B flow and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- No remediation for the capability alone; on correlated abuse, follow the triggering credential-access rule's remediation (memory acquisition before cleanup, credential resets for exposed sessions).\n- Review and trim which accounts are granted SeDebugPrivilege if the holder has no documented need.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

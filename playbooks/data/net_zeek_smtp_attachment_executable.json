@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_smtp_attachment_executable",
+  "title": "Executable Payload Sent as an Email Attachment (Zeek Files) — Plaintext SMTP Only",
+  "ruleFile": "rules/sigma/net_zeek_smtp_attachment_executable.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Initial Access"
+    ],
+    "techniques": [
+      "T1566.001 — Phishing: Spearphishing Attachment"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_smtp_attachment_executable",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Initial Access |\n| Technique(s) | T1566.001 — Phishing: Spearphishing Attachment |\n| Severity (`level`) | medium |\n| Data source | Zeek files.log |\n| Trigger condition | files.log record whose `source` is `SMTP` and whose `mime_type` matches the same ten executable/script types as the HTTP download sibling |\n\nDetects an executable or script MIME type extracted from an SMTP attachment — the classic spearphishing-attachment delivery. Carry the title's own caveat: the sensor can only see attachment bytes in **plaintext SMTP**; any STARTTLS or implicit-TLS session (the default for submission on 587/465 on essentially every modern client and provider) is entirely opaque, so practical coverage is unencrypted MTA-to-MTA relay on port 25, not general inbound phishing. `mime_type` is content-derived (Zeek's own magic, not the declared Content-Type); a payload matching none of Zeek's narrow signatures — archives/containers, `.ps1`/`.vbs`/`.js`/`.wsf` — produces no `mime_type` at all and can never fire this rule."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `source` | rule detection block | Confirms the carrying protocol is SMTP |\n| `mime_type` | rule detection block | Content-derived payload class of the attachment |\n| `filename` | event source (Zeek files.log) | MIME-declared name — fully attacker-controlled (double/spoofed extensions); context only, never a type signal |\n| `id.orig_h`, `id.resp_h` | event source (Zeek files.log) | Sending and receiving MTA/host pair |\n| `uid` | event source (Zeek files.log) | Join key to smtp.log for sender/subject/recipients |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Attachment SHA-256 → VirusTotal; escalate at **≥ 5 malicious verdicts**. The event yields no hash field — obtain one if file hashing is enabled on the sensor, or once the message is retrieved from the mail store.\n- Sending IP → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: correlate smtp.log by `uid` (raw Zeek log) for sender, subject, and recipient set — files.log does not carry them; then sweep the mail store for other copies of the same message.\n- The MIME type proves an executable was mailed, not that it is malicious — no verdict without the VT/AbuseIPDB citation or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on AbuseIPDB ≥ 50% (or VT ≥ 5 on the attachment hash), auto-block the sending IP at the mail perimeter; message and host actions stay with the analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.files\" and zeek.source : \"SMTP\" and mime_type : (\"application/x-dosexec\" or \"application/x-executable\" or \"application/x-sharedlib\" or \"text/x-shellscript\" or \"text/x-python\" or \"text/x-perl\" or \"text/x-ruby\" or \"text/x-msdos-batch\" or \"application/x-ms-shortcut\" or \"application/x-mach-o-executable\")\n   ```\n2. Recipient sweep: identify every mailbox that received the message (smtp.log recipients, mail-store search), then endpoint hand-off — on each recipient's host, sweep Sysmon process-creation telemetry for execution of the attachment (mail client or archive tool spawning the payload).\n3. False-positive checks (from the rule): legitimate IT-distributed software, scripts, or installers sent by email — and note the rule's own calibration warning that a developer or vendor emailing a `.py`/`.rb`/`.pl` script attachment is genuinely common, not a rare edge case.\n**Escalation:** VT ≥ 5 on the attachment, or any evidence of execution on a recipient host → promote to Tier B (isolate the affected endpoint), page the IR lead, and treat it as an active phishing incident."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Quarantine/pull the message from all recipient mailboxes; preserve one copy with full headers, and hash the attachment before removal.\n- Block the sending infrastructure at the mail gateway; notify recipients; if executed, run the endpoint IR path (process tree, persistence removal, credential exposure review) on each affected host.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Quarantine/pull the message from all recipient mailboxes; preserve one copy with full headers, and hash the attachment before removal.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,90 @@
+{
+  "id": "auth_linux_ssh_root_login",
+  "title": "Direct Root Login via SSH",
+  "ruleFile": "rules/sigma/auth_linux_ssh_root_login.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Linux Authentication",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Linux Authentication"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Initial Access",
+      "Persistence"
+    ],
+    "techniques": [
+      "T1078.003 — Valid Accounts: Local Accounts"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_linux_ssh_root_login",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Initial Access, Persistence |\n| Technique(s) | T1078.003 — Valid Accounts: Local Accounts |\n| Severity (`level`) | high |\n| Data source | Filebeat (Linux auth.log) |\n| Trigger condition | A Linux auth event with `user.name: root` and `event.outcome: success` — an accepted SSH login directly as root |\n\nDetects a successful SSH login directly as root. Most security baselines disable direct root SSH access (`PermitRootLogin no`) and require login as an unprivileged user followed by sudo/su, so a direct root session is either a misconfigured host or a credential compromise bypassing that control entirely."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `event.module` | rule detection block | Scopes to the Linux auth pipeline (`system`) |\n| `user.name` | rule detection block | Fixed at `root` — the identity at stake |\n| `event.outcome` | rule detection block | `success` — an accepted login, not an attempt |\n| `source.ip`, `source.port` | event source (parsed SSH auth lines) | Client address — the primary TI artifact and pivot key |\n| `system.auth.method` | event source | Auth method (`password` vs `publickey`) — a password root login is a materially worse signal than a managed appliance's key |\n| `source.geo.country_name` | event source (external client IPs) | Geographic context for the client address |\n| `host.name` | event source | The host now holding a live root session |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `source.ip` → AbuseIPDB; escalate at **≥ 50% confidence score**.\n- Internal-only checks: asset inventory for a documented appliance/legacy allowlist entry permitting root SSH on this host; change calendar for sanctioned emergency access; whether the source IP is a known admin workstation or jump host.\n- An internal source IP is not exonerating on its own — cite the allowlist entry or change record, or keep the case open."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B (identity): on AbuseIPDB ≥ 50% for the SSH source IP, automated account-centric containment — terminate the active root session and disable further root SSH logins; page the IR lead.\n**Analyst triage path** (no TI confirmation) — 15-minute SLA; Tier B (identity) on analyst confirm:\n1. Verify with KQL (index `logstash-*`; Linux auth fields are already ECS):\n   ```\n   event.module : \"system\" and user.name : \"root\" and event.outcome : \"success\"\n   ```\n2. Identity sweep: pivot on `source.ip` — other logins (any account, any host) from the same client address ±24 h; then pull the host's auth.log around the event for what the root session did next (su/sudo lines, session close).\n3. False-positive check: an intentionally configured host/appliance that permits direct root SSH login (uncommon, but occurs on some legacy or vendor-managed systems) — allowlist the specific host rather than excluding root logins broadly.\n**Escalation:** source IP TI-confirmed, external, or unknown to the asset inventory, or root activity following the login that no change record explains → page the IR lead and treat the root credential (password or key) as compromised."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Capture the host's auth.log slice and root's shell history before any cleanup; record active sessions (`who`/`last`) and terminate the attacker session.\n- Rotate the root credential used: password reset and/or removal of the SSH key that authenticated; audit `/root/.ssh/authorized_keys` for attacker-added keys.\n- Set `PermitRootLogin no` (or the documented appliance-appropriate restriction) unless the host is explicitly allowlisted; verify the config change took effect.\n- Hunt lateral movement: authentications from this host to others during and after the root session window.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Capture the host's auth.log slice and root's shell history before any cleanup; record active sessions (`who`/`last`) and terminate the attacker session.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

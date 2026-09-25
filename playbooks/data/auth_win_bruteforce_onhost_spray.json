@@ -1,0 +1,89 @@
+{
+  "id": "auth_win_bruteforce_onhost_spray",
+  "title": "On-Host Password Spray Indicator via Failed Logons With No Real Source (Windows Security 4625)",
+  "ruleFile": "rules/sigma/auth_win_bruteforce_onhost_spray.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110.003 — Brute Force: Password Spraying"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_bruteforce_onhost_spray",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1110.003 — Brute Force: Password Spraying |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4625 where `IpAddress` IS one of the four no-source sentinel values (`-`, `0.0.0.0`, `::`, empty string) |\n\nSame base selection as `auth_win_bruteforce_source_spray.yml`, but the exact complement of its query: this rule selects what that one excludes. Logic-of-record for the paired Elastic threshold rule `rules/elastic/threshold/auth-win-bruteforce-onhost-spray.ndjson`, which buckets failures by `winlog.computer_name` (no real network source exists for this population) instead of `IpAddress`, and alerts when **one host accrues ≥ 6 distinct target accounts within a 5-minute window** — same cardinality shape as the source-IP sibling. Filed as #396 after review of `auth_win_bruteforce_source_spray.yml`'s own sentinel exclusion (#370) found it had silently dropped the only coverage that rule accidentally had for a genuine on-host spray — e.g. `runas`/`LogonUser()` calls from an already-landed foothold, which log 4625 with `IpAddress:\"-\"` too. Scored medium, not high like the sibling: an on-host spray from a foothold that already has local code execution is a post-compromise indicator, not the initial-access signal the network-sourced sibling represents."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the failed-logon event (4625) |\n| `IpAddress` | rule detection block | Confirms the event is in the no-source-sentinel population this rule scopes to (not a TI artifact — see below) |\n| `TargetUserName` | event source (standard) | Swept account — the companion counts distinct values |\n| `winlog.computer_name` | event source (standard) | Bucketing key — the host is the only real identity signal available for this population |\n| `Status`, `SubStatus` | event source (standard) | Uniform failure reason across the account set is the spray signature |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- **Internal-only** — `IpAddress` is by construction one of the 4 no-source sentinel values, never a real address, so no external TI lookup (AbuseIPDB/VT/OTX) applies here; this is the rule's defining difference from its source-IP sibling.\n- Correlate `winlog.computer_name` against asset inventory/EDR to establish whether the host already carries an open case (this population is meaningful specifically because it implies existing local access, not a network-perimeter event).\n- The distinct-account count is the primary corroboration — a host with a genuine ≥ 6-account local sweep warrants a case regardless of TI, since there is no TI signal to check."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium, Internal-only enrichment (no TI to auto-confirm against) → no automated action; every alert routes to analyst triage.\n**Analyst triage path** — 30-minute SLA (medium severity, post-compromise indicator rather than initial access):\n1. Verify with KQL (index `logstash-*`), counting distinct target accounts per host per 5-minute window (≥ 6 matches the companion threshold):\n   ```\n   winlog.event_id : 4625 and winlog.event_data.IpAddress : (\"-\" or \"0.0.0.0\" or \"::\" or \"\") and winlog.computer_name : \"<host>\"\n   ```\n2. Success pivot: `winlog.event_id : 4624 and winlog.computer_name : \"<host>\"` in the same window — any hit converts the indicator into a confirmed local compromise of that account.\n3. Cross-check `auth_win_bruteforce_source_spray.yml`'s own alerts for the same host/window — a host showing both is likely compromised via the network-sourced spray first, with this alert marking lateral, on-host follow-on activity.\n4. False-positive checks: a misconfigured application or service account retrying the same stale credential against several local accounts; a scheduled task or script iterating stale credentials after a credential rotation.\n**Escalation:** any success from the swept host, or corroborating EDR telemetry (new process, new scheduled task) on that host → page the IR lead and treat the host as compromised, not just suspicious."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Isolate the host if EDR corroborates compromise; force password resets for every swept account that shows a subsequent success on that host.\n- Export the full 4625/4624 slice for the host and window — the account list and cadence are the local-spray fingerprint, same evidentiary value as the network-sourced sibling's source-IP slice.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full 4625/4624 slice for the host and window — the account list and cadence are the local-spray fingerprint, same evidentiary value as the network-sourced sibling's source-IP slice.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and host before cleanup."
+  ],
+  "unmappedContent": []
+}

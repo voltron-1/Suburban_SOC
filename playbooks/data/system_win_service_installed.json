@@ -1,0 +1,90 @@
+{
+  "id": "system_win_service_installed",
+  "title": "New Service Installed (Windows System 7045)",
+  "ruleFile": "rules/sigma/system_win_service_installed.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows System Log - Service Control Manager & Event Log Service",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows System Log - Service Control Manager & Event Log Service"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence",
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1543.003 — Create or Modify System Process: Windows Service"
+    ]
+  },
+  "aiContext": {
+    "playbook": "system_win_service_installed",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence, Privilege Escalation |\n| Technique(s) | T1543.003 — Create or Modify System Process: Windows Service |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows System) |\n| Trigger condition | System 7045 for any new service registration, unless `ImagePath` starts with a standard OS/program directory (bare, quoted, `%SystemRoot%`, and NT-path forms are all excluded) |\n\nNative, tool-agnostic coverage of every new service registration, complementing `proc_creation_win_service_creation_sc.yml` (which only catches `sc.exe`). The rule is explicit that its common-directory allowlist is a volume heuristic only, not a hardening guarantee: registering a service already requires the same admin/SYSTEM privilege needed to write into the excluded directories, so any attacker who can trigger this event at all can place their binary in an excluded path and generate no alert. It exists to suppress routine installer/patch/agent noise and must not be relied on as evasion-resistant."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Selects System 7045 (new service installed) |\n| `ImagePath` | rule detection block | Service binary path — a non-standard location is what alerted; primary pivot |\n| `ServiceName` | event source (System 7045) | Baseline lookup and removal key |\n| `ServiceType`, `StartType` | event source (System 7045) | Auto-start services carry the most persistence weight |\n| `AccountName` | event source (System 7045) | Run-as account — LocalSystem means SYSTEM-level persistence |\n| `Computer` | event source (System channel) | Host; the record timestamp anchors the install window |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Service binary at `ImagePath` → VirusTotal; escalate at **≥ 5 malicious verdicts**. The hash comes from the correlated Sysmon EID 1 event for that binary, not from the 7045 event itself (7045 carries no hash field); failing that, collect the file from disk and hash it.\n- Internal-only checks: software-deployment and patch-management records for the install; known-service baseline for `ServiceName`; asset owner for context on the unusual path.\n- An unusual install path is a lead, not a verdict — no maliciousness call without the VT result or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on a VT verdict ≥ 5 for the service-binary hash, auto-add the hash to the EDR blocklist; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 7045 and host.name : \"<host>\"\n   ```\n   Review `winlog.event_data.ImagePath` and `winlog.event_data.ServiceName` in the results — the alerting event is the one whose path falls outside the standard OS/program directories.\n2. Pivot to the installer: Sysmon EID 1 ±5 minutes around the 7045 for the registering process; classify the `ImagePath` location (user profile, temp, custom drive) and check whether the binary is first-seen in the environment.\n3. False-positive checks: legitimate software installers, patch management, and endpoint agents that install services outside the standard OS/program directories (e.g. a vendor tool that installs to a user profile or a custom drive).\n**Escalation:** `ImagePath` in a user-writable directory and the binary unknown to deployment records, or an auto-start service registered outside any change window → promote to the high-severity flow (Tier B isolate on analyst confirm)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Before removal: collect and hash the binary at `ImagePath`, and export the service registry key (`HKLM\\SYSTEM\\CurrentControlSet\\Services\\<ServiceName>`).\n- Cleanup: stop and delete the service, remove the binary, then watch the host for re-creation — service persistence is commonly reinstalled by a second mechanism.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Before removal: collect and hash the binary at `ImagePath`, and export the service registry key (`HKLM\\SYSTEM\\CurrentControlSet\\Services\\<ServiceName>`).",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

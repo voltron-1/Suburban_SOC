@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_lnx_cron_at_persistence",
+  "title": "Linux Cron/At Job Persistence",
+  "ruleFile": "rules/sigma/proc_creation_lnx_cron_at_persistence.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Linux Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Linux Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence"
+    ],
+    "techniques": [
+      "T1053.003 — Scheduled Task/Job: Cron"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_lnx_cron_at_persistence",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence |\n| Technique(s) | T1053.003 — Scheduled Task/Job: Cron |\n| Severity (`level`) | medium |\n| Data source | auditd execve via Filebeat (Linux process_creation, #442) |\n| Trigger condition | `crontab -e`/`crontab -`/`crontab <file>` (excludes the read-only `-l`/`-r` forms), OR a write-shaped verb (`>`/`tee`) alongside a system cron directory path (`/etc/cron.d/`, `/etc/cron.daily/`, `/etc/cron.hourly/`, `/etc/cron.weekly/`, `/etc/cron.monthly/`), OR the `at` command |\n\nDetects three Linux scheduled-task persistence shapes: installing/replacing a user crontab, writing into a system cron directory, or one-shot scheduling via `at`. The cron-directory branch requires the write verb alongside the path specifically to avoid flagging routine inspection (`ls`/`cat` of an existing job) — the rule states this is still a coarse text signal, not a real write-syscall observation, since #442's auditd telemetry covers execve only, not file writes. `at` alone is deliberately broad, the same \"visibility layer, not a high-confidence standalone signal\" judgment call `auth_linux_sudo_privilege_escalation.yml` makes for a comparably common admin binary."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | `crontab` or `at` binary path |\n| `CommandLine` | rule detection block | Which branch fired — crontab subcommand, cron-directory path plus write verb, or the `at` invocation and its scheduled time/command |\n| `process.name` (`comm`) | event source (auditd SYSCALL) | Short process name — cross-check against `process.executable` |\n| `process.pid`, `process.parent.pid` | event source (auditd SYSCALL) | Process/parent PID numbers only — no parent name (see family header) |\n| `user.id`, `user.name` | event source (auditd SYSCALL) | Executing account — scopes the persistence to who installed it |\n| `host.name`, `@timestamp` | event source | Host and install time — timeline anchor |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only (this rule's CommandLine carries paths and subcommands, not an external artifact): is the executing account an expected admin/automation identity for this host? Check the change calendar — package installers (apt/dpkg postinst, Ansible, Puppet) legitimately drop files into `/etc/cron.d/` during normal software installation.\n- Internal-only: parse the scheduled command (from the crontab content or the `at` invocation, on-host) and compare against the account's routine pattern.\n- No malicious label without an internal case tying the account/host pairing to unauthorized activity — this rule is deliberately broad by its own admission."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** none — Internal-only artifact class, severity medium with no TI-confirmable artifact → Tier D: enrich and queue for analyst review.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; requires #442's auditd pipeline live):\n   ```\n   event.dataset : \"auditd.execve\" and (process.executable : *\\/crontab or process.executable : *\\/at)\n   ```\n   The cron-directory write-verb branch and the `-l`/`-r` read-only exclusion cannot be expressed as clean KQL wildcards — confirm both by reading `process.args` in the returned events.\n2. Context check: pull the actual crontab content or `at` job for the account (on-host, not from this event alone — the alert only proves the installer command ran); compare the scheduled command against the account's baseline.\n3. False-positive check: routine, expected administrative crontab/at/system-cron-directory usage — deliberately broad on the `at` branch; package installers and configuration-management tooling dropping files into `/etc/cron.d/` as part of normal installation.\n**Escalation:** the scheduled command references a network fetch, a reverse shell, or an unfamiliar binary path, or the executing account is outside the host's admin baseline → open a case and move to the endpoint-compromise flow for the host."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the crontab content (`crontab -l -u <user>`) or the `at` job listing (`atq`/`at -c <job>`) before removal — the scheduled command itself is the evidence.\n- Remove the unauthorized cron entry/at job; sweep the fleet for the same command or file pattern in other hosts' cron directories.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the crontab content (`crontab -l -u <user>`) or the `at` job listing (`atq`/`at -c <job>`) before removal — the scheduled command itself is the evidence.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,88 @@
+{
+  "id": "system_win_eventlog_service_tamper",
+  "title": "Windows Event Log Service Reconfigured or Disabled (Windows System 7040)",
+  "ruleFile": "rules/sigma/system_win_eventlog_service_tamper.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows System Log - Service Control Manager & Event Log Service",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows System Log - Service Control Manager & Event Log Service"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1562.002 — Impair Defenses: Disable Windows Event Logging"
+    ]
+  },
+  "aiContext": {
+    "playbook": "system_win_eventlog_service_tamper",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1562.002 — Impair Defenses: Disable Windows Event Logging |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows System) |\n| Trigger condition | System 7040 (service start-type changed) where `param1`, the service display name, contains `Event Log` |\n\nDetects the Event Log service itself being disabled or demoted — an attacker switching off logging ahead of other activity. Known scope limits stated by the rule: it only catches a start-type *change* (7040) — an attacker who stops the running service directly (7036, not currently collected) is not covered; and `param1` is the localized service display name, so the `Event Log` match is English-only and a non-English host needs its locale-specific string added."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Selects System 7040 (service start-type changed) |\n| `param1` | rule detection block | Service display name — confirms the target is the Windows Event Log service |\n| `param2` | event source (System 7040) | Old start type — the value to restore |\n| `param3` | event source (System 7040) | New start type — `disabled` or a demotion confirms the tamper direction |\n| `Computer` | event source (System channel) | Host; the record timestamp starts the at-risk logging window |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- The 7040 event carries no hashable artifact; the TI target is the process that changed the start type: correlate Sysmon EID 1 on the host in the surrounding minutes (`sc.exe`, `reg.exe`, PowerShell, MMC, or an unknown binary) and submit that binary's SHA-256 → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only checks: approved endpoint-hardening or migration change records; asset owner; whether the same change appears on other hosts (sanctioned rollout vs. targeted tamper).\n- The start-type change is proven; intent is not — cite the correlated process evidence or a change record before calling it hostile."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the reconfiguring tool's hash is VT-confirmed ≥ 5; account actions on analyst confirm. No TI-confirmable artifact → Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 7040 and winlog.event_data.param1 : \"Windows Event Log\"\n   ```\n   (On a non-English host, substitute the localized display name — the same limit the rule documents.)\n2. Read `param2`/`param3` for direction, then pivot to Sysmon EID 1 ±10 minutes for the process that made the change. A start-type change alone does not stop the already-running service — logging continues until a stop or reboot, so act inside that window.\n3. False-positive check: approved endpoint-hardening or migration scripts that intentionally reconfigure the Event Log service's start type — confirm against the change record.\n**Escalation:** the 7040 co-occurs with any other alert on the same host (any family, ±24 h), or `param3` shows `disabled` with no matching change record → high-priority anti-forensics; page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Restore audit capability first: revert the start type to the `param2` value (normally automatic start), start the service if stopped, and confirm new events are flowing from the host again.\n- Pull the SIEM's forwarded copies covering the tamper-to-restoration gap — the shipped copy of pre-tamper events survives anything done locally; treat purely local logs from the gap as incomplete and hunt the interval activity in forwarded telemetry.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

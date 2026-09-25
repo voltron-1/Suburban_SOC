@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_clear_event_logs",
+  "title": "Clearing Windows Event Logs via Wevtutil",
+  "ruleFile": "rules/sigma/proc_creation_win_clear_event_logs.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1070.001 — Indicator Removal: Clear Windows Event Logs"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_clear_event_logs",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1070.001 — Indicator Removal: Clear Windows Event Logs |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `wevtutil.exe` with a space-delimited ` cl ` or ` clear-log ` verb on the command line |\n\nDetects the use of wevtutil.exe to clear event logs — indicator removal to cover activity that preceded it. Rule falsepositives: IT admin cleanup scripts."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\wevtutil.exe`) |\n| `CommandLine` | rule detection block | Which log channel was cleared (the argument after `cl`/`clear-log`) — scopes what the attacker wanted erased |\n| `OriginalFileName` | event source (Sysmon EID 1) | Rename-evasion check (the rule matches on `Image` only) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Interactive admin vs script vs post-exploitation tooling |\n| `User` | event source (Sysmon EID 1) | Requires elevation — the compromised admin context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, the \"everything before this is suspect\" timeline anchor, pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts**; enrich the parent binary's hash as well — wevtutil itself is Microsoft-signed.\n- Internal-only: change calendar (sanctioned log-maintenance script?), case history for the host, and a SIEM-side check of what the cleared channel contained in the hours before the clear (events already forwarded survive the local wipe).\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- The clear is evidence of concealment intent only in context; cite the surrounding activity, not the clear alone, before calling the host compromised."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → **Tier B — auto-isolate on TI-confirm**: auto EDR-isolate the host when a related hash returns VT ≥ 5; account actions on analyst confirm. Without a TI-confirmable artifact → Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped — the Sigma space-delimited verbs correspond to exact args):\n   ```\n   process.executable : *\\\\wevtutil.exe and process.args : (cl or clear-log)\n   ```\n2. Pre-clear reconstruction: pivot on `Computer` and query the SIEM's forwarded copy of the cleared channel for the 24 h before `UtcTime` — what was worth erasing is the real finding; also process-tree the parent via `process.parent.name` / `process.parent.args` and sweep for other defense-evasion alerts on the host.\n3. False-positive checks: IT admin cleanup scripts — a known maintenance script parent, a scheduled window, and a matching change record support benign closure.\n**Escalation:** the Security channel was cleared, multiple channels were cleared, or the pre-clear window contains other alerts → page the IR lead and treat the host as compromised with active anti-forensics."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the SIEM-side (forwarded) copies of the cleared channel(s) immediately and preserve them as the surviving record; collect the local `.evtx` files that remain and the parent-chain telemetry.\n- Cleanup: eradicate the parent tooling; review and re-tighten who holds log-clear-capable privileges on the host; verify forwarding remained healthy through the incident window.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the SIEM-side (forwarded) copies of the cleared channel(s) immediately and preserve them as the surviving record; collect the local `.evtx` files that remain and the parent-chain telemetry.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

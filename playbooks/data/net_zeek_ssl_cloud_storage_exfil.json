@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_ssl_cloud_storage_exfil",
+  "title": "TLS Connection SNI Matching a Cloud-Storage or Paste Provider",
+  "ruleFile": "rules/sigma/net_zeek_ssl_cloud_storage_exfil.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Exfiltration"
+    ],
+    "techniques": [
+      "T1567.002 — Exfiltration Over Web Service: Exfiltration to Cloud Storage"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_ssl_cloud_storage_exfil",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Exfiltration |\n| Technique(s) | T1567.002 — Exfiltration Over Web Service: Exfiltration to Cloud Storage |\n| Severity (`level`) | low |\n| Data source | Zeek ssl |\n| Trigger condition | TLS ClientHello SNI (`server_name`) exactly matching one of 9 curated file-sharing/cloud-storage/paste providers (transfer.sh, mega.nz, pastebin.com, anonfiles.com, gofile.io, mediafire.com, wetransfer.com, dropboxusercontent.com, send.vis.ee), or a dot-anchored subdomain of one |\n\nDetects a TLS connection to a curated list of consumer file-sharing, cloud-storage, and paste/dead-drop providers commonly abused as a free, TLS-covered exfiltration or C2-staging channel. KNOWN LIMITATION the rule states plainly: this platform scopes HTTPS payload inspection out without a decryption proxy, so the rule sees WHERE a connection went (the SNI, sent in cleartext during the handshake) but not WHAT was sent — it cannot distinguish a 2 GB exfil upload from loading one page to read a snippet. Pairing the SNI match with byte-volume corroboration (as `net_zeek_conn_outbound_volume_asymmetry.yml` does for the volume side of this same threat) is deliberately NOT implemented: Zeek's ssl.log carries no byte counts (conn.log does), and joining the two by `uid` at query time is separate, out-of-scope work. `level: low` reflects this low-confidence, indicator-only signal, not the severity of a confirmed exfil event. Same anti-lookalike pattern as `net_zeek_dns_crypto_mining_pool.yml`/`net_zeek_dns_doh_non_standard.yml`: bare + dot-anchored-subdomain selection pairs, so an unanchored suffix match (which would also catch a lookalike like `evilmega.nz`) is avoided."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `server_name` | rule detection block | Matched provider SNI — primary TI artifact |\n| `id.orig_h` | event source (Zeek ssl.log) | Internal connecting host — containment target |\n| `id.resp_h` | event source (Zeek ssl.log) | TLS server IP for the matched provider |\n| `version` | event source (Zeek ssl.log) | TLS stack fingerprint context |\n| `validation_status` | event source (Zeek ssl.log) | Certificate validation outcome — corroborates with the cert-hygiene sibling rules if also anomalous |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `server_name` (matched provider domain) → OTX; escalate on **any pulse match** — a hit on a genuine listed provider's own domain is unusual, so a pulse points at abuse of that specific hostname/path rather than the provider generally.\n- Internal-only: is this a documented, sanctioned use of the provider (file-sharing exception, vendor deliverable exchange)? Check the change calendar and baseline volume per destination — the rule expects meaningful legitimate volume and directs tuning the provider list per deployment.\n- No corroborating byte-volume signal is available from this event (stated rule limitation) — pair with any `net_zeek_conn_outbound_volume_asymmetry.yml` hit on the same `id.orig_h`/`id.resp_h` pair in the same window if one exists.\n- A hit confirms the connection destination only, not that data was uploaded — no exfiltration label without a TI verdict, corroborating volume, or an internal case."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → Tier D: enrich and queue for analyst review; no automated action.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; `server_name` is ECS-renamed per `configs/logstash.conf`):\n   ```\n   event.dataset : \"zeek.ssl\" and tls.client.server_name : (\"transfer.sh\" or \"mega.nz\" or \"pastebin.com\" or \"anonfiles.com\" or \"gofile.io\" or \"mediafire.com\" or \"wetransfer.com\" or \"dropboxusercontent.com\" or \"send.vis.ee\" or *.transfer.sh or *.mega.nz or *.pastebin.com or *.anonfiles.com or *.gofile.io or *.mediafire.com or *.wetransfer.com or *.dropboxusercontent.com or *.send.vis.ee)\n   ```\n2. Volume pivot: query `source.ip : \"<orig_h>\" and destination.ip : \"<resp_h>\"` against `net_zeek_conn_outbound_volume_asymmetry.yml`'s own conn.log-derived fields (`source.bytes`/`destination.bytes`) in the same window — a large upload alongside the SNI match is the strongest available corroboration this rule cannot provide on its own.\n3. Endpoint pivot: on the internal source host, identify the connecting process via its Sysmon process-creation telemetry — a browser tab and an unattended script uploading to the same provider read very differently. Check for preceding archive-staging activity (`proc_creation_win_rar_archive_staging.yml`/`proc_creation_win_archive_staging_non_rar.yml`/`posh_data_compression_staging.yml`/`proc_creation_win_local_data_staging.yml`).\n4. False-positive checks (from the rule): legitimate, widely-used use of a listed provider — expect meaningful baseline volume; correlate with the account/user context and destination byte volume before escalating, and tune the provider list per deployment.\n**Escalation:** corroborating large-upload volume to the same `id.resp_h`, a non-browser process driving the connection, or a preceding archive-staging event on the same host → promote to Tier B (isolate the connecting host), page the IR lead, and open a data-exposure assessment."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the ssl.log slice (and any correlated conn.log byte counts) for the source→destination pair before rollover — the SNI plus any corroborating volume is the evidence.\n- If exfiltration is confirmed: block the provider destination at the perimeter, identify and remove the uploading tool and its persistence, and treat whatever data population the source host held as exposed.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the ssl.log slice (and any correlated conn.log byte counts) for the source→destination pair before rollover — the SNI plus any corroborating volume is the evidence.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

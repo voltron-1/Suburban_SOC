@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_nltest_discovery",
+  "title": "Domain Controller Discovery via Nltest",
+  "ruleFile": "rules/sigma/proc_creation_win_nltest_discovery.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1018 — Remote System Discovery"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_nltest_discovery",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1018 — Remote System Discovery |\n| Severity (`level`) | low |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `nltest.exe` with `/dclist:`, `/domain_trusts`, or `/dsgetdc:` on the command line |\n\nDetects nltest.exe enumerating domain controllers or domain trusts — remote system discovery during recon. Deliberately demoted to low: a single execution floods on routine domain administration and is recorded (raw telemetry, hunting) rather than alerted on alone. The deployed enforcement is the Elastic threshold companion `rules/elastic/threshold/disc-win-nltest-discovery-repeat.ndjson` (severity medium): it alerts when **≥ 3** matching nltest executions occur on the same host (threshold field `host.name`, value 3) within its 10-minute detection window, evaluated every 10 minutes over a 20-minute lookback."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\nltest.exe` |\n| `CommandLine` | rule detection block | Which enumeration verb ran and the target domain argument |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Admin console vs. script vs. remote-execution service |\n| `User` | event source (Sysmon EID 1) | Account context — recon by a non-admin account is the interesting case |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary — TI check for a renamed/planted copy |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host (the companion's threshold key), timeline anchor, process-tree pivot |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts** (meaningful only for a non-stock copy — the system binary is Microsoft-signed).\n- Internal-only: role of `User` and `Computer` (is this a domain admin's workstation?); case history; whether the companion threshold alert also fired for this host.\n- A single nltest execution is telemetry, not an incident — escalate on repetition or correlation, with the evidence cited."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → Tier D: triage-only — enrich and queue for analyst review; no automation. Higher-severity alerting is delegated to the threshold companion (medium), which follows the medium-flow policy when it fires.\n**Analyst triage path:**\n1. Verify and count with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.executable : *\\\\nltest.exe and process.args : (*dclist\\:* or *domain_trusts* or *dsgetdc\\:*)\n   ```\n   Bucket by `host.name` over 10-minute windows — ≥ 3 on one host mirrors the companion's alert condition.\n2. Correlation sweep: same host ±30 min for the other discovery-stage rules (`proc_creation_win_net_share_recon`, `proc_creation_win_domain_group_discovery`, `proc_creation_win_user_discovery`) and for subsequent authentication toward the enumerated DCs.\n3. False-positive check: domain administration and diagnostics.\n**Escalation:** the threshold companion fires, or nltest recon co-occurs with other discovery/lateral-movement signals on the host → treat as a recon chain, promote to intrusion triage, and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the host's process-creation slice covering the enumeration window — verb sequence and cadence distinguish scripted recon from an admin's one-off diagnostic.\n- No host artifact to clean for the enumeration itself; remediation follows what the correlation sweep uncovers.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the host's process-creation slice covering the enumeration window — verb sequence and cadence distinguish scripted recon from an admin's one-off diagnostic.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

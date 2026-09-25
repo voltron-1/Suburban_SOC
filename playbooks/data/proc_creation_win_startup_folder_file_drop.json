@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_startup_folder_file_drop",
+  "title": "File Dropped into the Startup Folder",
+  "ruleFile": "rules/sigma/proc_creation_win_startup_folder_file_drop.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Sysmon Specialized Events",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Sysmon Specialized Events"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence"
+    ],
+    "techniques": [
+      "T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_startup_folder_file_drop",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence |\n| Technique(s) | T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (file_event) |\n| Trigger condition | Sysmon EID 11 (FileCreate) where `TargetFilename` contains a user or all-users `\\Start Menu\\Programs\\Startup\\` path and ends in one of `.exe`/`.dll`/`.lnk`/`.bat`/`.cmd`/`.vbs`/`.js`/`.ps1`/`.scr`/`.pif` |\n\nDetects a file created inside a Startup folder — anything placed there runs automatically at the next logon, with no registry key or scheduled task needed. Scoped to executable-adjacent extensions because a data file dropped there has no persistence effect; `.scr` and `.pif` (both natively executable at logon and classic icon-disguise extensions) were added after security review #233 flagged their absence."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `TargetFilename` | rule detection block | Full dropped-file path — which user's Startup folder, and the payload extension |\n| `Image` | event source (Sysmon EID 11) | The writer process — installer vs script host/Office/browser is the core triage split |\n| `ProcessGuid`, `ProcessId` | event source (Sysmon EID 11) | Pivot to the writer's EID 1 event (command line, parent, hash) |\n| `User` | event source (Sysmon EID 11) | Account context — whose logon will run the payload |\n| `CreationUtcTime` | event source (Sysmon EID 11) | Differs from event time when an existing file was overwritten in place |\n| `Computer`, `UtcTime` | event source (Sysmon EID 11) | Host and timeline anchor |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the dropped file (collect it from disk — EID 11 carries no hash) → VirusTotal; escalate at **≥ 5 malicious verdicts**. For a `.lnk`, hash and enrich the target the shortcut points at as well.\n- Internal-only checks: the writer `Image` against the change calendar and software-deployment records (sanctioned installer run?); the target user's role on the host.\n- A Startup-folder write by an installer during a documented deployment is routine — cite the change record or the VT verdict before labeling either file malicious."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the dropped file's VT verdict is ≥ 5 malicious; account actions on analyst confirm.\n**Analyst triage path** (no TI confirmation yet) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; raw winlog fields — this channel is not ECS-renamed; the query is deliberately broader than the rule's full path match, so confirm the complete `\\Start Menu\\Programs\\Startup\\` path in the returned `TargetFilename`):\n   ```\n   winlog.event_id : 11 and winlog.event_data.TargetFilename : *\\\\Startup\\\\*\n   ```\n2. Process-tree analysis: pivot `ProcessGuid` to the writer's EID 1 event; a script host, Office process, or browser writing an executable into Startup is a strong compromise signal, an interactive MSI/installer much less so. Sweep the host ±30 min for other file drops by the same writer.\n3. Logon-execution check: if a logon occurred after the drop, look for an EID 1 whose image or command line matches the dropped file — persistence that has already fired changes the case from \"planted\" to \"active\".\n4. False-positive check: a legitimate application installer creating its own Startup-folder shortcut (`.lnk`) during setup — correlate the installing process against the change calendar.\n**Escalation:** dropped file VT ≥ 5 malicious, a non-installer writer process, or evidence the payload already executed at logon → page the IR lead and isolate the host."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and SHA-256 hash the dropped file (and a `.lnk`'s target) **before** deleting it from the Startup folder.\n- Remove the file; then sweep the host's other autostart locations (both Startup folders, Run/RunOnce keys, scheduled tasks) for siblings planted by the same writer.\n- If the payload already ran: treat the host per the payload's behavior — memory acquisition, credential resets for logged-on accounts, and eradication of whatever it launched.\n- Remove or remediate the writer process's own foothold (the process tree shows how it got there).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and SHA-256 hash the dropped file (and a `.lnk`'s target) **before** deleting it from the Startup folder.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

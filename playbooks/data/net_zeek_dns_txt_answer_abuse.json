@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_dns_txt_answer_abuse",
+  "title": "TXT Record Answer with Encoded-Looking Payload (Possible C2 Download Direction)",
+  "ruleFile": "rules/sigma/net_zeek_dns_txt_answer_abuse.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1071.004 — Application Layer Protocol: DNS"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_dns_txt_answer_abuse",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1071.004 — Application Layer Protocol: DNS |\n| Severity (`level`) | medium |\n| Data source | Zeek dns |\n| Trigger condition | DNS event with `qtype_name: TXT` whose answer content contains a run of 40+ base64-charset characters (`[a-zA-Z0-9+/=]`) |\n\nDetects the download half of TXT-based DNS C2 (Cobalt Strike's DNS-TXT channel, Empire, Merlin): payload rides in the answer while the query name stays short and unremarkable, which is why the upload-side sibling `net_zeek_dns_txt_record_abuse` — whose only content selector is the query name — structurally cannot catch this direction. Same length-as-entropy proxy caveat as the query-side rules; the charset here adds `+/=` because answer content is not label-constrained and real TXT-C2 chunks are typically base64. That same property makes DKIM keys — themselves long base64 blobs — a stronger false-positive source here than on the sibling."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `qtype_name` | rule detection block | Confirms the TXT record type |\n| `answers` | rule detection block | The encoded-looking payload — both signal and evidence |\n| `query` | event source (Zeek dns.log) | Queried name; its registered domain is the TI artifact |\n| `id.orig_h` | event source (Zeek dns.log) | Querying host — containment target |\n| `id.resp_h` | event source (Zeek dns.log) | Resolver used |\n| `rcode_name` | event source (Zeek dns.log) | Response status context |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Registered domain of `query` → OTX: escalate on any pulse match.\n- Internal-only: cadence check — regular, repeated TXT queries to the same domain from `id.orig_h` are the C2 polling shape; a one-off lookup is far more likely mail-infrastructure verification.\n- Internal-only: legitimate-shape check — does the queried name follow the DKIM selector convention (`<selector>._domainkey.<domain>`), and is the source a mail server with reason to fetch it?\n- A long base64 answer is not a verdict — DKIM keys are exactly that. Cite the OTX pulse or an internal case first."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host isolation. On an OTX pulse for the queried domain, auto-add it to the DNS/perimeter blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   dns.question.type : \"TXT\" and source.ip : \"<orig_h>\"\n   ```\n   KQL cannot express the 40-character base64 run — confirm it on the returned `dns.answers` values (or the raw dns.log slice), and bucket hits by queried domain over time to expose polling cadence.\n2. Direction pairing: check the same host against the upload-side sibling (`dns.question.type : \"TXT\"` hits with long query labels) — both directions active against one domain is a strong bidirectional-channel signal.\n3. Endpoint pivot: sweep `id.orig_h`'s Sysmon process-creation events in the window for the querying process; follow the Windows Process Creation family baseline.\n4. False-positive checks: DKIM public-key TXT records return a long base64 `p=...` value as the answer itself — a stronger false-positive source here than on the query-side sibling, since the DKIM key IS the long base64 blob; SPF/DMARC includes and domain-verification tokens returned as TXT answer content.\n**Escalation:** sustained polling cadence from a non-mail host plus a responsible process → active C2 download channel; promote to the high-severity flow (Tier B isolate of the querying host)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the dns.log slice with full `answers` content before rollover — the answer payload is the delivered C2 tasking/stage; preserve it verbatim for decoding during analysis.\n- Block the domain at the resolver/perimeter; on the endpoint, identify the client process, hash its binary for VT, and remove it plus its launcher.\n- Sweep the fleet for other hosts querying the same domain — a TXT-C2 domain is rarely used by only one implant.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source host."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the dns.log slice with full `answers` content before rollover — the answer payload is the delivered C2 tasking/stage; preserve it verbatim for decoding during analysis.",
+    "Block the domain at the resolver/perimeter; on the endpoint, identify the client process, hash its binary for VT, and remove it plus its launcher.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source host."
+  ],
+  "unmappedContent": []
+}

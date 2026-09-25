@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_certutil_decode",
+  "title": "Payload Decoding via Certutil",
+  "ruleFile": "rules/sigma/proc_creation_win_certutil_decode.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1140 — Deobfuscate/Decode Files or Information"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_certutil_decode",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1140 — Deobfuscate/Decode Files or Information |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `certutil.exe` (by `Image` path or `OriginalFileName` `CertUtil.exe`) with a space-anchored decode flag — ` -decode` or ` /decode` — on the command line (also matching `-decodehex`/`-decodeasn` as prefixes) |\n\nDetects certutil.exe used to decode a base64/hex-encoded file, a common way to deobfuscate a dropped payload. The match is deliberately flag-form and space-anchored (#217, #235/#236): a bare-word `decode` match collided with unrelated filenames (`decode_report.txt`), and un-anchored flag matching still collided with hyphen-compound filenames like `base64-decoded-blob.bin`; real certutil syntax always has the leading space. The `OriginalFileName` fallback gives rename-resistance, matching the sibling -encode rule. Rule falsepositives: rare legitimate certificate encoding/decoding workflows."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\certutil.exe`) |\n| `OriginalFileName` | rule detection block | Rename-resistant identification of certutil (`CertUtil.exe`) |\n| `CommandLine` | rule detection block | Which decode flag was used, plus the encoded input and decoded output file paths — the primary artifacts |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | What staged the encoded file and invoked the decode |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary; the decoded payload's hash comes from collection |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **decoded output file** (collected from the path in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**. Hash the encoded input as well — the encoded form may itself be VT-known.\n- Internal-only: where did the encoded input come from (download logs, email gateway, removable media)? Change calendar for certificate-management work.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- Do not label the decoded file malicious without the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → **Tier C — indicator block on TI-confirm**: on VT ≥ 5 for the decoded payload (or the executing binary if renamed/tampered), auto-add the hash to the EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped — the Sigma space anchor corresponds to flag-initial args):\n   ```\n   (process.executable : *\\\\certutil.exe or process.pe.original_file_name : CertUtil.exe)\n   and process.args : (-decode* or /decode*)\n   ```\n2. Process-tree pivot on `process.parent.name` / `process.parent.args`; then check for execution of the decoded output (later process-creation whose `process.executable` is the output path) and for a sibling `-urlcache` download that staged the input.\n3. False-positive checks: rare legitimate certificate encoding/decoding workflows — a PKI-admin context with certificate-typed input/output files supports benign closure; ambiguous file paths mean the verdict rests on collecting and hashing the output, not on the command line alone.\n**Escalation:** decoded payload executed or VT-confirmed → promote to Tier B host isolation on analyst confirm and pivot to the payload's own technique chain."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash both the encoded input and decoded output files before cleanup; capture the parent chain.\n- Cleanup: remove both files, eradicate the staging vector (downloader, mail attachment), and hunt the fleet for the input/output hashes.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash both the encoded input and decoded output files before cleanup; capture the parent chain.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

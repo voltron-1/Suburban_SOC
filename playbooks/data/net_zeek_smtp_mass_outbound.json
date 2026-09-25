@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_smtp_mass_outbound",
+  "title": "SMTP Session with an Anomalously Deep Transaction Count — Plaintext SMTP Only",
+  "ruleFile": "rules/sigma/net_zeek_smtp_mass_outbound.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1071.003 — Application Layer Protocol: Mail Protocols"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_smtp_mass_outbound",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1071.003 — Application Layer Protocol: Mail Protocols |\n| Severity (`level`) | medium |\n| Data source | Zeek smtp |\n| Trigger condition | smtp.log record with `trans_depth` greater than 20 — one SMTP session pipelining 20+ sequential MAIL FROM/RCPT TO/DATA cycles |\n\nA normal end-user client sends one message per session, occasionally a handful; a single connection sustaining dozens is the shape of mass-mailing malware or spam-relay abuse. The rule is explicit about its limits: `trans_depth` is a proxy for \"many messages from one host\", not a literal recipient count; Zeek writes one smtp.log line per transaction, so one over-threshold session produces roughly (`trans_depth` − 20) separate alerts, not one; the logic has no directionality check despite the filename; and — carry the title's caveat — it is blind to any STARTTLS/implicit-TLS session, making its real-world coverage plaintext port-25 relay abuse, not general mass-mail detection."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `trans_depth` | rule detection block | Transaction depth — how far past the threshold the session ran |\n| `id.orig_h` | event source (Zeek smtp.log) | Session originator — containment target if internal |\n| `id.resp_h` | event source (Zeek smtp.log) | Peer MTA — TI artifact |\n| `mailfrom`, `rcptto` | event source (Zeek smtp.log) | Claimed sender and recipient set per transaction |\n| `subject` | event source (Zeek smtp.log) | Campaign clustering across the session's messages |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Peer IP (`id.resp_h`, or `id.orig_h` when the deep session is inbound) → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: is the originating host on the known mail-relay/mailing-list inventory? Compare against the host's own historical `trans_depth` baseline and check the change calendar for bulk-notification jobs.\n- Deep pipelining by an authorized relay is normal operation — no malicious label without the AbuseIPDB verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on AbuseIPDB ≥ 50% for the external peer, auto-add it to the perimeter blocklist; no host action without an analyst. Expect the per-transaction alert fan-out noted above — dedupe to one case per session.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.smtp\" and trans_depth > 20\n   ```\n   Bucket by `source.ip` to see which host is driving depth and whether it recurs across sessions.\n2. Read the session's `mailfrom`/`rcptto`/`subject` series in the raw smtp.log — one sender fanning to many external recipients with templated subjects is the mass-mail shape; a relay forwarding varied legitimate mail is not.\n3. Endpoint hand-off: if the originator is an internal non-relay host, find the mailing process via its Sysmon process-creation telemetry (mass-mailer malware, script host, or an unexpected service talking SMTP).\n4. False-positive checks (from the rule): a legitimate internal mail relay, mailing-list server, or bulk-notification system (registrar, LMS, alumni newsletter) pipelining many messages through one authorized connection — allowlist known relay hosts by source IP.\n**Escalation:** an internal non-relay host sustaining deep sessions, or message content confirming spam/malware distribution → promote to Tier B (isolate the originating host) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full smtp.log slice for the session(s) — sender/recipient/subject series is the campaign evidence; capture conn.log for session timing and volume.\n- If an internal host is confirmed abused: isolate it, remove the mailing tool and its persistence, review how it was compromised, and notify the mail team to assess blocklist/reputation damage to the org's sending domains.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full smtp.log slice for the session(s) — sender/recipient/subject series is the campaign evidence; capture conn.log for session timing and volume.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_cscript_wscript_remote",
+  "title": "Cscript/Wscript Executing from a Non-Standard Location",
+  "ruleFile": "rules/sigma/proc_creation_win_cscript_wscript_remote.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution"
+    ],
+    "techniques": [
+      "T1059.005 — Command and Scripting Interpreter: Visual Basic; T1059.007 — Command and Scripting Interpreter: JavaScript"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_cscript_wscript_remote",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution |\n| Technique(s) | T1059.005 — Command and Scripting Interpreter: Visual Basic; T1059.007 — Command and Scripting Interpreter: JavaScript |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `cscript.exe` or `wscript.exe` with any of `//e:` (engine override), a user-writable staging path (`\\appdata\\`, `\\temp\\`, `\\users\\public\\`, `\\downloads\\`), or `http` on the command line |\n\nDetects cscript/wscript invoked against a script staged in a user-writable location, with an explicit scripting-engine override, or with an http(s) reference on the command line. The rule carries its own honesty note: Windows Script Host has no HTTP handler of its own — a bare `wscript.exe http://...` argument does not execute anything — so `http` is only a secondary signal (e.g. a WebDAV/UNC path embedding a URL-like string), and the primary signal is where the script is staged. Rule falsepositives: legitimate business VBScript/JScript run from a user-writable path during a manual troubleshooting session."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Which script host ran (`\\cscript.exe` / `\\wscript.exe`) |\n| `CommandLine` | rule detection block | The script path (primary artifact), engine override, or embedded URL-like string |\n| `OriginalFileName` | event source (Sysmon EID 1) | Rename-evasion check (the rule matches on `Image` only) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector — Office child, explorer double-click, another script |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary; the script file's hash comes from collection |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the staged script file (collected from the path in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- URL/domain, if a real one appears on the command line or inside the collected script → AlienVault OTX; escalate on **any pulse match** — remembering the rule's caveat that a bare URL argument executes nothing by itself.\n- Internal-only: is the script a known business script (software inventory, prior cases)? How did it arrive in the staging path (browser/email telemetry)?\n- Do not label the script or URL malicious without the citing VT/OTX verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → **Tier C — indicator block on TI-confirm**: on VT ≥ 5 (script hash) or OTX pulse (domain/URL), auto-add the confirmed indicator to the EDR/perimeter blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   process.executable : (*\\\\cscript.exe or *\\\\wscript.exe)\n   and process.args : (*//e\\:* or *\\\\appdata\\\\* or *\\\\temp\\\\* or *\\\\users\\\\public\\\\* or *\\\\downloads\\\\* or *http*)\n   ```\n2. Process-tree pivot: `process.parent.name` / `process.parent.args` for delivery (Office/browser/archive extraction), and children of the script host — spawned shells, LOLBins, or network utilities are the payload behavior.\n3. False-positive checks: legitimate business VBScript/JScript run from a user-writable path during a manual troubleshooting session — a known script, an IT-session parent, and no suspicious children support benign closure; an `http`-only match with no staging-path or engine-override signal is the rule's weakest form — weigh it accordingly.\n**Escalation:** script hash or contacted domain TI-confirmed, or the script spawns follow-on execution → promote to Tier B host isolation on analyst confirm."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the script file before deletion; capture its delivery artifact (email attachment, download record) and the child-process chain.\n- Cleanup: delete the script, remove any persistence pointing at it (Run keys, Startup folder, scheduled tasks), block confirmed domains, and hunt the fleet for the script hash.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the script file before deletion; capture its delivery artifact (email attachment, download record) and the child-process chain.",
+    "Cleanup: delete the script, remove any persistence pointing at it (Run keys, Startup folder, scheduled tasks), block confirmed domains, and hunt the fleet for the script hash.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

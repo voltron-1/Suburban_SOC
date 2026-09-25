@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_mshta_remote",
+  "title": "Mshta Remote or Script Payload Execution",
+  "ruleFile": "rules/sigma/proc_creation_win_mshta_remote.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1218.005 — System Binary Proxy Execution: Mshta"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_mshta_remote",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1218.005 — System Binary Proxy Execution: Mshta |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `mshta.exe` with a command line containing `http`, `javascript`, or `vbscript` |\n\nDetects mshta.exe proxy-executing a remote HTA or an inline javascript/vbscript payload (System Binary Proxy Execution). Promoted from threat hunt HUNT-001."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\mshta.exe` |\n| `CommandLine` | rule detection block | Carries the remote URL or the inline `javascript:`/`vbscript:` payload — the primary artifact |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector — Office processes and mail-borne shortcuts are the classic launchers |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of mshta.exe (Microsoft-signed; TI applies to the URL and fetched payload) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- URL/domain parsed from `CommandLine` → AlienVault OTX; escalate on **any pulse match**.\n- SHA-256 of the fetched HTA/payload (retrieve from disk, browser cache, or the correlated Sysmon file events) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: is the domain an internal admin-tooling host? Rare legitimate HTA tooling exists — check asset records.\n- Do not call the URL malicious without the OTX pulse, VT verdict, or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host on an OTX pulse for the URL/domain or a payload VT verdict ≥ 5 malicious; account actions on analyst confirm.\n**Analyst triage path** (TI not confirming) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.executable : *\\\\mshta.exe and process.args : (*http* or *javascript* or *vbscript*)\n   ```\n2. Process-tree analysis: pivot on `process.parent.name` / `process.parent.args` for the delivery vector; enumerate mshta's children — a spawned shell or script host confirms payload execution.\n3. False-positive check: rare legitimate HTA-based administrative tooling.\n**Escalation:** mshta spawned children, the URL is external and newly registered, or the parent is an Office/mail process → page the IR lead and isolate the host; sweep the fleet for other requests to the same URL."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Retrieve and hash the HTA/payload; export mshta's child-process tree and any files it dropped.\n- Block the URL/domain at perimeter and DNS once TI-confirmed; remove dropped payloads and any persistence they installed; hunt the payload hash fleet-wide.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Retrieve and hash the HTA/payload; export mshta's child-process tree and any files it dropped.",
+    "Block the URL/domain at perimeter and DNS once TI-confirmed; remove dropped payloads and any persistence they installed; hunt the payload hash fleet-wide.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

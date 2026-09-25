@@ -1,0 +1,89 @@
+{
+  "id": "auth_win_bruteforce_source_spray",
+  "title": "Password Spray Indicator via Failed Logons From a Single Source (Windows Security 4625)",
+  "ruleFile": "rules/sigma/auth_win_bruteforce_source_spray.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110.003 — Brute Force: Password Spraying"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_bruteforce_source_spray",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1110.003 — Brute Force: Password Spraying |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4625 where `IpAddress` is not one of the four no-source sentinel values (`-`, `0.0.0.0`, `::`, empty string) |\n\nSame base selection as `auth_win_bruteforce_failed_logons.yml`; logic-of-record for the paired Elastic threshold rule `rules/elastic/threshold/auth-win-bruteforce-source-spray.ndjson`, which buckets failures by source IP and alerts when **one source accrues ≥ 6 distinct target accounts within a 5-minute window** — the spray shape (few passwords × many accounts) that the per-account threshold cannot see. Known limitation carried from review: excluding the no-source sentinels also removes coverage for an on-host spray that logs no network source (`IpAddress` `-`); that population is out of this rule's scope."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the failed-logon event (4625) |\n| `IpAddress` | rule detection block | Spray source — bucketing key and primary TI artifact (sentinel values excluded) |\n| `TargetUserName` | event source (standard) | Swept account — the companion counts distinct values |\n| `WorkstationName` | event source (standard) | Claimed source host name; NAT/proxy discriminator |\n| `Status`, `SubStatus` | event source (standard) | Uniform failure reason across the account set is the spray signature |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `IpAddress` → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only checks: is the source a NAT/proxy gateway or a known service host (the rule's own FP inventory); compare the swept-account list against real user populations behind that gateway.\n- The distinct-account count is the internal corroboration — a TI-clean source with a genuine ≥ 6-account sweep still warrants a case, but cite the sweep evidence, not an assumed verdict."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B (identity): on AbuseIPDB ≥ 50% for `IpAddress`, auto-block the source and auto-disable any swept account that logged a success from it during the spray window; remaining account actions on analyst confirm.\n**Analyst triage path** (no TI confirmation) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`), counting distinct target accounts per 5-minute window (≥ 6 matches the companion threshold):\n   ```\n   winlog.event_id : 4625 and winlog.event_data.IpAddress : \"<ip>\"\n   ```\n2. Success pivot: `winlog.event_id : 4624 and winlog.event_data.IpAddress : \"<ip>\"` — any hit converts the spray indicator into a confirmed compromise of that account.\n3. False-positive checks: a misconfigured application or service account retrying the same stale credential against many resources from one host; NAT/proxy gateways where many real users' failed logons share one apparent source IP.\n**Escalation:** any success from the spray source, or an external TI-confirmed source → page the IR lead and enumerate the full swept-account list for forced resets."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Block the source; force password resets for every swept account that shows a subsequent success, and review the rest for reuse of the sprayed password pattern.\n- Export the full 4625/4624 slice for the source window — the account list and cadence are the campaign fingerprint.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full 4625/4624 slice for the source window — the account list and cadence are the campaign fingerprint.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

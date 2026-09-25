@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_ssl_expired_cert_connection",
+  "title": "TLS Connection with Expired Certificate",
+  "ruleFile": "rules/sigma/net_zeek_ssl_expired_cert_connection.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1071.001 — Application Layer Protocol: Web Protocols"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_ssl_expired_cert_connection",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1071.001 — Application Layer Protocol: Web Protocols |\n| Severity (`level`) | low |\n| Data source | Zeek ssl |\n| Trigger condition | ssl.log record whose `validation_status` contains `certificate has expired` |\n\nDetects a TLS connection whose certificate chain failed validation as expired — a weak but real signal for abandoned/unmaintained infrastructure being reused as C2 or exfil infrastructure, and for stale internal services worth a hygiene flag regardless of intent. The `validation_status` string comes from the sensor's certificate-validation policy (which must be loaded for the field to exist at all); the exact wording is OpenSSL's own expired-certificate verdict, confirmed against Zeek's source rather than guessed."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `validation_status` | rule detection block | The validation failure — confirms \"expired\", not another chain error |\n| `id.orig_h` | event source (Zeek ssl.log) | Internal connecting host — containment target |\n| `id.resp_h` | event source (Zeek ssl.log) | TLS server — primary TI artifact |\n| `server_name` | event source (Zeek ssl.log) | SNI the client requested — names the service |\n| `version` | event source (Zeek ssl.log) | TLS version — dated stacks corroborate abandoned infrastructure |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `id.resp_h` (destination IP) → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: if the destination is an internal service, route to a certificate-hygiene ticket (owner lookup, renewal), not an incident; if external, check egress baselines — is this destination new for the org?\n- An expired certificate is negligence until proven otherwise — no C2 label without the AbuseIPDB verdict or corroborating beacon evidence with a case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → Tier D: enrich and queue for analyst review; no automated action.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.ssl\" and tls.validation_status : *certificate has expired*\n   ```\n2. Recurrence pivot: `source.ip : \"<orig_h>\" and destination.ip : \"<resp_h>\"` over the last 24 h — regular-interval reconnects to one expired-cert endpoint is beacon shape; a one-off browse is not. Certificate subject/issuer details are confirmed in the raw Zeek ssl.log.\n3. Endpoint hand-off: on the internal source host, find the connecting process via its Sysmon process-creation telemetry — a browser hitting a stale intranet page and an unknown binary reconnecting on a timer resolve very differently.\n4. False-positive check (from the rule): legitimate internal services with lapsed certificate renewal — common enough on campus networks to warrant a hygiene ticket rather than a security incident on first sight; correlate with the destination before escalating.\n**Escalation:** external destination with AbuseIPDB ≥ 50% plus a regular reconnect cadence → treat as suspected C2; promote to Tier B (isolate the connecting host) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the ssl.log and conn.log slices for the source→destination pair — the reconnect timing series and certificate details are the evidence.\n- Suspected C2: perimeter-block the destination, isolate the host, identify and remove the connecting binary and its persistence. Internal hygiene: open a renewal ticket with the service owner and track to closure.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the ssl.log and conn.log slices for the source→destination pair — the reconnect timing series and certificate details are the evidence.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

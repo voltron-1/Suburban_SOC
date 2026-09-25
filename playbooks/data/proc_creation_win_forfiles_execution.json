@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_forfiles_execution",
+  "title": "Indirect Command Execution via Forfiles",
+  "ruleFile": "rules/sigma/proc_creation_win_forfiles_execution.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1202 — Indirect Command Execution"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_forfiles_execution",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1202 — Indirect Command Execution |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `forfiles.exe` with `/c` on the command line **and** a suspicious payload token (`cmd /c`, `powershell`, `pwsh`, `rundll32`, `regsvr32`, `mshta`, `wscript`, `cscript`, `certutil`) in the executed command |\n\nDetects forfiles.exe invoked with the /c flag and a suspicious payload token — e.g. `forfiles /p C:\\Windows\\System32 /m notepad.exe /c \"cmd /c calc.exe\"` — proxying execution through a signed utility. The rule documents its tuning: a prior draft matched bare `/c`, which appears in the single most common *legitimate* forfiles invocation (the log-rotation one-liner `forfiles /p C:\\Logs /s /m *.log /d -30 /c \"cmd /c del @path\"`) and would have fired on every routine run; requiring a payload token keeps the log-rotation case negative while catching the indirect-execution abuse pattern. Rule falsepositives: a legitimate script that happens to invoke cmd.exe or powershell.exe as the per-file action (uncommon; most legitimate forfiles usage calls a single utility like del/copy/attrib directly)."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\forfiles.exe`) |\n| `CommandLine` | rule detection block | The `/c` payload command (which LOLBin/interpreter is being proxied) and the `/p`/`/m` file-match pretext |\n| `OriginalFileName` | event source (Sysmon EID 1) | Rename-evasion check (the rule matches on `Image` only) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Scheduled task/script vs interactive attacker use |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary; the proxied payload's artifacts come from the child events |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, parent key for the spawned payload's own EID 1 event |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the proxied payload's binary/script (from the child process-creation event or collected file) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: scheduled-task and script inventory for the host (is this a known maintenance job?); change calendar; case history.\n- No external IP/domain artifact on this event itself; if the proxied child carries a URL (e.g. certutil download), enrich under that child's own finding.\n- Do not label the payload malicious without the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → **Tier C — indicator block on TI-confirm**: on VT ≥ 5 for the payload hash, auto-add it to the EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped — the rule's `cmd /c` token spans a quoted argument, so confirm the full payload on the hit's raw command line):\n   ```\n   process.executable : *\\\\forfiles.exe and process.args : */c*\n   and process.args : (*cmd* or *powershell* or *pwsh* or *rundll32* or *regsvr32* or *mshta* or *wscript* or *cscript* or *certutil*)\n   ```\n2. Child-process pivot: the real payload is the process forfiles spawns — pivot on the flagged event's process as parent (`process.parent.name : forfiles.exe`) and follow that child's own command line, hashes, and grandchildren.\n3. False-positive checks: a legitimate script that happens to invoke cmd.exe or powershell.exe as the per-file action (uncommon; most legitimate forfiles usage calls a single utility like del/copy/attrib directly) — a known scheduled maintenance job with a benign per-file action supports closure.\n**Escalation:** the spawned child is itself a flagged LOLBin chain (download, decode, script host from a staging path) or its payload is TI-confirmed → promote to Tier B host isolation on analyst confirm and follow the child technique's section."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Capture the full forfiles command line and the child-process chain; collect and hash any script/binary the `/c` payload referenced.\n- Cleanup: remove the invoking artifact (scheduled task, script, or persistence entry that ran forfiles) and the payload files; hunt the fleet for the same command-line pattern.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Capture the full forfiles command line and the child-process chain; collect and hash any script/binary the `/c` payload referenced.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

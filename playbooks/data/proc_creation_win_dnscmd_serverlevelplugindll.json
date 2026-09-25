@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_dnscmd_serverlevelplugindll",
+  "title": "DNS Server Plugin DLL Side-Loading via dnscmd",
+  "ruleFile": "rules/sigma/proc_creation_win_dnscmd_serverlevelplugindll.yml",
+  "status": "experimental",
+  "severity": "critical",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence",
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1574.002 — Hijack Execution Flow: DLL Side-Loading"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_dnscmd_serverlevelplugindll",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence, Privilege Escalation |\n| Technique(s) | T1574.002 — Hijack Execution Flow: DLL Side-Loading |\n| Severity (`level`) | critical |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `dnscmd.exe` (by `Image` path or `OriginalFileName`) with `serverlevelplugindll` on the command line |\n\nDetects `dnscmd.exe /config /serverlevelplugindll <path>`, which sets a registry value the DNS Server service loads as an in-process plugin DLL on its next (or forced) restart. It requires admin rights on the DNS server, but the DNS Server service typically runs as SYSTEM — a privilege-escalation and persistence primitive specific to DNS servers, which very commonly co-host on domain controllers; the switch has essentially no legitimate use in normal DNS administration. Known blind spot carried from the rule (security review #233): the same registry value can be set via the `DnsServerPsProvider` PowerShell module (`Set-DnsServerSetting -ServerLevelPluginDll <path>`) or a direct registry write, neither of which invokes dnscmd.exe — this rule has no visibility into either path."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\dnscmd.exe`) |\n| `OriginalFileName` | rule detection block | Rename-resistant identification of dnscmd.exe (`dnscmd.exe`) |\n| `CommandLine` | rule detection block | The plugin DLL path being registered — the payload pointer |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | How the admin session/tooling that set the value was reached |\n| `User` | event source (Sysmon EID 1) | The (necessarily privileged) account used — identity-kill target |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary; the plugin DLL's hash comes from collection |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Which DNS server/DC, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the registered plugin DLL (collected from the path in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**; a DLL absent from VT on a DC is itself a priority finding to document.\n- Internal-only: read the `ServerLevelPluginDll` value under the DNS service's Parameters key on the server to confirm the current state; vendor-product inventory (the rule's only stated legitimate case is a deliberately deployed vendor DNS-plugin architecture, which should be a standing exclusion by exact DLL path); change calendar; DNS service restart events after `UtcTime` (the load trigger).\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- Cite the registry value and DLL hash in the case record; do not attribute the intrusion without TI."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity critical → **Tier A — auto-isolate + identity kill**, executed automatically on rule match (no TI gate): EDR network isolation of the DNS server + disable of the initiating account + token/session/Kerberos-ticket revocation; page the IR lead. Coordinate fast: this host is likely a domain controller, and isolation has service impact the IR lead must own.\n**Analyst triage path** (post-containment validation):\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   (process.executable : *\\\\dnscmd.exe or process.pe.original_file_name : dnscmd.exe)\n   and process.args : *serverlevelplugindll*\n   ```\n2. DC-compromise pivot: process-tree the parent via `process.parent.name` / `process.parent.args`; establish how the privileged session was obtained (logon telemetry for `User` on the server); check whether the DNS service restarted after the write — if it did, the DLL has already executed as SYSTEM. Because of the rule's documented blind spot, also inspect the registry value directly for changes this rule could not see.\n3. False-positive checks: none expected in normal DNS server operation — the only legitimate case is a vendor-deployed DNS-plugin architecture, which should be a standing exclusion by exact DLL path; anything else is treated as hostile.\n**Escalation:** already paged at Tier A. Confirmed DLL load (service restart post-write) → treat as SYSTEM-level DC compromise: invoke the domain-compromise procedure, including KRBTGT and privileged-credential rotation planning."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the plugin DLL and export the DNS Parameters registry key before any change; acquire memory of the DNS server if the service restarted after the write.\n- Cleanup: clear the `ServerLevelPluginDll` value, remove the DLL, restart the DNS Server service under change control, and verify the value stays clear; rotate the initiating account's credentials and audit all privileged access to the server; hunt other DNS servers for the same value set by any method (dnscmd, PowerShell, or direct registry write — the latter two are invisible to this rule).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the plugin DLL and export the DNS Parameters registry key before any change; acquire memory of the DNS server if the service restarted after the write.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,53 @@
+{% extends "_playbooks_base.html" %}
+{% block title %}Suburban-SOC Playbooks{% endblock %}
+{% block content %}
+  <h1>SUBURBAN-SOC PLAYBOOKS</h1>
+  <p style="color: var(--muted);">
+    {{ filtered_count }} of {{ total_count }} rule-response playbooks
+    {% if query or selected_category or selected_severity or selected_integration %}(filtered){% endif %}
+  </p>
+
+  <form method="get" action="/playbooks" class="card">
+    <input type="text" name="q" placeholder="Search title or rule id..."
+           value="{{ query }}" style="width: 260px; padding: 6px; margin-right: 8px;">
+
+    <select name="category" style="padding: 6px; margin-right: 8px;">
+      <option value="">All Categories</option>
+      {% for c in categories %}
+        <option value="{{ c }}" {% if c == selected_category %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="severity" style="padding: 6px; margin-right: 8px;">
+      <option value="">All Severities</option>
+      {% for s in severities %}
+        <option value="{{ s }}" {% if s == selected_severity %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+
+    <select name="integration" style="padding: 6px; margin-right: 8px;">
+      <option value="">All Integrations</option>
+      {% for i in integrations %}
+        <option value="{{ i }}" {% if i == selected_integration %}selected{% endif %}>{{ i }}</option>
+      {% endfor %}
+    </select>
+
+    <button type="submit" class="copy-btn" style="float:none;">Filter</button>
+  </form>
+
+  {% if not playbooks %}
+    <div class="card">No playbooks match the current filters.</div>
+  {% endif %}
+
+  {% for pb in playbooks %}
+    <div class="card">
+      <span class="badge sev-{{ pb.severity }}">{{ pb.severity | upper }}</span>
+      <span class="badge tag">{{ pb.category }}</span>
+      <h3 style="margin: 8px 0 4px;"><a href="/playbooks/{{ pb.id }}">{{ pb.title }}</a></h3>
+      <div style="color: var(--muted); font-size: 0.85rem;">
+        {{ pb.id }}
+        {% if pb.integrations %} · {{ pb.integrations | join(', ') }}{% endif %}
+      </div>
+    </div>
+  {% endfor %}
+{% endblock %}

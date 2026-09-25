@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_ssh_bruteforce",
+  "title": "SSH Password Guessing / Brute Force (Zeek Notice)",
+  "ruleFile": "rules/sigma/net_zeek_ssh_bruteforce.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110 — Brute Force"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_ssh_bruteforce",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1110 — Brute Force |\n| Severity (`level`) | high |\n| Data source | Zeek notice.log |\n| Trigger condition | notice.log entry whose `note` is `SSH::Password_Guessing` or `SSH::Login_By_Password_Guesser` |\n\nConsumes the aggregated notices of Zeek's SSH brute-force detection policy: `SSH::Password_Guessing` fires once a single source accumulates 30 failed authentications within 30 minutes (the policy's defaults), and `SSH::Login_By_Password_Guesser` fires when a source already flagged as guessing subsequently logs in successfully — the second notice is a probable-compromise signal, not just an attempt. The notices only exist where that policy is loaded on the sensor; sub-threshold cadences are covered by the two session-cadence companions in this playbook."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `note` | rule detection block | Guessing in progress vs guesser subsequently logged in |\n| `src` | event source (Zeek notice.log) | The guessing source — primary TI artifact |\n| `msg` | event source (Zeek notice.log) | Human summary incl. the connection count observed |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `src` (guessing IP) → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: identify the targeted host(s) and their criticality from conn/ssh data; check whether `src` is a known automation host with stale credentials (the rule's own leading FP class).\n- The Password_Guessing notice is an aggregate of failures, not proof of hostility — cite the AbuseIPDB verdict or an internal case before labeling; a Login_By_Password_Guesser notice, however, is itself the cited evidence of a successful login by a flagged guesser."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: on AbuseIPDB ≥ 50%, auto EDR-isolate `src` when it is an internal host; for an external `src` the automated action is the perimeter block of the confirmed IP, with account actions on analyst confirm. Without a TI hit: Tier D with the 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.notice\" and note : (\"SSH::Password_Guessing\" or \"SSH::Login_By_Password_Guesser\")\n   ```\n   Then scope the sessions: `event.dataset : \"zeek.ssh\" and source.ip : \"<src>\"` — target spread (one host = brute force; many = credential sweep).\n2. On the targeted host(s), confirm the attempt/outcome series in its own auth telemetry (Linux auth.log or Windows Security logons) — which accounts were tried, and did any succeed.\n3. Endpoint hand-off: if `src` is internal, find the guessing process on it via Sysmon process-creation telemetry (hydra-style tooling, scripted ssh loops, or an implant).\n4. False-positive checks (from the rule): misconfigured clients or automation retrying stale credentials; users repeatedly mistyping passwords.\n**Escalation:** any `SSH::Login_By_Password_Guesser` notice, or a successful authentication from `src` found on a target → treat the target as compromised: page the IR lead, force-reset the account(s) involved, and promote containment of the target host."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export notice.log plus the ssh.log/conn.log slices for `src` and the auth-log window from each target — the failure/success series is the incident timeline.\n- On confirmed success: reset the guessed credential, revoke the account's sessions/keys, review the target for post-login activity and persistence (new authorized_keys, cron, services), and block `src` at the perimeter.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export notice.log plus the ssh.log/conn.log slices for `src` and the auth-log window from each target — the failure/success series is the incident timeline.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

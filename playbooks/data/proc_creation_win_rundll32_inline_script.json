@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_rundll32_inline_script",
+  "title": "Rundll32 Executing Inline Script via mshtml",
+  "ruleFile": "rules/sigma/proc_creation_win_rundll32_inline_script.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1218.011 — System Binary Proxy Execution: Rundll32"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_rundll32_inline_script",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1218.011 — System Binary Proxy Execution: Rundll32 |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `rundll32.exe` with a command line containing `javascript:`, `vbscript:`, `runhtmlapplication`, or `mshtml` |\n\nDetects rundll32.exe invoked with an inline `javascript:` or `vbscript:` payload via the `RunHTMLApplication` mshtml.dll export — a signed-binary proxy execution technique that runs attacker script without dropping a file. Both moniker forms achieve identical execution; anchoring only on `javascript:` (as a prior draft did) is trivially bypassed by `vbscript:`, so both monikers and the shared `mshtml`/`RunHTMLApplication` invariant are matched."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\rundll32.exe`) |\n| `CommandLine` | rule detection block | The inline script itself — the payload is in this field, nowhere on disk |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (Office, browser, shell, script host) |\n| `User` | event source (Sysmon EID 1) | Compromised account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (rundll32 itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (from its own Sysmon EID 1 event — `rundll32.exe` is Microsoft-signed) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: read the inline script verbatim from `CommandLine` — it is the complete payload; record what it stages, fetches, or launches as evidence in the case.\n- The inline-moniker pattern has no routine administrative use, but behavioral confidence is documented against the rule ID and the verbatim event — no attribution without a cited verdict or internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier B — auto-isolate on TI-confirm: severity high → auto EDR-isolate the host when the parent-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\rundll32.exe and process.args : (*javascript\\:* or *vbscript\\:* or *runhtmlapplication* or *mshtml*)\n   ```\n2. Process-tree pivot: capture children of the rundll32 instance (the script's follow-on actions) and the parent lineage; correlate any network activity from the host in the same minute window via Zeek.\n3. False-positive check: extremely rare in legitimate administration; effectively none — verify only an authorized-exercise window before standing down.\n**Escalation:** script content shows a download/launch stage, or the rundll32 instance spawned children → page the IR lead and treat the host as compromised pending containment."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Preserve the full `CommandLine` verbatim (it is the payload); acquire host memory if the script launched follow-on activity, since subsequent stages may be memory-only.\n- Remove any persistence or dropped files identified from the script's actions; reset the initiating account's credentials if follow-on execution is confirmed.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve the full `CommandLine` verbatim (it is the payload); acquire host memory if the script launched follow-on activity, since subsequent stages may be memory-only.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_archive_staging_non_rar",
+  "title": "Password-Protected or Staged Archive Creation via 7-Zip, MakeCab, or Tar",
+  "ruleFile": "rules/sigma/proc_creation_win_archive_staging_non_rar.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Collection"
+    ],
+    "techniques": [
+      "T1560.001 — Archive Collected Data: Archive via Utility"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_archive_staging_non_rar",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Collection |\n| Technique(s) | T1560.001 — Archive Collected Data: Archive via Utility |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | Either `7z.exe`/`7za.exe` (by image path or OriginalFileName) running the add-archive verb (`.exe a `) with a password flag (` -p`), OR `makecab.exe`/`tar.exe` writing to a temp/public staging path (`\\Temp\\`, `\\AppData\\Local\\Temp\\`, `\\Users\\Public\\`, `\\ProgramData\\`) |\n\nExtends `proc_creation_win_rar_archive_staging.yml`'s password-protected-archive pattern to the non-RAR archivers a host may carry instead. The two branches are deliberately asymmetric because only 7-Zip has a password/encryption flag at all: the 7z branch keeps the RAR rule's password-is-the-signal logic; makecab and tar have no password concept whatsoever, so that branch instead leans on a staging-path destination — the same FP-reduction judgment call `proc_creation_win_local_data_staging.yml`/`posh_data_compression_staging.yml` already make. `Compress-Archive` is deliberately not duplicated here: it is already covered by `posh_data_compression_staging.yml` via 4104 script-block logging, a genuinely different telemetry path from this rule's process_creation logsource."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Executing archiver path (7z/7za/makecab/tar); a portable copy in a user-writable directory is itself suspicious |\n| `OriginalFileName` | rule detection block | PE metadata catches a renamed `7z.exe`/`7za.exe` (the makecab/tar branch keys on `Image` only — neither ships with a distinctive OriginalFileName worth requiring) |\n| `CommandLine` | rule detection block | 7z branch: add-verb and password flag; makecab/tar branch: the staging destination path |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (interactive shell vs. script or C2 implant) |\n| `User` | event source (Sysmon EID 1) | Account performing the staging; scopes data-access review |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the archiver binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the executing archiver (`Hashes`) → VirusTotal; escalate at **≥ 5 malicious verdicts** (a dropped portable 7z/makecab/tar build is frequently known; a clean verdict on a legitimate system tool decides nothing by itself).\n- Internal-only: archive/CAB output path (7z branch) or the staging destination path (makecab/tar branch) parsed from `CommandLine` → data-classification and asset-owner lookup; change calendar for any sanctioned bulk transfer or packaging step.\n- The event carries no network artifact — egress confirmation comes from correlated network-family alerts, not from this event.\n- An indicator here is only malicious with the citing VT verdict or an internal case ID; otherwise record it as unconfirmed."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on archiver-binary VT verdict ≥ 5 malicious, auto-add the hash to the blocklist and open an analyst ticket; no TI confirmation → Tier D triage.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : (*\\\\7z.exe or *\\\\7za.exe or *\\\\makecab.exe or *\\\\tar.exe) or process.pe.original_file_name : (\"7z.exe\" or \"7za.exe\")\n   ```\n   The 7z branch's anchored verb (`.exe a `) and password flag (` -p`) cannot be expressed as KQL wildcards — confirm them by reading `process.args`. For the makecab/tar branch, confirm the staging destination (`\\Temp\\`, `\\AppData\\Local\\Temp\\`, `\\Users\\Public\\`, `\\ProgramData\\`) the same way.\n2. Process-tree pivot on `process.parent.name` / `process.parent.args`; locate the created archive/CAB on disk (path and size from the command line) and inventory what it contains.\n3. False-positive checks: legitimate IT/backup tooling creating a password-protected 7-Zip archive for authorized transfer — correlate the destination and contents against the change calendar; a legitimate deployment/packaging script using makecab or tar to stage a CAB/tarball in a temp or public path as an intermediate build/install step — baseline and exclude by script hash/path if recurring.\n**Escalation:** archive/CAB written to a network share or removable media, or any egress/exfiltration-family alert from the same host in the surrounding hour → treat as active exfiltration staging; page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the archive/CAB file before deletion; inventory the staged source paths to scope the data-exposure assessment (what would have left the estate).\n- Remove the archive and, if the archiver is a dropped portable copy, the binary itself; hunt other hosts for the same archiver hash and command-line pattern.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the archive/CAB file before deletion; inventory the staged source paths to scope the data-exposure assessment (what would have left the estate).",
+    "Remove the archive and, if the archiver is a dropped portable copy, the binary itself; hunt other hosts for the same archiver hash and command-line pattern.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

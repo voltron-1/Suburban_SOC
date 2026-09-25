@@ -1,0 +1,90 @@
+{
+  "id": "auth_win_security_log_cleared",
+  "title": "Security Audit Log Cleared (Windows Security 1102)",
+  "ruleFile": "rules/sigma/auth_win_security_log_cleared.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1070.001 — Indicator Removal: Clear Windows Event Logs"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_security_log_cleared",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1070.001 — Indicator Removal: Clear Windows Event Logs |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Any Security 1102 (\"The audit log was cleared\") event |\n\nThe native Windows event for a Security-channel clear. More reliable than command-line-based detection alone (`proc_creation_win_clear_event_logs.yml`) since it fires regardless of the tool used to clear the log — kept alongside that rule, not as a replacement for it."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the audit-log-cleared event (1102) |\n| `SubjectUserName`, `SubjectUserSid` | event source (standard) | The account that cleared the log — 1102 embeds it |\n| `SubjectLogonId` | event source (standard) | Session pivot toward how and from where the clearing session was established |\n| `Computer` | event source (standard) | Host whose Security log was cleared — the investigation focus |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only: documented, change-managed maintenance-window check; case history for `SubjectUserName` and `Computer`. The event carries no external artifact — AbuseIPDB/OTX/VT not applicable.\n- Events shipped to the SIEM before the clear survive it — the indexed history is the authoritative record of what the clear attempted to hide; cite from it, not from the (now empty) local log."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high with no external-TI artifact → routes to analyst triage (15-minute SLA); Tier B (identity) on analyst confirmation that no maintenance window applies — disable `SubjectUserName`, revoke its sessions, and treat `Computer` as compromised pending review.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 1102\n   ```\n2. Reconstruct the hidden window: query the already-indexed events for `Computer` in the hours before the clear — that is what the clear was meant to erase; correlate `proc_creation_win_clear_event_logs` hits for the tool used, and trace `SubjectLogonId` to the originating session.\n3. False-positive check: none expected in steady state — scope any exception to a documented, change-managed maintenance window.\n**Escalation:** any 1102 outside a documented maintenance window → page the IR lead; the steady-state expectation for this event is zero."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the indexed pre-clear window for `Computer` immediately (before rollover) — it is the surviving copy of the destroyed local log.\n- Collect remaining local artifacts from the host (other channels, forensic triage image) before any cleanup; on confirmed hostile clear, follow the identity actions above and hunt the activity the clear was covering.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the indexed pre-clear window for `Computer` immediately (before rollover) — it is the surviving copy of the destroyed local log.",
+    "Collect remaining local artifacts from the host (other channels, forensic triage image) before any cleanup; on confirmed hostile clear, follow the identity actions above and hunt the activity the clear was covering.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

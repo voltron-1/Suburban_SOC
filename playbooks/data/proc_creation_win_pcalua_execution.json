@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_pcalua_execution",
+  "title": "Indirect Command Execution via Pcalua",
+  "ruleFile": "rules/sigma/proc_creation_win_pcalua_execution.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1202 — Indirect Command Execution"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_pcalua_execution",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1202 — Indirect Command Execution |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `pcalua.exe` with `-a` on the command line and a parent process other than `explorer.exe` |\n\nDetects pcalua.exe (Program Compatibility Assistant) invoked with the `-a` flag from a parent that is not Explorer's own compatibility-troubleshooter flow. Legitimate PCA relaunches spawn `pcalua.exe -a` from explorer.exe; the identical command line spawned from a shell, script host, or Office application is the abuse case — the parent filter exists because without it the rule would be indistinguishable from the legitimate flow."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\pcalua.exe` |\n| `CommandLine` | rule detection block | Carries the proxied target binary/command after `-a` — the primary artifact |\n| `ParentImage` | rule detection block (filter) | Non-explorer parent is what fired the rule — identifies the abusing process |\n| `ParentCommandLine` | event source (Sysmon EID 1) | Full context of the abusing parent |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of pcalua.exe (Microsoft-signed; TI applies to the proxied target) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **proxied target** binary named after `-a` (collect from disk or its own child EID 1 event) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: scheduled-task inventory for the documented benign edge case (a PCA relaunch driven by a task acting on the user's behalf).\n- Do not label the target malicious without the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host action; on a VT verdict ≥ 5 malicious for the proxied target, auto-add its hash to the EDR blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.executable : *\\\\pcalua.exe and process.args : \"-a\" and not process.parent.name : \"explorer.exe\"\n   ```\n2. Process-tree analysis: pivot both directions — upward on `process.parent.name` / `process.parent.args` (shell, script host, Office app?), and downward to the child pcalua spawned (the proxied target actually executing); inspect that binary on disk.\n3. False-positive check: a legitimate PCA relaunch where explorer.exe is not the recorded parent (e.g. relaunched via a scheduled task acting on the user's behalf).\n**Escalation:** the proxied target is unsigned or staged in a user-writable path, or the parent is an Office/mail process → promote to the high-severity flow and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the proxied target binary and export the two-sided process tree before cleanup.\n- Remove the target binary and whatever persistence or document delivered the launching parent; hunt the target's hash fleet-wide.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the proxied target binary and export the two-sided process tree before cleanup.",
+    "Remove the target binary and whatever persistence or document delivered the launching parent; hunt the target's hash fleet-wide.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

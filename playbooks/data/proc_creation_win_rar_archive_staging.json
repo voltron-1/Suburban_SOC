@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_rar_archive_staging",
+  "title": "Password-Protected Archive Staging via RAR/WinRAR",
+  "ruleFile": "rules/sigma/proc_creation_win_rar_archive_staging.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Collection"
+    ],
+    "techniques": [
+      "T1560.001 — Archive Collected Data: Archive via Utility"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_rar_archive_staging",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Collection |\n| Technique(s) | T1560.001 — Archive Collected Data: Archive via Utility |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `rar.exe`/`winrar.exe` (by image path or OriginalFileName) running the add-archive verb anchored directly after the binary name (`.exe a ` / `.exe\" a `) with a space-separated password flag (` -p` or ` -hp`) |\n\nDetects RAR creating a password-protected archive — the classic collection-staging step before exfiltration: bulk files are compressed and password-protected in one command, which both shrinks the transfer and defeats content-inspection egress controls that don't decrypt archives. The password requirement is deliberate: it is what separates staging-for-exfil from routine archiving, which rarely bothers with a password. The verb match is anchored to the binary name so an incidental \" a \" inside a filename on an extract command cannot fire it."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Executing archiver path; a portable copy in a user-writable directory is itself suspicious |\n| `OriginalFileName` | rule detection block | PE metadata catches a renamed `rar.exe`/`WinRAR.exe` |\n| `CommandLine` | rule detection block | Verb, password flag, archive output path, and the file set being staged |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (interactive shell vs. script or C2 implant) |\n| `User` | event source (Sysmon EID 1) | Account performing collection; scopes data-access review |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the archiver binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the executing archiver (`Hashes`) → VirusTotal; escalate at **≥ 5 malicious verdicts** (attacker-dropped portable RAR builds are frequently known; a clean verdict on the official WinRAR binary decides nothing by itself).\n- Internal-only: archive output path and staged source paths parsed from `CommandLine` → data-classification and asset-owner lookup; change calendar for any sanctioned bulk transfer.\n- The event carries no network artifact — egress confirmation comes from correlated network-family alerts, not from this event.\n- An indicator here is only malicious with the citing VT verdict or an internal case ID; otherwise record it as unconfirmed."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier B — auto-isolate on TI-confirm: severity high → auto EDR-isolate the host when the archiver-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : (*\\\\rar.exe or *\\\\winrar.exe) or process.pe.original_file_name : (\"rar.exe\" or \"WinRAR.exe\")\n   ```\n   The space-anchored verb (`.exe a `) and flag (` -p`/` -hp`) patterns cannot be expressed as KQL wildcards — confirm them by reading `process.args` in the returned events.\n2. Process-tree pivot on `process.parent.name` / `process.parent.args`; sweep the host ±60 min for file-enumeration or discovery activity feeding the staged file set, and locate the archive on disk (path and size from the command line).\n3. False-positive check: legitimate IT/backup tooling creating a password-protected archive for authorized data transfer — correlate the destination and archive contents against the change calendar.\n**Escalation:** archive written to a network share or removable media, or any egress/exfiltration-family alert from the same host in the surrounding hour → treat as active exfiltration staging; page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the archive file before deletion; inventory the staged source paths to scope the data-exposure assessment (what would have left the estate).\n- Remove the archive and, if the archiver is a dropped portable copy, the binary itself; hunt other hosts for the same archiver hash and command-line pattern.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the archive file before deletion; inventory the staged source paths to scope the data-exposure assessment (what would have left the estate).",
+    "Remove the archive and, if the archiver is a dropped portable copy, the binary itself; hunt other hosts for the same archiver hash and command-line pattern.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

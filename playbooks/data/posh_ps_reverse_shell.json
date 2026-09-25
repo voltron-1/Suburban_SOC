@@ -1,0 +1,89 @@
+{
+  "id": "posh_ps_reverse_shell",
+  "title": "PowerShell Reverse Shell via TCPClient",
+  "ruleFile": "rules/sigma/posh_ps_reverse_shell.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "PowerShell Script Block Logging",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "PowerShell Script Block Logging"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution"
+    ],
+    "techniques": [
+      "T1059.001 — Command and Scripting Interpreter: PowerShell"
+    ]
+  },
+  "aiContext": {
+    "playbook": "posh_ps_reverse_shell",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution |\n| Technique(s) | T1059.001 — Command and Scripting Interpreter: PowerShell |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (PowerShell/Operational) |\n| Trigger condition | A 4104 script block containing `Net.Sockets.TCPClient` AND at least one stream-I/O indicator: `GetStream()`, `NetworkStream`, `.Read(`, `.Write(` |\n\nDetects script content constructing a raw TCP socket and reading/writing its network stream — the core mechanic of every public PowerShell reverse-shell one-liner (Nishang's `Invoke-PowerShellTcp` and the canonical circulated snippets). Requires both indicator categories together: a bare `Net.Sockets.TCPClient` reference alone is common in benign port-check scripts and would be pure noise. Two stated limits: the two categories aren't proven to reference the *same* socket object (this stack has no AST/variable-binding analysis), and a TcpListener bind-shell indicator was deliberately dropped rather than silently included under a title that doesn't cover it."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Channel scoping — script-block logging events (4104) only |\n| `ScriptBlockText` | rule detection block | Recovered script content — carries the connect-back host and port, the primary pivot and TI artifact |\n| `ScriptBlockId` | event source (4104) | Reassembly/dedup key for chunked blocks |\n| `MessageNumber`, `MessageTotal` | event source (4104) | Chunk ordering — export every chunk before analysis |\n| `Path` | event source (4104) | On-disk `.ps1` path when run from a file; empty for the typical pasted one-liner |\n| `Computer`, `UserID` | event source (4104) | Host and executing-account SID — containment targets |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Decoded connect-back domain/URL → OTX; escalate on **any pulse match**.\n- Hash of any dropped payload the shell fetches (via the host's Sysmon file-creation events) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- If the connect-back target is a bare IP (the common form) → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: is the destination a scoped assessment box (engagement calendar)? Does Zeek show the session actually established?\n- An unestablished connect attempt is still an incident lead, but label the destination malicious only with the citing TI verdict or internal case."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the decoded connect-back indicator confirms (OTX pulse, AbuseIPDB ≥ 50%) or a fetched-payload hash hits VT ≥ 5; no confirmable artifact → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; the punctuation-heavy `.Read(`/`.Write(` indicators don't query cleanly — confirm them by reading the returned block):\n   ```\n   winlog.event_id : 4104 and winlog.event_data.ScriptBlockText : *Net.Sockets.TCPClient* and winlog.event_data.ScriptBlockText : (*GetStream* or *NetworkStream*)\n   ```\n2. Extract the connect-back host:port from `ScriptBlockText` statically (never execute recovered script content); confirm the session in Zeek conn telemetry — established vs failed, bytes each way, duration — a live two-way session changes urgency entirely. Correlate the 4104 event to its launching process via the host's Sysmon process-creation events in the same window (then follow the Windows Process Creation family baseline).\n3. False-positive check: legitimate network-diagnostic, port-scanning, or custom TCP-based automation tooling that constructs a TCPClient and separately reads/writes a stream elsewhere in the same script — uncommon but possible; correlate the destination and surrounding script content before escalating.\n**Escalation:** Zeek shows an established session with sustained two-way traffic to the decoded destination → active interactive access; page the IR lead and treat every credential usable from that session as exposed."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire host memory and the process tree before killing the session; export the full 4104 chunk set and the Zeek conn records for the destination.\n- Perimeter-block the connect-back destination once TI-confirmed; reset the executing account's credentials and any used during the session window; hunt persistence installed during the session (new services, tasks, Run keys, dropped files).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire host memory and the process tree before killing the session; export the full 4104 chunk set and the Zeek conn records for the destination.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

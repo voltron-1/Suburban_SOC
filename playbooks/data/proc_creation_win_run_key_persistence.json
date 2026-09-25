@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_run_key_persistence",
+  "title": "Registry Run Key Persistence via Reg.exe",
+  "ruleFile": "rules/sigma/proc_creation_win_run_key_persistence.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence"
+    ],
+    "techniques": [
+      "T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_run_key_persistence",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence |\n| Technique(s) | T1547.001 — Boot or Logon Autostart Execution: Registry Run Keys / Startup Folder |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `reg.exe` with a command line containing both `add` and `CurrentVersion\\Run` |\n\nDetects creation of an autorun entry under a CurrentVersion\\Run key using reg.exe add — a common persistence mechanism. The command line names both the value written and the binary that will launch at logon, so the persistence payload is recoverable directly from this event."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\reg.exe`) |\n| `CommandLine` | rule detection block | Run key hive (HKLM vs HKCU), value name, and the autorun target binary path |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Installer vs. shell/script-host delivery |\n| `User` | event source (Sysmon EID 1) | HKCU writes scope to this user; HKLM writes imply elevation |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (reg.exe itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **autorun target binary** (collected from the path in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: software-deployment calendar and installer inventory — does the value name/target match a package being rolled out? Case history for the same value name on other hosts.\n- No external IP/domain artifact on this event.\n- A run-key write is routine installer behavior; call it persistence only with the citing VT verdict on the target binary or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier C — indicator block on TI-confirm: severity medium → on target-binary VT verdict ≥ 5 malicious, auto-add the hash to the EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\reg.exe and process.args : *add* and process.args : *CurrentVersion\\\\Run*\n   ```\n2. Collect and hash the autorun target binary; process-tree pivot on the parent — an Office, browser, or script-host ancestor turns a routine-looking write adversarial. Sweep other hosts for the same value name or target path.\n3. False-positive check: installers legitimately registering startup entries.\n**Escalation:** target binary VT-confirmed malicious, unsigned, or living in a user-writable path with a non-installer parent → promote to the high-severity flow (Tier B isolate on analyst confirm)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the Run key value (name + data) and collect/hash the target binary before removal.\n- Delete the autorun value, remove the target binary, and re-scan the host's other autostart locations for siblings dropped in the same window.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the Run key value (name + data) and collect/hash the target binary before removal.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

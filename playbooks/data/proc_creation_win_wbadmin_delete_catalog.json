@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_wbadmin_delete_catalog",
+  "title": "Windows Backup Catalog or System State Backup Deleted via wbadmin",
+  "ruleFile": "rules/sigma/proc_creation_win_wbadmin_delete_catalog.yml",
+  "status": "experimental",
+  "severity": "critical",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Impact"
+    ],
+    "techniques": [
+      "T1490 — Inhibit System Recovery"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_wbadmin_delete_catalog",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Impact |\n| Technique(s) | T1490 — Inhibit System Recovery |\n| Severity (`level`) | critical |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `wbadmin.exe` (by image path or OriginalFileName) with a command line containing `delete` plus `catalog` or `systemstatebackup` |\n\nDetects wbadmin.exe deleting the local backup catalog or an existing system-state backup — a third recovery-inhibition primitive alongside Volume Shadow Copy deletion (vssadmin/wmic) and disabling boot-repair (bcdedit): it specifically destroys Windows Server Backup's own catalog/backups, a distinct recovery path those two don't touch. CISA AA23-320A names this pattern for education-sector ransomware."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\wbadmin.exe`) |\n| `OriginalFileName` | rule detection block | PE metadata catches a renamed wbadmin.exe |\n| `CommandLine` | rule detection block | `catalog` vs `systemstatebackup` target and any version/quiet flags |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Backup-admin console vs. shell/script/ransomware parent |\n| `User` | event source (Sysmon EID 1) | Requires elevation; identifies the compromised account |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (wbadmin itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (from its own Sysmon EID 1 event — `wbadmin.exe` is Microsoft-signed) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: backup-administration change calendar and the specific catalog/backup identifiers involved; the host's Windows Server Backup schedule and last successful backup.\n- No external IP/domain artifact on this event.\n- Per policy the critical-severity rule match plus the verbatim event is the cited evidence for containment; enrichment scopes the incident, it does not gate the response."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier A — auto-isolate + identity kill: severity critical → EDR network isolation plus account disable and token/session/Kerberos-ticket revocation execute automatically on the rule match (no TI gate); the IR lead is paged.\n**Analyst triage path (post-containment validation):**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   (process.executable : *\\\\wbadmin.exe or process.pe.original_file_name : \"wbadmin.exe\") and process.args : *delete* and process.args : (*catalog* or *systemstatebackup*)\n   ```\n2. Ransomware-preparation sweep: query the same host ±30 min for the sibling primitives (vssadmin/wmic shadow-copy deletion, bcdedit recovery-disable) and for mass file writes; pivot the parent's process tree for the payload.\n3. False-positive check: legitimate backup-retention cleanup by IT/backup-administration staff — correlate against the change calendar and the specific catalog/backup identifiers involved.\n**Escalation:** already at Tier A. Any second Impact-tactic rule on the same host confirms **ransomware-in-progress** → declare a major incident, sweep every host reachable from this one, and put backup infrastructure on alert estate-wide."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Verify recovery state first: inventory what backup capability survives — remaining shadow copies, off-host/offline backup copies of this host, and the integrity of the backup server's own catalogs; isolate backup infrastructure from the affected segment.\n- Collect/hash the parent payload before cleanup; rebuild the wbadmin catalog from surviving backup media once the host is verified clean; if encryption is suspected imminent, image before remediating.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect/hash the parent payload before cleanup; rebuild the wbadmin catalog from surviving backup media once the host is verified clean; if encryption is suspected imminent, image before remediating.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

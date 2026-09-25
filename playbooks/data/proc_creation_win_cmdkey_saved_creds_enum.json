@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_cmdkey_saved_creds_enum",
+  "title": "Saved Credential Enumeration via cmdkey or vaultcmd",
+  "ruleFile": "rules/sigma/proc_creation_win_cmdkey_saved_creds_enum.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1555.004 — Credentials from Password Stores: Windows Credential Manager"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_cmdkey_saved_creds_enum",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1555.004 — Credentials from Password Stores: Windows Credential Manager |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `cmdkey.exe` or `vaultcmd.exe` (by `Image` path or `OriginalFileName`) with `/list` or `-list` on the command line (`/list` also matches vaultcmd's `/listcreds:` verb as a substring) |\n\nDetects cmdkey.exe or vaultcmd.exe listing the stored credentials in Windows Credential Manager / Windows Vault — two separate signed built-ins reading the same store; a standard early-access discovery step revealing which remote hosts the user has cached credentials for, feeding lateral movement. vaultcmd was added after security review #232 flagged that a cmdkey-only rule is trivially evaded by tool substitution. Both are genuinely low-volume on a normal endpoint, which is what makes the plain list verb usable as a signal. Rule falsepositives: helpdesk or provisioning scripts auditing stored credentials on a managed workstation; an administrator manually checking which credentials are cached before troubleshooting a mapped-drive or RDP issue."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Which tool ran (`\\cmdkey.exe` or `\\vaultcmd.exe`) |\n| `OriginalFileName` | rule detection block | Rename-resistant identification (`cmdkey.exe` / `vaultcmd.exe`) |\n| `CommandLine` | rule detection block | The list verb used (`/list`, `-list`, `/listcreds:`) and any targeted vault |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Helpdesk/provisioning script vs interactive attacker shell |\n| `User` | event source (Sysmon EID 1) | Whose credential store was enumerated — defines the exposure scope |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, pivot key for the follow-on lateral-movement sweep |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: which stored targets exist in that user's Credential Manager (via the user/helpdesk, or host triage); case history; helpdesk-ticket check for the stated FP scenarios; then watch authentications from this host to the stored-credential targets after `UtcTime`.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- Enumeration alone proves interest, not theft; do not report credentials as compromised without follow-on access evidence or a TI/internal-case citation."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → **Tier C — indicator block on TI-confirm**: on VT ≥ 5 for the executing binary's hash, auto-add it to the EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   (process.executable : (*\\\\cmdkey.exe or *\\\\vaultcmd.exe)\n    or process.pe.original_file_name : (cmdkey.exe or vaultcmd.exe))\n   and process.args : (/list* or -list*)\n   ```\n2. Lateral-movement pivot: process-tree via `process.parent.name` / `process.parent.args`, then sweep the same host/user ±60 min for both tools (tool-substitution doubles), other credential-access alerts, and new outbound RDP/SMB authentication to hosts the store would name.\n3. False-positive checks: helpdesk or provisioning scripts auditing stored credentials on a managed workstation; an administrator manually checking cached credentials before troubleshooting a mapped-drive or RDP issue — a matching ticket or known script parent supports benign closure.\n**Escalation:** enumeration followed by authentication to a stored-credential target, or paired with another credential-access alert → treat every credential in the user's store as exposed, page the IR lead, and promote to Tier B on analyst confirm."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Record (with the user or via host triage) which credential targets were in the store at enumeration time; export the host's process and authentication telemetry for the window.\n- Cleanup: rotate the stored credentials, purge the affected Credential Manager entries, and hunt post-event authentications to the stored targets from any host.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Record (with the user or via host triage) which credential targets were in the store at enumeration time; export the host's process and authentication telemetry for the window.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

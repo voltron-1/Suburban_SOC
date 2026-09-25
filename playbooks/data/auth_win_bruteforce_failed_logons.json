@@ -1,0 +1,89 @@
+{
+  "id": "auth_win_bruteforce_failed_logons",
+  "title": "Repeated Failed Sign-Ins (Windows Security 4625)",
+  "ruleFile": "rules/sigma/auth_win_bruteforce_failed_logons.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110 — Brute Force"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_bruteforce_failed_logons",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1110 — Brute Force |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Any Security 4625 failed-logon event (single-event logic of record; alerting is done by the threshold companion) |\n\nIdentifies failed Windows logon events. This file is deliberately single-event logic only — the logic-of-record for the paired Elastic threshold rule `rules/elastic/threshold/auth-win-bruteforce-failed-logons.ndjson`, which alerts at **≥ 5 failures against one target account within a 5-minute window** (with a 10-minute lookback guaranteeing full window containment). The Sigma file stays `experimental` on purpose so it is not also deployed as a noisy per-event query rule."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the failed-logon event (4625) |\n| `TargetUserName` | event source (standard) | Attacked account — the companion's counting key |\n| `IpAddress`, `WorkstationName` | event source (standard) | Source of the attempts — primary TI artifact |\n| `Status`, `SubStatus` | event source (standard) | Failure reason — separates password guessing from expired/locked/misconfigured credentials |\n| `LogonType` | event source (standard) | Attack path context (network, RDP, interactive) |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `IpAddress` → AbuseIPDB; escalate at **≥ 50% confidence** for routable external sources.\n- Internal-only checks: is the account inside a mass password-reset rollout window; is the source a known authentication proxy (both are the rule's stated FP classes).\n- A failure run alone proves pressure, not compromise — do not close as malicious without the TI verdict or a correlated success."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B (identity): on AbuseIPDB ≥ 50% for the source, auto-disable the targeted account (temporary lock pending analyst review — it is under active attack) and block the source at the perimeter; no EDR isolation, containment is account-centric.\n**Analyst triage path** (no TI confirmation) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`), bucketing failures per 5-minute window against the companion's ≥ 5 threshold:\n   ```\n   winlog.event_id : 4625 and winlog.event_data.TargetUserName : \"<user>\"\n   ```\n2. Success check — the pivotal question: any 4624 for the same account from the same source after the failure run (`winlog.event_id : 4624 and winlog.event_data.TargetUserName : \"<user>\"`); a success converts brute-force pressure into compromise.\n3. False-positive checks: high-volume legitimate failures during a mass password-reset rollout; load-balanced authentication proxies retrying with stale credentials.\n**Escalation:** a success from the attacking source after the failure run → force reset, page the IR lead, and pivot to what the session did next."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Perimeter-block the confirmed source; force a password reset on the account if any success followed, and review the domain lockout policy against the observed attempt rate.\n- Export the 4625/4624 slice for the account and source before index rollover — the attempt cadence is the evidence of automation.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the 4625/4624 slice for the account and source before index rollover — the attempt cadence is the evidence of automation.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

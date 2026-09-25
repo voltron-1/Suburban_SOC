@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_lnx_shell_history_tamper",
+  "title": "Linux Shell History Tampering",
+  "ruleFile": "rules/sigma/proc_creation_lnx_shell_history_tamper.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Linux Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Linux Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1070.003 — Indicator Removal: Clear Command History"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_lnx_shell_history_tamper",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1070.003 — Indicator Removal: Clear Command History |\n| Severity (`level`) | high |\n| Data source | auditd execve via Filebeat (Linux process_creation, #442) |\n| Trigger condition | `history -c`, OR `unset HISTFILE`, OR symlinking a history file path to `/dev/null` (`ln -sf /dev/null` + a `.bash_history`/`.zsh_history` path in the same command line), OR overwriting/truncating `.bash_history`/`.zsh_history` directly |\n\nDetects four common ways an attacker (or a script under a compromised account) erases evidence of its own prior commands. `history -c` and `unset HISTFILE` fire unconditionally — both strings are narrow and rarely legitimate on their own; the symlink and truncate branches additionally require a history-file path in the same command line, since a bare `ln -sf /dev/null <anything>` or a bare `>`/`cat /dev/null >` redirect is far too generic alone. KNOWN GAP the rule states: `export HISTFILE=/dev/null` (functionally equivalent to `unset HISTFILE`) is not covered — only the `unset` form named in the originating issue is matched."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `CommandLine` | rule detection block | Which tampering shape fired, and (for the symlink/truncate branches) which history file was targeted |\n| `Image` | event source (auditd SYSCALL) | The shell/interpreter executing the command — `history -c`/`unset HISTFILE` typically run as shell-builtin-shaped invocations, so this is usually `/bin/bash`/`/bin/sh` itself |\n| `process.name` (`comm`) | event source (auditd SYSCALL) | Short process name — cross-check against `process.executable` |\n| `process.pid`, `process.parent.pid` | event source (auditd SYSCALL) | Process/parent PID numbers only — no parent name (see family header) |\n| `user.id`, `user.name` | event source (auditd SYSCALL) | The account whose history was tampered with — the primary containment/identity signal |\n| `host.name`, `@timestamp` | event source | Host and tamper time — anchors the \"what was this session hiding\" reconstruction |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only artifact class: no external TI artifact on this event — `history -c`/`unset HISTFILE`/a symlink or truncate command has no hash, IP, or domain to enrich.\n- Internal-only: is this a user or script legitimately clearing their own shell history for privacy on a shared/jump host, or a hardened shell-profile configuration that deliberately disables history for compliance/PII reasons on a specific service account? Check the account's baseline and any documented hardening policy.\n- The tamper command proves an attempt to hide activity, not what was hidden — correlate with the account's session activity immediately before the clear."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high with no external-TI artifact → routes to analyst triage (15-minute SLA); Tier B on analyst confirmation that no privacy/hardening exception applies — EDR-isolate the host and reset the tampering account's credentials (internal confirmation substitutes for a TI verdict on this artifact-free event).\n**Analyst triage path — 15-minute SLA:**\n1. Verify with KQL (index `logstash-*`; requires #442's auditd pipeline live):\n   ```\n   event.dataset : \"auditd.execve\" and process.args : (*\"history -c\"* or *\"unset HISTFILE\"* or *\".bash_history\"* or *\".zsh_history\"* or *\"ln -sf \\/dev\\/null\"*)\n   ```\n2. Reconstruct the hidden window: pull the account's other auditd/auth activity on the host in the hour before the clear — that is what the clear was meant to erase. Correlate with any sibling `proc_creation_lnx_reverse_shell_interpreter`/`proc_creation_lnx_ingress_tool_transfer`/`proc_creation_lnx_cron_at_persistence`/`proc_creation_lnx_systemd_service_persistence` hit on the same host/account.\n3. False-positive check: a user or script legitimately clearing their own shell history for privacy reasons on a shared/jump host — not inherently malicious, but worth correlating with what that session did immediately before the clear; hardened shell-profile configurations that deliberately disable history for compliance/PII reasons on specific service accounts.\n**Escalation:** the reconstructed pre-clear window shows reverse-shell, ingress-transfer, or persistence activity, or no privacy/hardening exception accounts for the clear → treat the account/host as compromised and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Immediately export the account's already-indexed auditd/auth history for the surrounding window — the indexed copy survives a local-log clear and is the authoritative record of what the tamper attempted to hide.\n- On confirmed hostile clear: reset the account's credentials, revoke its active sessions, and hunt the activity the clear was covering (per the reconstructed window above).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Immediately export the account's already-indexed auditd/auth history for the surrounding window — the indexed copy survives a local-log clear and is the authoritative record of what the tamper attempted to hide.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,76 @@
+{% extends "_playbooks_base.html" %}
+{% block title %}{{ playbook.title }} — Suburban-SOC{% endblock %}
+{% block content %}
+  <div class="card">
+    <span class="badge sev-{{ playbook.severity }}">{{ playbook.severity | upper }}</span>
+    <span class="badge tag">{{ playbook.category }}</span>
+    <span class="badge tag">{{ playbook.status }}</span>
+    <h1 style="margin: 10px 0 4px;">{{ playbook.title }}</h1>
+    <div style="color: var(--muted); font-size: 0.9rem;">
+      Rule: <code>{{ playbook.ruleFile }}</code> · Version {{ playbook.version }} · Last synced {{ playbook.lastUpdated }}
+    </div>
+    {% if playbook.mitre and (playbook.mitre.tactics or playbook.mitre.techniques) %}
+      <div style="margin-top: 8px;">
+        {% for t in playbook.mitre.tactics %}<span class="badge tag">{{ t }}</span>{% endfor %}
+        {% for t in playbook.mitre.techniques %}<span class="badge tag">{{ t }}</span>{% endfor %}
+      </div>
+    {% endif %}
+  </div>
+
+  {% if playbook.severity in ("high", "critical") %}
+    <div class="warning-banner">
+      WARNING — this playbook may reference containment or quarantine actions.
+      Commands shown below are display-only. Verify the target and route through
+      the existing approval process before any action is taken. This page cannot
+      execute commands.
+    </div>
+  {% endif %}
+
+  <nav class="card">
+    <strong>On this page:</strong>
+    <ul>
+      {% for section in playbook.sections %}
+        <li><a href="#{{ section.id }}">{{ section.title }}</a></li>
+      {% endfor %}
+    </ul>
+  </nav>
+
+  {% for section in playbook.sections %}
+    <div class="card" id="{{ section.id }}">
+      <h2>{{ section.title }}</h2>
+      {% for block in section.blocks %}
+        {% if block.blockType in ("codeBlock", "queryBlock") %}
+          <button class="copy-btn" onclick="copyBlock('block-{{ section.id }}-{{ loop.index }}')">Copy</button>
+          <pre id="block-{{ section.id }}-{{ loop.index }}">{{ block.content }}</pre>
+        {% elif block.blockType == "warning" %}
+          <div class="warning-banner">{{ block.content }}</div>
+        {% else %}
+          {# markdown / paragraph / table / list / note: preserved verbatim as
+             plain text (Jinja2 autoescaping is on — no |safe here) rather than
+             rendered as HTML. This keeps the browser from ever interpreting
+             rule-derived content as markup, per the migration's security
+             requirement (no innerHTML / dangerouslySetInnerHTML equivalent,
+             no unsanitized raw-HTML rendering). #}
+          <pre id="block-{{ section.id }}-{{ loop.index }}" style="white-space: pre-wrap;">{{ block.content }}</pre>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endfor %}
+
+  {% if playbook.evidence %}
+    <div class="card">
+      <h2>Evidence Collection</h2>
+      <ul>
+        {% for item in playbook.evidence %}<li>{{ item }}</li>{% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  {% if playbook.unmappedContent %}
+    <div class="card">
+      <h2>Unmapped Content</h2>
+      <p style="color: var(--muted);">Content from the source document that could not be reliably structured. Preserved verbatim below.</p>
+      {% for item in playbook.unmappedContent %}<pre>{{ item }}</pre>{% endfor %}
+    </div>
+  {% endif %}
+{% endblock %}

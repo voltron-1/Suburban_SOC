@@ -1,0 +1,89 @@
+{
+  "id": "auth_win_disabled_account_logon_attempt",
+  "title": "Logon Attempt Against a Disabled Account",
+  "ruleFile": "rules/sigma/auth_win_disabled_account_logon_attempt.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion",
+      "Persistence"
+    ],
+    "techniques": [
+      "T1078.002 — Valid Accounts: Domain Accounts"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_disabled_account_logon_attempt",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion, Persistence |\n| Technique(s) | T1078.002 — Valid Accounts: Domain Accounts |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4625 whose `SubStatus` or `Status` equals 0xC0000072 — the account-disabled failure code (both hex casings, both fields, since the logon path determines which field carries it) |\n\nA disabled account has no legitimate reason to ever authenticate again; a repeated or unexpected hit is a strong signal of either stale credential reuse (a former employee's account, or a service account that should have been rotated) or an attacker who obtained old credentials without knowing the account was already deprovisioned."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the failed-logon event (4625) |\n| `SubStatus`, `Status` | rule detection block | `0xC0000072` — the specific account-disabled NTSTATUS code |\n| `TargetUserName` | event source (standard) | The disabled account being attempted |\n| `IpAddress`, `WorkstationName` | event source (standard) | Attempt source — primary TI artifact |\n| `LogonType`, `ProcessName` | event source (standard) | Path: network attempt vs local service/scheduled-task retry |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `IpAddress` → AbuseIPDB; escalate at **≥ 50% confidence** for external sources.\n- Internal-only checks: when was the account disabled (account-disabled event 4725 / deprovisioning record) — a burst starting at the disable is the cached-credential shape; also whether the source host ever legitimately used this account.\n- One attempt proves someone still holds the credential, not who — hold the verdict until the recurrence pattern and source context are established."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on AbuseIPDB ≥ 50% for `IpAddress`, auto-add the source to the perimeter blocklist; no host or account automation without an analyst (the account is already disabled — keep it that way).\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4625 and (winlog.event_data.SubStatus : (\"0xC0000072\" or \"0xc0000072\") or winlog.event_data.Status : (\"0xC0000072\" or \"0xc0000072\"))\n   ```\n2. Timing pivot: compare the attempt timeline against the disable date. A single hit is ambiguous by itself — the additional signal needed is either sustained recurrence well past the disable window, a source the account never used, or multiple disabled accounts probed from one source.\n3. False-positive check: an account disabled very recently while a client still has cached credentials and periodically retries (browser sync, mapped drive, scheduled task) — expect a short-lived burst right after any account disable, tapering off; sustained recurrence past that window is the more meaningful signal.\n**Escalation:** sustained recurrence long after the disable, an external source, or a sweep across several disabled accounts → promote to identity-compromise triage and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Keep the account disabled; verify no re-enable (4722) or password-reset events followed the attempts.\n- If the source is internal, find and remove the stored credential on that host (service, scheduled task, mapped drive); if the account is an unrotated service account, rotate the dependent systems.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_ssl_self_signed_c2",
+  "title": "TLS Connection with Self-Signed Certificate (Possible C2)",
+  "ruleFile": "rules/sigma/net_zeek_ssl_self_signed_c2.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1573.002 — Encrypted Channel: Asymmetric Cryptography"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_ssl_self_signed_c2",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1573.002 — Encrypted Channel: Asymmetric Cryptography |\n| Severity (`level`) | low |\n| Data source | Zeek ssl |\n| Trigger condition | ssl.log record whose `validation_status` contains `self signed` or `self-signed` (both OpenSSL wordings — the phrasing changed across OpenSSL major versions) |\n\nDetects a TLS connection presenting a self-signed certificate. Many C2 frameworks — default Cobalt Strike, Metasploit, Sliver, Mythic — generate self-signed certificates for their HTTPS listeners rather than obtaining a CA-signed one. Like its expired-cert sibling, the `validation_status` field only exists when the sensor's certificate-validation policy is loaded; the rule matches both historical and current OpenSSL wordings precisely so a wording drift cannot silently disable it."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `validation_status` | rule detection block | Confirms the self-signed verdict specifically |\n| `id.orig_h` | event source (Zeek ssl.log) | Internal connecting host — containment target |\n| `id.resp_h` | event source (Zeek ssl.log) | TLS server — primary TI artifact |\n| `server_name` | event source (Zeek ssl.log) | SNI — default C2 listeners often present none or a placeholder |\n| `version`, `cipher` | event source (Zeek ssl.log) | TLS stack fingerprint context |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `id.resp_h` (destination IP) → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: check the destination against the known internal self-signed inventory (IoT, printers, captive portals, lab/dev) and baseline volume — the rule expects meaningful volume on most networks and directs baselining/allowlisting by destination.\n- Self-signed is normal for a large class of internal devices — no C2 label without the AbuseIPDB verdict or beacon-cadence corroboration recorded in a case."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → Tier D: enrich and queue for analyst review; no automated action.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.ssl\" and tls.validation_status : (*self signed* or *self-signed*)\n   ```\n2. Sort hits by destination novelty: an internal printer seen daily is baseline; a first-seen external `id.resp_h` on a non-standard port is the interesting residue. For that residue, run the reconnect-cadence check on the source→destination pair and read the certificate subject/issuer in the raw Zeek ssl.log (default C2 listener certs are often distinctive or empty).\n3. Endpoint hand-off: on the internal source host, identify the connecting process via its Sysmon process-creation telemetry — the self-signed signal only becomes an incident when the client process is unexplained.\n4. False-positive checks (from the rule): internal services, IoT devices, printers, captive portals, and lab/dev environments routinely use self-signed certificates — baseline and allowlist known internal self-signed endpoints by destination.\n**Escalation:** first-seen external destination with AbuseIPDB ≥ 50%, or regular-interval reconnects from an unexplained process → treat as suspected C2; promote to Tier B (isolate the connecting host) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the ssl.log/conn.log slices for the pair, including certificate details from the raw log — the cert fingerprint identifies sibling C2 infrastructure if reused.\n- Suspected C2 confirmed: perimeter-block the destination, isolate the host, capture memory before killing the beaconing process, hash its binary for VT, and remove its persistence. Benign device: add it to the self-signed baseline so it stops resurfacing.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the ssl.log/conn.log slices for the pair, including certificate details from the raw log — the cert fingerprint identifies sibling C2 infrastructure if reused.",
+    "Suspected C2 confirmed: perimeter-block the destination, isolate the host, capture memory before killing the beaconing process, hash its binary for VT, and remove its persistence. Benign device: add it to the self-signed baseline so it stops resurfacing.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

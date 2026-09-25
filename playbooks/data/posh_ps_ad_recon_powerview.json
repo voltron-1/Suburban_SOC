@@ -1,0 +1,89 @@
+{
+  "id": "posh_ps_ad_recon_powerview",
+  "title": "Active Directory Reconnaissance via PowerView",
+  "ruleFile": "rules/sigma/posh_ps_ad_recon_powerview.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "PowerShell Script Block Logging",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "PowerShell Script Block Logging"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1087.002 — Account Discovery: Domain Account"
+    ]
+  },
+  "aiContext": {
+    "playbook": "posh_ps_ad_recon_powerview",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1087.002 — Account Discovery: Domain Account |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (PowerShell/Operational) |\n| Trigger condition | A 4104 script block containing any of nine PowerView function names: `Get-NetDomain`, `Get-NetUser`, `Get-NetGroup`, `Get-NetComputer`, `Get-DomainUser`, `Get-DomainController`, `Get-DomainTrust`, `Invoke-ShareFinder`, `Find-DomainShare` |\n\nDetects well-known PowerView cmdlets — a widely-used post-exploitation AD enumeration toolkit with no comparable legitimate-administration use case, unlike the official module (see the lower-severity `posh_ps_ad_recon_admodule`). Split from a single merged rule so PowerView's high-signal hits are not buried in routine helpdesk-administration noise. Known scope limit, stated rather than hidden: PowerView's function names are ordinary PowerShell functions an attacker can trivially rename before importing."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Channel scoping — script-block logging events (4104) only |\n| `ScriptBlockText` | rule detection block | Recovered script content — which PowerView functions ran and against what scope (domain, groups, shares) |\n| `ScriptBlockId` | event source (4104) | Reassembly/dedup key — the imported PowerView source itself often appears as a large chunked block |\n| `MessageNumber`, `MessageTotal` | event source (4104) | Chunk ordering — export every chunk before analysis |\n| `Path` | event source (4104) | On-disk `.ps1` path if PowerView was run from a file; collection target |\n| `Computer`, `UserID` | event source (4104) | Host and executing-account SID — containment targets |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only (recon cmdlets carry no external-TI artifact — OTX/AbuseIPDB/VT not applicable): which account ran it, from which host, and is any authorized assessment or red-team exercise on the engagement calendar covering that pairing?\n- Internal-only: prior case history for the host/account; whether the host is a scoped assessment asset.\n- Absent a documented engagement, a PowerView hit has no benign explanation in this corpus — but cite the internal case/engagement check either way before assessing."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: EDR-isolate the host. This event carries no external-TI artifact, so isolation fires on analyst confirm under the 15-minute high-severity SLA (Tier D until confirmed) rather than on a TI verdict; disable the executing account at the same time.\n**Analyst triage path — 15-minute SLA:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4104 and winlog.event_data.ScriptBlockText : (*Get-NetDomain* or *Get-NetUser* or *Get-NetGroup* or *Get-NetComputer* or *Get-DomainUser* or *Get-DomainController* or *Get-DomainTrust* or *Invoke-ShareFinder* or *Find-DomainShare*)\n   ```\n2. Correlate the 4104 event to its launching process via the host's Sysmon process-creation events in the same window (then follow the Windows Process Creation family baseline); look for how PowerView arrived — a preceding download-cradle 4104 block or a dropped `.ps1` — and sweep other hosts for the same function names.\n3. False-positive check: authorized security assessments or red-team exercises using PowerView on an isolated/scoped host — confirm against the engagement calendar, not verbal assurance.\n**Escalation:** no matching engagement → treat as active post-exploitation reconnaissance; page the IR lead and assume the executing account is attacker-controlled."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect the PowerView script file (from `Path` or the Sysmon file-creation pivot) and the full 4104 chunk set; hash collected files for the evidence record.\n- Reset the executing account's credentials and revoke its Kerberos tickets and sessions; assume the enumeration output (privileged-group membership, trust map, share list) is in attacker hands and hunt follow-on targeting of those objects.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect the PowerView script file (from `Path` or the Sysmon file-creation pivot) and the full 4104 chunk set; hash collected files for the evidence record.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

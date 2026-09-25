@@ -1,0 +1,89 @@
+{
+  "id": "auth_linux_invalid_user_ssh_attempt",
+  "title": "SSH Login Attempt for a Nonexistent User",
+  "ruleFile": "rules/sigma/auth_linux_invalid_user_ssh_attempt.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Linux Authentication",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Linux Authentication"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110.001 — Brute Force: Password Guessing"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_linux_invalid_user_ssh_attempt",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1110.001 — Brute Force: Password Guessing |\n| Severity (`level`) | medium |\n| Data source | Filebeat (Linux auth.log) |\n| Trigger condition | A Linux auth event (`event.module: system`) whose `message` contains both the tokens `invalid` and `user` — OpenSSH's rejection lines for an authentication attempt against a username that does not exist on the host |\n\nDetects SSH authentication attempts against nonexistent accounts — the bulk of real-world SSH brute-force and credential-stuffing traffic (attackers guessing usernames, not just passwords for known accounts). Operational caveat the rule states itself: one attack burst writes several matching auth.log lines per attempt (the standalone \"Invalid user\" line plus paired failure/close lines), so expect multiple alerts per attempt; the rule is held at experimental pending a paired per-source threshold companion."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `event.module` | rule detection block | Scopes to the Linux auth pipeline (`system`) |\n| `message` | rule detection block | The raw rejection line — carries the attempted username and the client IP |\n| `user.name`, `source.ip`, `event.outcome` | event source (parsed SSH auth lines) | Populated on the companion \"Failed password for invalid user …\" lines; the standalone \"Invalid user …\" line carries the username and client IP only inside `message` |\n| `source.geo.country_name` | event source (external client IPs) | Geographic context for the attacking source |\n| `host.name` | event source | Target host of the attempts |\n| `@timestamp` | event source | Timeline anchor for burst measurement |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SSH client source IP (from `source.ip` on companion lines, or parsed from `message` on the standalone line) → AbuseIPDB; escalate at **≥ 50% confidence score**.\n- Internal-only checks: is the attempted username a stale/mistyped service or automation account (asset inventory, prior case history)? Is this host intentionally SSH-exposed?\n- A guessed-username attempt is expected Internet noise on any exposed host — label the source malicious only with the citing AbuseIPDB verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on AbuseIPDB ≥ 50% for the source IP, auto-add that IP to the perimeter blocklist; no host or account action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; Linux auth fields are already ECS):\n   ```\n   event.module : \"system\" and message : \"invalid\" and message : \"user\"\n   ```\n2. Burst/cardinality check: over the surrounding hour, count distinct attempted usernames and distinct source IPs (pivot on the companion failure lines' `source.ip` / `user.name`); many usernames from one source is the meaningful brute-force signal.\n3. Then sweep the same source for any `event.outcome : \"success\"` login — an accepted login from a source that was guessing usernames changes the incident class entirely.\n4. False-positive check: a misconfigured monitoring/automation account or client retrying a stale/mistyped username — usually low-volume and self-correcting.\n**Escalation:** sustained high-volume hits against many distinct usernames from one source, or any subsequent successful login from that source IP → open an intrusion case and move to the account-compromise flow for the accepted account."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the auth.log slice for the host and UTC window (all lines from the source IP, not just rule matches) — the username list is the campaign fingerprint.\n- Confirm no successful authentication followed from the same source; if one did, treat that account as compromised (reset credentials, review its session activity).\n- Review the host's SSH exposure: confirm Internet-facing SSH is intended and perimeter/rate-limit posture matches policy; keep the TI-confirmed source blocked.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the auth.log slice for the host and UTC window (all lines from the source IP, not just rule matches) — the username list is the campaign fingerprint.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

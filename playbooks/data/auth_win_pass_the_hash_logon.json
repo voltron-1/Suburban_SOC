@@ -1,0 +1,90 @@
+{
+  "id": "auth_win_pass_the_hash_logon",
+  "title": "Pass-the-Hash Logon Pattern (LogonType 9, Negotiate)",
+  "ruleFile": "rules/sigma/auth_win_pass_the_hash_logon.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Lateral Movement",
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1550.002 — Use Alternate Authentication Material: Pass the Hash"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_pass_the_hash_logon",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Lateral Movement, Defense Evasion |\n| Technique(s) | T1550.002 — Use Alternate Authentication Material: Pass the Hash |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4624 with `LogonType` 9 (NewCredentials) and `AuthenticationPackageName` Negotiate |\n\nDetects the credential-injection logon shape used by `runas /netonly` and equivalent techniques — Mimikatz `sekurlsa::pth` uses this exact mechanism: a new logon session with supplied credentials (often an NTLM hash rather than a plaintext password) without replacing the current interactive session. The rule deliberately does not claim full signature completeness: the fuller published pattern also checks LogonProcessName (\"seclogo\"), which this rule does not select on. LogonType 9 is rare and has one narrow legitimate use, which is why this two-field combination is a meaningful signal rather than routine noise."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the successful-logon event (4624) |\n| `LogonType` | rule detection block | `9` NewCredentials — the credential-injection session type |\n| `AuthenticationPackageName` | rule detection block | `Negotiate` — completes the published PtH pair |\n| `SubjectUserName` | event source (standard) | Interactive session that injected the credentials |\n| `TargetOutboundUserName` | event source (standard) | The injected network-use credential — the account whose secret may be a passed hash |\n| `IpAddress`, `Computer` | event source (standard) | Usually `-` for a locally initiated type-9 logon; `Computer` is the injection host |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `IpAddress` → AbuseIPDB when populated with a routable address; escalate at **≥ 50% confidence** (on this logon type it is commonly the `-` sentinel — then no external artifact exists).\n- Internal-only checks: baseline of administrators who legitimately use `runas /netonly`; whether `TargetOutboundUserName` is privileged; prior case history for the host.\n- The event proves credential injection occurred, not that the injected secret was a hash — state that distinction in the case rather than asserting PtH outright."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B (identity): on AbuseIPDB ≥ 50% for a populated `IpAddress`, auto-disable the injected-credential account (`TargetOutboundUserName`) and revoke its sessions/tickets; host isolation via correlated endpoint telemetry on analyst confirm.\n**Analyst triage path** (usually no TI-confirmable artifact) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4624 and winlog.event_data.LogonType : 9 and winlog.event_data.AuthenticationPackageName : \"Negotiate\"\n   ```\n2. Identity sweep: in the raw event, LogonProcessName `seclogo` corroborates the published PtH pattern (the rule deliberately does not select on it); then sweep for network logons by `TargetOutboundUserName` to other hosts immediately after — the actual lateral movement. A single type-9 logon is ambiguous on its own: the deciding signals are the operator's `runas /netonly` baseline and what the injected account did next.\n3. False-positive check: legitimate administrative use of `runas /netonly` (a documented, if uncommon, pattern for running network-only tooling under different credentials without a full re-login) — baseline expected accounts/hosts before escalating every hit.\n**Escalation:** the injected credential is privileged, or follow-on network logons reach hosts the operator never touches → page the IR lead; treat the injected account's secret as compromised."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Reset the injected account's password and revoke its Kerberos tickets/sessions; if PtH is confirmed, the hash was obtained somewhere — investigate the injection host for credential dumping via the endpoint family's LSASS-access detections.\n- Sweep for further sessions created by the same interactive operator session before it is torn down.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Reset the injected account's password and revoke its Kerberos tickets/sessions; if PtH is confirmed, the hash was obtained somewhere — investigate the injection host for credential dumping via the endpoint family's LSASS-access detections.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

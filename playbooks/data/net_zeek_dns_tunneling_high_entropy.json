@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_dns_tunneling_high_entropy",
+  "title": "DNS Query with High-Entropy Long Subdomain Label (Possible Tunneling)",
+  "ruleFile": "rules/sigma/net_zeek_dns_tunneling_high_entropy.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1071.004 — Application Layer Protocol: DNS"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_dns_tunneling_high_entropy",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1071.004 — Application Layer Protocol: DNS |\n| Severity (`level`) | medium |\n| Data source | Zeek dns |\n| Trigger condition | DNS query name containing a run of 50+ contiguous alphanumeric characters in a label |\n\nDetects the shape tunneling tools (iodine, dnscat2, DNSExfiltrator) produce when smuggling base32/base64/hex-encoded data through subdomain labels. Honesty caveat carried from the rule: there is no native entropy function and Zeek's dns.log has no entropy field, so label length is the standard proxy for entropy — a long label is not itself proof of encoding, and the cardinality of unique labels under one parent domain is the analyst's real confirmation signal."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `query` | rule detection block | The long-label query name; its registered (parent) domain is the TI artifact |\n| `id.orig_h` | event source (Zeek dns.log) | Querying host — containment target |\n| `id.resp_h` | event source (Zeek dns.log) | Resolver used (tunnels ride the recursive path) |\n| `qtype_name` | event source (Zeek dns.log) | Tunnel record types (TXT/NULL/CNAME) vs plain A/AAAA |\n| `rcode_name` | event source (Zeek dns.log) | Tunnel servers answer; NXDOMAIN runs look more DGA-shaped |\n| `answers` | event source (Zeek dns.log) | Return-channel content, when present |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Registered (parent) domain of `query` → OTX: escalate on any pulse match.\n- Internal-only: cardinality confirmation — count distinct long-label queries under the same parent domain from `id.orig_h` over 10-minute windows; a steady stream of unique labels is the tunneling volume signal a single-event rule cannot express.\n- Internal-only: allowlist check — is the parent domain a known CDN/cloud-storage service seen repeatedly from legitimate hosts?\n- Length alone convicts nothing; pair the cardinality evidence with an OTX pulse or an internal case before labeling the domain."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host isolation. On an OTX pulse for the parent domain, auto-add it to the DNS/perimeter blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   source.ip : \"<orig_h>\" and dns.question.name : *\n   ```\n   KQL cannot express the 50-character run — confirm it on the returned `dns.question.name` values (or the raw dns.log slice), then bucket unique long-label names under the same parent domain over 10-minute windows.\n2. Channel check: inspect `dns.question.type` and `dns.answers` on the matching events — TXT/NULL/CNAME answers carrying content indicate a bidirectional channel, not just outbound encoding.\n3. Endpoint pivot: sweep `id.orig_h`'s Sysmon process-creation events in the window to find the querying process; follow the Windows Process Creation family baseline for it.\n4. False-positive checks: some CDN/cloud-storage services (S3 presigned URLs, Akamai, some CDN edge nodes) use long content-hash subdomains — rare on a campus network but worth an allowlist entry if seen repeatedly from the same legitimate service; long DKIM/SPF/verification TXT-adjacent A/AAAA lookups from mail or identity providers.\n**Escalation:** sustained unique-label cadence under one parent domain plus a responsible process on the host → active DNS tunnel; promote to the high-severity flow (Tier B isolate of the querying host)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full dns.log slice for `id.orig_h` before rollover — for a tunnel, the query-name set IS the smuggled payload; preserve it intact.\n- Block the parent domain at the resolver/perimeter; identify and remove the tunnel client and its launcher on the endpoint; hash the binary for VT.\n- Assess what data the host could reach during the tunnel's active window — treat a confirmed tunnel as exfiltration until scoped.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source host."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full dns.log slice for `id.orig_h` before rollover — for a tunnel, the query-name set IS the smuggled payload; preserve it intact.",
+    "Block the parent domain at the resolver/perimeter; identify and remove the tunnel client and its launcher on the endpoint; hash the binary for VT.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source host."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_user_discovery",
+  "title": "Suspicious System Owner/User Discovery",
+  "ruleFile": "rules/sigma/proc_creation_win_user_discovery.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1033 — System Owner/User Discovery"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_user_discovery",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1033 — System Owner/User Discovery |\n| Severity (`level`) | low |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `whoami.exe` with a command line containing `/all` |\n\nDetects the execution of whoami.exe with the /all flag, commonly used by attackers for reconnaissance. Per issue #217 this file is the logic-of-record but is deliberately not deployed as a per-event alert (a single execution floods on routine admin troubleshooting); the deployed enforcement is the Elastic threshold companion `rules/elastic/threshold/disc-win-user-discovery-repeat.ndjson`, which alerts at **≥ 3 matching events on the same host (`host.name`)**, evaluated every 10 minutes over a 20-minute lookback, at severity **medium**. A single deliberate execution is still recorded in raw telemetry for hunting — it just is not alerted on alone."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\whoami.exe`) |\n| `CommandLine` | rule detection block | The `/all` flag — full token/group/privilege enumeration |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Interactive admin shell vs. script or implant — the strongest FP separator |\n| `User` | event source (Sysmon EID 1) | Whose context is being enumerated |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (whoami itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (from its own Sysmon EID 1 event — `whoami.exe` is Microsoft-signed) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: help-desk/troubleshooting ticket queue for the host; whether the initiating account normally administers it; case history for other discovery alerts on the same host.\n- No external IP/domain artifact on this event.\n- Recon commands are only evidence of compromise in context — cite the correlated alert or case ID, never the whoami event alone."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier D — triage-only: severity low → enrich and queue for analyst review; no automation. Alert-volume gating lives in the threshold companion (≥ 3 per host / 20-minute lookback).\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel; the companion's own query shape):\n   ```\n   process.executable : *\\\\whoami.exe and process.args : */all*\n   ```\n   Count occurrences per host over the window — repetition is what the companion alerts on.\n2. Burst and context check: a script-host or implant-style parent repeating the command is automated recon; sweep the host ±30 min for other discovery-family alerts (net.exe, nltest) forming a recon chain.\n3. False-positive check: administrator troubleshooting.\n**Escalation:** discovery chain (two or more distinct discovery-family rules on the same host within 30 min) or a non-interactive parent → promote severity and page per the correlated rule's flow."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the host's process-creation slice for the recon window — the command sequence is the evidence of what the operator learned.\n- No host artifact to clean for the discovery itself; remediation follows whatever delivery vector the parent lineage reveals.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the host's process-creation slice for the recon window — the command sequence is the evidence of what the operator learned.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

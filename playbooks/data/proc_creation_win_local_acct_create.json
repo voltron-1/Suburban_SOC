@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_local_acct_create",
+  "title": "Local User Account Creation via Net.exe",
+  "ruleFile": "rules/sigma/proc_creation_win_local_acct_create.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence"
+    ],
+    "techniques": [
+      "T1136.001 — Create Account: Local Account"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_local_acct_create",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence |\n| Technique(s) | T1136.001 — Create Account: Local Account |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `net.exe` or `net1.exe` with a command line containing both `user` and `/add` |\n\nDetects the creation of a local user account using the `net user` command — a persistence method that gives an attacker a foothold account independent of any compromised credential."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\net.exe` / `\\net1.exe` |\n| `CommandLine` | rule detection block | Carries the created account name (token after `user`) and any password set inline |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Provisioning script vs. interactive shell vs. remote-execution service |\n| `User` | event source (Sysmon EID 1) | Who created the account — must already hold local admin |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of net.exe (Microsoft-signed; TI applies to the parent binary) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (net.exe itself is Microsoft-signed) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: correlate with the matching Security 4720 event for ground truth on the created account; check provisioning/change records and asset ownership for a sanctioned setup at this time.\n- An account creation is an event, not an incident — cite the provisioning-record miss plus corroborating evidence before escalating."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host action; when the parent-binary VT verdict is ≥ 5 malicious, auto-add that hash to the EDR blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.executable : (*\\\\net.exe or *\\\\net1.exe) and process.args : \"user\" and process.args : \"/add\"\n   ```\n2. Identity sweep: extract the account name from `process.args`; check for a follow-on `net localgroup administrators <name> /add` on the same host, and for logons by the new account (Security 4624) after creation.\n3. False-positive check: initial workstation setup or provisioning scripts.\n**Escalation:** the new account is added to a privileged local group, logs on interactively/remotely shortly after creation, or the creating parent is a shell spawned by a remote-execution service → disable the account, promote to the high-severity flow, and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the account's creation and logon events; screenshot/export its group memberships before removal.\n- Disable then delete the unauthorized account; revert any group additions; reset the creating account's credentials if its own compromise is suspected.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the account's creation and logon events; screenshot/export its group memberships before removal.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

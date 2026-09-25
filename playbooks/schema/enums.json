@@ -1,0 +1,37 @@
+{
+  "_comment": "Shared enums for playbook fields (build-prompt audit fix #7). All playbook data files must reference these exact string values — never invent a new string inline (e.g. 'high' vs 'High' vs 'HIGH') since the dashboard filters (Phase 14 equivalent) depend on exact matches.",
+
+  "severity": ["low", "medium", "high", "critical"],
+
+  "status": ["experimental", "stable", "deprecated"],
+
+  "category": [
+    "Windows Process Creation",
+    "Windows Security Log - Authentication & Identity",
+    "PowerShell Script Block Logging",
+    "Windows System Log - Service Control Manager & Event Log Service",
+    "Zeek Network Telemetry",
+    "Linux Authentication",
+    "Linux Process Creation",
+    "Sysmon Specialized Events",
+    "WMI Activity",
+    "Suricata Network Signature"
+  ],
+
+  "integrations": [
+    "Zeek",
+    "Filebeat",
+    "Logstash",
+    "Elasticsearch",
+    "Kibana",
+    "Suricata",
+    "Sysmon",
+    "Winlogbeat",
+    "auditd",
+    "OpenWrt",
+    "Hive-Mind Broker",
+    "SOC AI Agent"
+  ],
+
+  "_extension_policy": "To add a category or integration value not listed here, add it to this file first (and update this comment's rationale if needed). Do not let values fragment across individual playbook JSON files."
+}

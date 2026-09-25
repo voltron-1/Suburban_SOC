@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Suburban-SOC Playbooks{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #0d1117; --panel: #161b22; --border: #30363d;
+      --text: #c9d1d9; --muted: #8b949e; --accent: #58a6ff;
+      --critical: #f85149; --high: #f0883e; --medium: #d29922; --low: #56d364;
+    }
+    * { box-sizing: border-box; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0; padding: 0; line-height: 1.5;
+    }
+    a { color: var(--accent); }
+    header.soc-header {
+      background: var(--panel); border-bottom: 1px solid var(--border);
+      padding: 12px 24px; display: flex; align-items: center; gap: 16px;
+    }
+    header.soc-header .brand { font-weight: 700; letter-spacing: 0.02em; }
+    main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 16px; margin-bottom: 12px;
+    }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      font-size: 0.75rem; font-weight: 600; margin-right: 6px;
+    }
+    .sev-critical { background: rgba(248,81,73,0.15); color: var(--critical); border: 1px solid var(--critical); }
+    .sev-high { background: rgba(240,136,62,0.15); color: var(--high); border: 1px solid var(--high); }
+    .sev-medium { background: rgba(210,153,34,0.15); color: var(--medium); border: 1px solid var(--medium); }
+    .sev-low { background: rgba(86,211,100,0.15); color: var(--low); border: 1px solid var(--low); }
+    .tag { background: #21262d; color: var(--muted); }
+    pre {
+      background: #010409; border: 1px solid var(--border); border-radius: 6px;
+      padding: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
+      font-family: "SF Mono", Consolas, monospace; font-size: 0.85rem;
+    }
+    .copy-btn {
+      background: #21262d; border: 1px solid var(--border); color: var(--text);
+      border-radius: 4px; padding: 4px 10px; font-size: 0.8rem; cursor: pointer;
+      float: right; margin-bottom: 4px;
+    }
+    .copy-btn:hover { background: #30363d; }
+    .warning-banner {
+      background: rgba(248,81,73,0.1); border: 1px solid var(--critical);
+      border-left: 4px solid var(--critical); border-radius: 4px;
+      padding: 10px 14px; margin: 12px 0; font-weight: 600; color: var(--critical);
+    }
+  </style>
+</head>
+<body>
+  <header class="soc-header">
+    <span class="brand">SUBURBAN-SOC</span>
+    <a href="/playbooks">Playbooks</a>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <script>
+    function copyBlock(id) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      navigator.clipboard.writeText(el.innerText).catch(() => {});
+    }
+  </script>
+</body>
+</html>

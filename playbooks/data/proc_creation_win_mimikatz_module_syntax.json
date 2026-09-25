@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_mimikatz_module_syntax",
+  "title": "Mimikatz Module Syntax on the Command Line",
+  "ruleFile": "rules/sigma/proc_creation_win_mimikatz_module_syntax.yml",
+  "status": "experimental",
+  "severity": "critical",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1003.001 — OS Credential Dumping: LSASS Memory"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_mimikatz_module_syntax",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1003.001 — OS Credential Dumping: LSASS Memory |\n| Severity (`level`) | critical |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | Any process command line containing a Mimikatz `module::function` token: `sekurlsa::`, `lsadump::`, `privilege::debug`, `kerberos::golden`, `kerberos::ptt`, `crypto::capi`, or `misc::memssp` |\n\nDetects Mimikatz driven by its distinctive module syntax. The rule deliberately does NOT match the filename `mimikatz.exe` — renaming the binary is the first thing any operator does — so it survives that specific evasion. Its stated blind spots: Mimikatz driven interactively at its own `mimikatz #` prompt puts none of these strings on the launching command line (no console-input telemetry exists in this environment to close that gap), and the reflective in-memory case (`Invoke-Mimikatz`) is not covered here either — pair with `posh_ps_obfuscated_scriptblock.yml` / script-block logging (4104) for that."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `CommandLine` | rule detection block | Which module::function tokens ran — determines the compromise scope (see Remediation) |\n| `Image` | event source (Sysmon EID 1) | The actual binary path — the rule ignores the name, so this reveals what the tool was renamed to |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary — primary TI artifact |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector |\n| `User` | event source (Sysmon EID 1) | Account context; must be privileged for most modules to succeed |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; **≥ 5 malicious verdicts** confirms the binary, but containment does not wait for it (critical policy row).\n- Internal-only: check the red-team engagement calendar and detection-validation schedule — the documented false-positive population for this rule.\n- Per policy, the 8 critical rules are behaviorally conclusive: the rule match plus the verbatim event is the cited evidence. Record both in the case; still never assert attribution."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity critical → Tier A: EDR network isolation + AD/IdP account disable + Kerberos-ticket/session revocation execute automatically on the rule match itself; the IR lead is paged. Analyst steps below run post-containment.\n**Analyst triage path** (verification after auto-containment):\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.args : (*sekurlsa\\:\\:* or *lsadump\\:\\:* or *privilege\\:\\:debug* or *kerberos\\:\\:golden* or *kerberos\\:\\:ptt* or *crypto\\:\\:capi* or *misc\\:\\:memssp*)\n   ```\n2. Process-tree analysis: pivot on `process.parent.name` / `process.parent.args`; sweep the host ±60 min for the binary's arrival (download, copy, archive extraction) and for sibling executions.\n3. False-positive checks: security staff running Mimikatz deliberately during an authorised red-team exercise or a detection-validation test; documentation, training material, or a detection rule file quoted verbatim on a command line. Confirm against the engagement calendar before releasing containment.\n**Escalation:** already paged by Tier A. Additionally: `lsadump::` or `kerberos::golden` tokens present → declare a domain-level incident (see Remediation), not a single-host one."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire full host memory before cleanup; collect and hash the executing binary (whatever its name) and any output files.\n- Scope by module: `sekurlsa::` → reset every credential with a session on the host; `lsadump::` (incl. dcsync syntax) → treat domain credential material as exposed; `kerberos::golden` → treat the krbtgt key as compromised and perform the double krbtgt reset; `kerberos::ptt` → revoke and reissue tickets for the affected accounts; `misc::memssp` → remove the injected SSP and reset every credential entered on the host since infection.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire full host memory before cleanup; collect and hash the executing binary (whatever its name) and any output files.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

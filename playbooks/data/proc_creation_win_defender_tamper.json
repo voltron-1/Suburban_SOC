@@ -1,0 +1,88 @@
+{
+  "id": "proc_creation_win_defender_tamper",
+  "title": "Windows Defender Real-Time Protection Disabled",
+  "ruleFile": "rules/sigma/proc_creation_win_defender_tamper.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1562.001 — Impair Defenses: Disable or Modify Tools"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_defender_tamper",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1562.001 — Impair Defenses: Disable or Modify Tools |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `powershell.exe` or `pwsh.exe` whose command line contains both `Set-MpPreference` and `Disable` |\n\nDetects use of Set-MpPreference to disable Defender protections (real-time monitoring), a common defense-evasion step. Rule falsepositives: administrators temporarily disabling protection for troubleshooting."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Which PowerShell host ran (`\\powershell.exe` / `\\pwsh.exe`) |\n| `CommandLine` | rule detection block | Exactly which `-Disable*` preference was set — scopes what protection was turned off |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Admin console vs dropper/script delivery vector |\n| `User` | event source (Sysmon EID 1) | Requires elevation — the admin context that was used or abused |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, the start of the protection-off window, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts** — and enrich the parent binary and any binary executed on the host *after* the disable, since the protection-off window is where a payload lands.\n- Internal-only: change calendar / helpdesk ticket for sanctioned troubleshooting; current `Get-MpComputerStatus` state of the host; EDR console operator log.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- Do not label follow-on binaries malicious without the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → **Tier B — auto-isolate on TI-confirm**: auto EDR-isolate the host when a related hash (parent or post-disable binary) returns VT ≥ 5; account actions on analyst confirm. Without a TI-confirmable artifact → Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   process.executable : (*\\\\powershell.exe or *\\\\pwsh.exe)\n   and process.args : *Set-MpPreference* and process.args : *Disable*\n   ```\n2. Protection-off-window sweep: process-tree the parent via `process.parent.name` / `process.parent.args`, then enumerate every new process and dropped binary on the host from `UtcTime` until protection is confirmed re-enabled — that window is the reason the tamper happened.\n3. False-positive checks: administrators temporarily disabling protection for troubleshooting — a matching ticket/change record and a prompt re-enable support benign closure; a script-host or unexpected parent does not.\n**Escalation:** new/unknown binary executed during the protection-off window, or no sanctioned-troubleshooting record → page the IR lead and isolate; assume a payload was intended to land while Defender was off."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Capture the current Defender configuration and the protection-off window's process/file telemetry before changing anything.\n- Cleanup: re-enable protections (`Set-MpPreference -DisableRealtimeMonitoring $false`, revert other changed preferences), verify with `Get-MpComputerStatus`, run a full scan, and eradicate anything that landed during the window; review who holds local-admin on the host.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

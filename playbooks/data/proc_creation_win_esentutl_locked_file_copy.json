@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_esentutl_locked_file_copy",
+  "title": "Locked File Copied via esentutl VSS Trick (Browser Credential Access)",
+  "ruleFile": "rules/sigma/proc_creation_win_esentutl_locked_file_copy.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Collection"
+    ],
+    "techniques": [
+      "T1005 — Data from Local System"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_esentutl_locked_file_copy",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Collection |\n| Technique(s) | T1005 — Data from Local System |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `esentutl.exe` (by `Image` path or `OriginalFileName`) with a space-delimited ` /y ` copy flag **and** `/vss` both on the command line |\n\nDetects esentutl.exe using `/y` (copy) together with `/vss` (Volume Shadow Copy) to copy a file that is normally locked while in use — most notably browser SQLite credential/cookie stores (Chrome/Edge `Login Data`, `Cookies`), which the browser holds open and a plain copy cannot read. The rule requires `/vss` specifically (security review #235/#236): a bare `/y ... /d` copy is esentutl's documented general-purpose copy syntax, cannot bypass a file lock, and deliberately does NOT match — `/vss` is genuinely rare in normal IT operation, which is what keeps this a real signal. Rule falsepositives: legitimate database-repair or forensic-imaging use of esentutl by IT/DBA staff — rare in practice; correlate the copied file path against the change calendar."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\esentutl.exe`) |\n| `OriginalFileName` | rule detection block | Rename-resistant identification of esentutl (`esentutl.exe`) |\n| `CommandLine` | rule detection block | The source (locked) file and destination copy paths — source path identifies *what* was taken (browser cred store vs database) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Interactive attacker shell vs DBA/imaging tooling |\n| `User` | event source (Sysmon EID 1) | Whose profile/browser store was targeted — defines credential-exposure scope |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts**; enrich the parent binary's hash as well — esentutl itself is Microsoft-signed.\n- Internal-only: classify the source path from `CommandLine` — a browser profile path (`Login Data`, `Cookies`) is credential access; a database path may be the DBA FP case (change-calendar check); locate the destination copy and any onward movement of it (exfil-staging or transfer alerts).\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- State what file was copied and to where, with paths quoted from the event; do not assert credential theft without the source path or collected copy substantiating it."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → **Tier B — auto-isolate on TI-confirm**: auto EDR-isolate the host when a related hash returns VT ≥ 5; account actions on analyst confirm. Without a TI-confirmable artifact → Tier D with 15-minute analyst SLA; Tier B on analyst confirm — a browser-cred-store source path is grounds for immediate analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   (process.executable : *\\\\esentutl.exe or process.pe.original_file_name : esentutl.exe)\n   and process.args : /y and process.args : */vss*\n   ```\n2. Credential-access pivot: process-tree via `process.parent.name` / `process.parent.args`; sweep the host ±60 min for DPAPI/decryption tooling activity (the copied store still needs decrypting), other credential-access alerts, and transfer of the destination file off-host.\n3. False-positive checks: legitimate database-repair or forensic-imaging use by IT/DBA staff — rare in practice; correlate the copied file path against the change calendar. A bare `/y ... /d` copy without `/vss` does not match this rule and is not a bypass of its intent — do not chase those as misses.\n**Escalation:** source path is a browser credential/cookie store, or the copy moves off-host → page the IR lead; treat the user's browser-saved credentials and session cookies as exposed."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the destination copy; record the source path verbatim; capture the parent chain and any decryption-tool artifacts.\n- Cleanup: remove the copied store and tooling; have the affected user rotate passwords saved in the browser and invalidate active web sessions (stolen cookies bypass passwords and MFA); hunt for use of the exposed web credentials.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the destination copy; record the source path verbatim; capture the parent chain and any decryption-tool artifacts.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_netsh_portproxy_relay",
+  "title": "Port-Proxy Relay Configured via netsh",
+  "ruleFile": "rules/sigma/proc_creation_win_netsh_portproxy_relay.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1090.001 — Proxy: Internal Proxy"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_netsh_portproxy_relay",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1090.001 — Proxy: Internal Proxy |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `netsh.exe` (by path or `OriginalFileName`) with the contiguous phrase `portproxy add` on the command line |\n\nDetects `netsh interface portproxy add v4tov4`, which configures the Windows TCP/IP stack itself to relay a local port to a remote host:port — a built-in, no-malware-required pivot/tunnel mechanism. No third-party tooling is needed and the relay survives process exit, which makes this a durable, low-footprint technique distinct from generic proxy/tunnel malware. The phrase is matched contiguously because the parameter names on a routine `delete` invocation also contain the substring `add`."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\netsh.exe` |\n| `OriginalFileName` | rule detection block | Catches a renamed netsh copy by its PE-header name |\n| `CommandLine` | rule detection block | Carries `listenport=`, `listenaddress=`, `connectport=`, `connectaddress=` — the relay's full wiring |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Deployment script vs. shell/remote-execution service |\n| `User` | event source (Sysmon EID 1) | Account context — requires elevation |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of netsh.exe (Microsoft-signed; TI applies to the parent binary if suspect) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `connectaddress=` IP from `CommandLine` → AbuseIPDB; escalate at **≥ 50% confidence score** — the relay's onward destination is the primary artifact.\n- SHA-256 of the parent process binary → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: change calendar for a documented port-forward (container port exposure, WSL2 networking workaround); asset role of the connect target if internal.\n- Do not label the relay malicious without the citing AbuseIPDB/VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the `connectaddress` IP scores ≥ 50% on AbuseIPDB or the parent-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm.\n**Analyst triage path** (TI not confirming) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   (process.executable : *\\\\netsh.exe or process.pe.original_file_name : \"netsh.exe\") and process.args : \"portproxy\" and process.args : \"add\"\n   ```\n2. Relay-state check: run `netsh interface portproxy show all` on the host (EDR live response) — the relay persists after the process exits, so the alert may describe a still-active tunnel; identify who is connecting to the listen port from network telemetry.\n3. False-positive check: a legitimate network engineer or deployment script configuring a documented port-forward (e.g. exposing a container's port, or a WSL2 networking workaround) — correlate against the change calendar.\n**Escalation:** the `connectaddress` is external, the relay is live with established connections, or no change-calendar entry exists → page the IR lead; treat the host as a pivot node and trace both sides of the relay."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Record the full portproxy table and current connections to the listen port before teardown — the wiring is the evidence of what was reachable through the pivot.\n- Delete the relay (`netsh interface portproxy delete v4tov4`), block the external `connectaddress` once TI-confirmed, and investigate the inbound peers that used the listen port.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Record the full portproxy table and current connections to the listen port before teardown — the wiring is the evidence of what was reachable through the pivot.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

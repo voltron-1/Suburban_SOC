@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_regsvr32_remote_sct",
+  "title": "Regsvr32 Execution from Remote Server",
+  "ruleFile": "rules/sigma/proc_creation_win_regsvr32_remote_sct.yml",
+  "status": "stable",
+  "severity": "critical",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1218.010 — System Binary Proxy Execution: Regsvr32"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_regsvr32_remote_sct",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1218.010 — System Binary Proxy Execution: Regsvr32 |\n| Severity (`level`) | critical |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `regsvr32.exe` with a command line containing both `/i:http` and `scrobj.dll` |\n\nDetects regsvr32.exe attempting to execute a remote script, known as the Squiblydoo bypass: the signed binary fetches a scriptlet over HTTP(S) and executes it via scrobj.dll, leaving no payload on disk before execution. Rule falsepositives: highly unlikely."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\regsvr32.exe`) |\n| `CommandLine` | rule detection block | The full remote URL after `/i:` — the primary TI artifact — plus the scrobj.dll load |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (Office child, script host, shell) |\n| `User` | event source (Sysmon EID 1) | Compromised account context; drives identity-kill scope |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (regsvr32 itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Remote URL/domain parsed from `CommandLine` → AlienVault OTX; escalate on **any pulse match** for the URL or its registered domain.\n- SHA-256 of the **parent** process binary and of any scriptlet retrieved for analysis → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: proxy/Zeek logs for whether the fetch succeeded and what answered.\n- Per policy the critical-severity rule match plus the verbatim event is itself the cited evidence for containment; TI enrichment scopes the campaign, it does not gate the response."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier A — auto-isolate + identity kill: severity critical → EDR network isolation plus AD/IdP account disable and token/session/Kerberos-ticket revocation execute automatically on the rule match (no TI gate); the IR lead is paged.\n**Analyst triage path (post-containment validation):**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\regsvr32.exe and process.args : */i\\:http* and process.args : *scrobj.dll*\n   ```\n2. Process-tree pivot on `process.parent.name` / `process.parent.args` for the delivery vector; correlate Zeek http/dns for the URL fetch and enrich the serving IP/domain; sweep other hosts for the same URL.\n3. False-positive check: the rule lists falsepositives as highly unlikely — an authorized red-team exercise window is effectively the only benign explanation; confirm against the exercise calendar before standing down.\n**Escalation:** already at Tier A. Confirmed successful fetch (Zeek shows the scriptlet delivered) or the same URL on additional hosts → declare an active-intrusion incident and widen containment to those hosts."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire host memory before reboot (the scriptlet payload may exist only in memory); export the Zeek http/dns slice for the URL and preserve the retrieved scriptlet if obtainable from a controlled environment.\n- Perimeter/DNS-block the serving domain and IP; remove any persistence the scriptlet established (run keys, scheduled tasks, services) found in the follow-on process tree; reset the isolated user's credentials before re-enable.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire host memory before reboot (the scriptlet payload may exist only in memory); export the Zeek http/dns slice for the URL and preserve the retrieved scriptlet if obtainable from a controlled environment.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

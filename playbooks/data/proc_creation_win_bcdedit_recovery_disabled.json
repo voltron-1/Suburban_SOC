@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_bcdedit_recovery_disabled",
+  "title": "Windows Recovery Options Disabled via bcdedit",
+  "ruleFile": "rules/sigma/proc_creation_win_bcdedit_recovery_disabled.yml",
+  "status": "experimental",
+  "severity": "critical",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Impact"
+    ],
+    "techniques": [
+      "T1490 — Inhibit System Recovery"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_bcdedit_recovery_disabled",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Impact |\n| Technique(s) | T1490 — Inhibit System Recovery |\n| Severity (`level`) | critical |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `bcdedit.exe` (by `Image` path or `OriginalFileName`) with a command line containing `recoveryenabled no` (space- or tab-delimited) or `ignoreallfailures` |\n\nDetects bcdedit.exe disabling Windows Recovery Environment auto-repair (`bootstatuspolicy ignoreallfailures`) or the Recovery Console itself (`recoveryenabled no`) — a pre-encryption ransomware step that removes the OS's automatic-repair fallback so a corrupted/encrypted boot volume cannot self-heal into a recovery prompt; CISA AA23-320A names this as a key pre-encryption TTP for education-sector-targeting ransomware. The rule anchors `recoveryenabled no` against a tab delimiter as well as a space (`CreateProcess` treats them as equivalent argument delimiters) — the delimiter-evasion class named by security review #235/#236, fixed explicitly here as the batch's one critical rule. Rule falsepositives: a deliberate, documented dual-boot or embedded-device configuration change by IT staff — rare; correlate against the change calendar."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\bcdedit.exe`) |\n| `OriginalFileName` | rule detection block | Rename-resistant identification of bcdedit.exe (`bcdedit.exe`) |\n| `CommandLine` | rule detection block | Which recovery control was disabled (`recoveryenabled no` vs `ignoreallfailures`) and the target boot entry |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Ransomware droppers typically parent this from a script host or an unexpected binary |\n| `User` | event source (Sysmon EID 1) | Requires elevation — identifies the compromised admin context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor for the pre-encryption window, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts**. Enrich the **parent** binary's hash from its own Sysmon EID 1 event as well — bcdedit itself is Microsoft-signed; the parent is where a dropper surfaces.\n- Internal-only: change calendar (documented dual-boot/embedded configuration work?), asset owner, prior case history for the host; check backup/snapshot posture for the host immediately.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- The command is behaviorally conclusive as recovery-inhibition; cite the rule ID and the verbatim event, and do not attribute it to a specific actor or family without TI."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity critical → **Tier A — auto-isolate + identity kill**, executed automatically on rule match (no TI gate): EDR network isolation + AD/IdP account disable + token/session/Kerberos-ticket revocation; page the IR lead. Speed matters: this fires in the pre-encryption window.\n**Analyst triage path** (post-containment validation):\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped — args are tokenized, so confirm the exact `recoveryenabled no` value pair on the raw `CommandLine` in the hit):\n   ```\n   (process.executable : *\\\\bcdedit.exe or process.pe.original_file_name : bcdedit.exe)\n   and process.args : (*recoveryenabled* or *ignoreallfailures*)\n   ```\n2. Process-tree and impact-chain pivot: `process.parent.name` / `process.parent.args`, then sweep the host ±30 min for companion pre-encryption steps (shadow-copy deletion, service stops, mass file writes) and the fleet for the same command line on other hosts.\n3. False-positive checks: deliberate, documented dual-boot or embedded-device configuration change by IT staff — confirm against the change calendar; absent a matching change record, treat as hostile.\n**Escalation:** already paged at Tier A. Any companion pre-encryption indicator on this or another host → declare a ransomware incident, invoke the major-incident process, and verify backup integrity before any restore decisions."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Image or snapshot the host before changes; export the process-creation slice covering the parent chain and any companion impact commands.\n- Cleanup: revert the boot configuration (`bcdedit /set {default} recoveryenabled yes`, `bcdedit /set {default} bootstatuspolicy displayallfailures`) only after evidence capture; eradicate the parent dropper per its own hash/TI findings; verify backups are intact and offline-protected before reconnecting the host.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Image or snapshot the host before changes; export the process-creation slice covering the parent chain and any companion impact commands.",
+    "Cleanup: revert the boot configuration (`bcdedit /set {default} recoveryenabled yes`, `bcdedit /set {default} bootstatuspolicy displayallfailures`) only after evidence capture; eradicate the parent dropper per its own hash/TI findings; verify backups are intact and offline-protected before reconnecting the host.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

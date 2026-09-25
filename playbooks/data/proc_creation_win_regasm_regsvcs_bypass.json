@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_regasm_regsvcs_bypass",
+  "title": "Regasm/Regsvcs Proxy Execution",
+  "ruleFile": "rules/sigma/proc_creation_win_regasm_regsvcs_bypass.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1218.009 — System Binary Proxy Execution: Regsvcs/Regasm"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_regasm_regsvcs_bypass",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1218.009 — System Binary Proxy Execution: Regsvcs/Regasm |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `regasm.exe` or `regsvcs.exe` with a command line containing the `/u` uninstall switch or a user-writable staging path (`\\appdata\\`, `\\temp\\`, `\\users\\public\\`, `\\programdata\\`, `\\downloads\\`) |\n\nDetects regasm.exe or regsvcs.exe invoked with the uninstall switch (`/U`, the path attackers prefer since it runs the assembly's `[ComUnregisterFunction]`-attributed method) or against an assembly staged in a user-writable directory. A prior draft required a user-writable directory unconditionally, which a relative path or an unlisted directory trivially defeated; the `/U` flag is now matched independently of path."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Which proxy binary ran (`\\regasm.exe` vs `\\regsvcs.exe`) |\n| `CommandLine` | rule detection block | `/u` switch and the target assembly path — the payload to collect |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Installer/CI runner vs. shell or script host |\n| `User` | event source (Sysmon EID 1) | Service/build account vs. interactive user context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (the proxy binary itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the target **assembly** (collected from the path in `CommandLine`; the signed proxy binary's own hash is not the artifact of interest) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: software-deployment/CI calendar — is an install or build pipeline registering COM-interop assemblies on this host at this time? Asset role check (build agent vs. workstation).\n- No external IP/domain artifact on this event.\n- Without the VT verdict on the assembly or an internal case ID, log the finding as unconfirmed — the invocation shape alone does not prove a malicious payload."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier C — indicator block on TI-confirm: severity medium → on assembly VT verdict ≥ 5 malicious, auto-add the hash to the EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : (*\\\\regasm.exe or *\\\\regsvcs.exe) and process.args : (*/u* or *\\\\appdata\\\\* or *\\\\temp\\\\* or *\\\\users\\\\public\\\\* or *\\\\programdata\\\\* or *\\\\downloads\\\\*)\n   ```\n2. Process-tree pivot: a shell, Office, or script-host parent outside an install window is the adversarial shape; check for children spawned by the proxy binary (the executed payload's follow-on activity).\n3. False-positive check: legitimate .NET COM-interop assembly registration/unregistration during install or CI, especially from ProgramData or a temp staging directory.\n**Escalation:** assembly VT-confirmed malicious, or the proxy binary spawns network-touching children with no matching deployment record → promote to the high-severity flow (Tier B isolate on analyst confirm) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the target assembly before deletion; capture the process tree including any children of the proxy binary.\n- Remove the assembly and any registration artifacts it created; hunt other hosts for the same assembly hash or staging path.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the target assembly before deletion; capture the process tree including any children of the proxy binary.",
+    "Remove the assembly and any registration artifacts it created; hunt other hosts for the same assembly hash or staging path.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

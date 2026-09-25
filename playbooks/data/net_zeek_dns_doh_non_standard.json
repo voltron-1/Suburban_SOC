@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_dns_doh_non_standard",
+  "title": "DNS Lookup for a Known Public DNS-over-HTTPS Provider — Blind to Hardcoded-IP DoH Clients",
+  "ruleFile": "rules/sigma/net_zeek_dns_doh_non_standard.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1572 — Protocol Tunneling"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_dns_doh_non_standard",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1572 — Protocol Tunneling |\n| Severity (`level`) | low |\n| Data source | Zeek dns |\n| Trigger condition | Plain DNS query exactly matching one of 9 public DoH resolver hostnames (including Firefox's canary domain `use-application-dns.net`), or a dot-anchored subdomain of one |\n\nCatches only the plaintext lookup phase a client performs before establishing the encrypted DoH channel (or a browser probing DoH availability) — it cannot see the DoH traffic itself, which is opaque HTTPS and never appears in dns.log, and a client using a hardcoded resolver IP skips this lookup entirely and is invisible to this rule. The risk flagged is that DoH bypasses the organization's DNS-based filtering and detection — not that DoH itself is malicious. The rule also matches the observed query, not the response, so an arbitrary emitted label under a real provider domain produces a hit without any real DoH bootstrap."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `query` | rule detection block | Matched DoH provider hostname (or canary domain) |\n| `id.orig_h` | event source (Zeek dns.log) | Querying host — where the DoH client runs |\n| `id.resp_h` | event source (Zeek dns.log) | Resolver that served the lookup |\n| `rcode_name` | event source (Zeek dns.log) | Canary check: NXDOMAIN to `use-application-dns.net` disables Firefox DoH |\n| `answers` | event source (Zeek dns.log) | Resolver IPs the DoH channel will connect to next |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `query` domain → OTX: escalate on any pulse match — a genuine provider hostname should be clean, so a pulse points at lookalike or emission abuse rather than the provider.\n- Internal-only: is this an organization-approved DoH provider (allowlist), and does browser fleet policy already enable DoH by default? Check whether the filtering resolver NXDOMAINs the Firefox canary as intended.\n- One lookup is adoption signal, not exfiltration — no maliciousness label without a TI verdict or an internal case tying the host to something more."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → Tier D: triage-only — enrich and queue for analyst review; no automated blocking or host action.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   source.ip : \"<orig_h>\" and dns.question.name : (\"<provider_domain>\" or *.<provider_domain>)\n   ```\n   A fleet sweep on `dns.question.name : \"use-application-dns.net\"` counts DoH-probing Firefox installs across hosts.\n2. Follow-through check: did the host then open sustained encrypted sessions to the resolved provider IPs (pivot `source.ip : \"<orig_h>\" and destination.ip : \"<answer_ip>\"`)? A lookup with no follow-on channel is likely a background browser probe. Note the rule's own blind spot: absence of further hits here proves nothing about hardcoded-IP DoH clients.\n3. Endpoint pivot: sweep `id.orig_h`'s Sysmon process-creation events to identify the querying application — a stock browser with DoH defaults reads very differently from an unfamiliar binary bootstrapping an encrypted resolver.\n4. False-positive checks: organization-approved DoH usage (allowlist the provider rather than treating every hit as an incident); browsers with DoH enabled by default performing routine background lookups; a random-looking subdomain hit is an emission signal only.\n**Escalation:** the same host also showing C2-shaped alerts (DGA burst, tunneling, TXT abuse) or a non-browser process establishing the DoH channel → treat as deliberate detection evasion and hand to the IR lead for severity promotion."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the dns.log slice for the host (lookups plus canary responses) before rollover.\n- Enforce the enterprise browser policy for DoH (disable, or standardize on the approved provider); confirm the filtering resolver NXDOMAINs the Firefox canary so compliant browsers self-disable.\n- If a non-browser DoH client was found, treat it under the endpoint family baseline — the DoH lookup is then a symptom, not the incident.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source host."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the dns.log slice for the host (lookups plus canary responses) before rollover.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source host."
+  ],
+  "unmappedContent": []
+}

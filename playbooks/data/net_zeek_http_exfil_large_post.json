@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_http_exfil_large_post",
+  "title": "Large HTTP POST Request Body",
+  "ruleFile": "rules/sigma/net_zeek_http_exfil_large_post.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Exfiltration"
+    ],
+    "techniques": [
+      "T1048.003 — Exfiltration Over Alternative Protocol: Exfiltration Over Unencrypted Non-C2 Protocol"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_http_exfil_large_post",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Exfiltration |\n| Technique(s) | T1048.003 — Exfiltration Over Alternative Protocol: Exfiltration Over Unencrypted Non-C2 Protocol |\n| Severity (`level`) | medium |\n| Data source | Zeek http |\n| Trigger condition | HTTP `POST` with `request_body_len` greater than 5,000,000 bytes (5 MB) |\n\nDetects a single plain-HTTP POST uploading more than 5 MB — a coarse but useful signal for bulk exfiltration of staged/archived data to an attacker-controlled or abused endpoint. The rule is honest that 5 MB is a starting threshold, not a validated baseline for any specific deployment: expect meaningful false positives from legitimate large uploads (backups, media, package repos) until tuned against real traffic."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `method` | rule detection block | Confirms the request verb (POST) |\n| `request_body_len` | rule detection block | Upload volume — the exfil-size signal |\n| `id.orig_h` | event source (Zeek http.log) | Internal uploading host — containment target |\n| `id.resp_h` | event source (Zeek http.log) | Receiving server — primary TI artifact |\n| `host` | event source (Zeek http.log) | Destination hostname — domain TI artifact |\n| `uri` | event source (Zeek http.log) | Upload endpoint path (API upload routes vs arbitrary paths) |\n| `status_code` | event source (Zeek http.log) | Whether the server accepted the upload |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `host` / destination URL → OTX; escalate on **any pulse match**.\n- `id.resp_h` → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: is the destination a sanctioned backup/storage/CI endpoint? Check the asset owner of the source host and the change calendar for scheduled data moves.\n- Volume alone is ambiguous — do not label the transfer exfiltration without the TI verdict or corroborating staging evidence on the endpoint."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on OTX pulse or AbuseIPDB ≥ 50% for the destination, auto-add it to the perimeter blocklist; no host action without an analyst.\n**Analyst triage path:**\n1. Verify and scope with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.http\" and http.request.method : \"POST\" and http.request.body.bytes > 5000000\n   ```\n   Then sum upload bytes per source→destination pair over the last 24 h — repeated large POSTs to one unsanctioned destination outweigh a single hit.\n2. Endpoint hand-off: on the `id.orig_h` host, find the uploading process via Sysmon process-creation telemetry, and look backward for archive-staging activity (RAR/7-Zip/compression commands) preceding the POST.\n3. False-positive checks (from the rule): legitimate large file uploads — backups, cloud-storage sync clients, CI/CD artifact pushes, video/media uploads, software update mirrors; tune the threshold or allowlist known-legitimate destinations before relying on this in production.\n**Escalation:** staging evidence on the endpoint, or repeated large POSTs to a TI-confirmed destination → promote to Tier B (isolate the uploading host), page the IR lead, and open a data-exposure assessment."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export http.log and conn.log byte counts for the pair — the volume series bounds what may have left. On the endpoint, identify what was staged (archive files, recently-read data sets) before any cleanup.\n- Block the destination, remove the uploading tool and its persistence, and reset credentials the uploading process had access to if compromise is confirmed.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export http.log and conn.log byte counts for the pair — the volume series bounds what may have left. On the endpoint, identify what was staged (archive files, recently-read data sets) before any cleanup.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

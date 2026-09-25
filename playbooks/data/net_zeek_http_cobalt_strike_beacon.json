@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_http_cobalt_strike_beacon",
+  "title": "HTTP Request to a Known Default C2 Beacon URI",
+  "ruleFile": "rules/sigma/net_zeek_http_cobalt_strike_beacon.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1071.001 — Application Layer Protocol: Web Protocols"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_http_cobalt_strike_beacon",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1071.001 — Application Layer Protocol: Web Protocols |\n| Severity (`level`) | low |\n| Data source | Zeek http |\n| Trigger condition | HTTP `GET` whose `uri` contains one of six stock C2-profile paths: `/pixel.gif`, `/__utm.gif`, `/jquery-3.3.1.min.js`, `/jquery-3.3.2.min.js`, `/en_US/all.js`, `/dpixel` |\n\nDetects GETs to URI paths that several widely-used default (un-customized) C2 profiles for Cobalt Strike and similar frameworks reuse. The rule is explicit about its own weakness: the list is non-exhaustive, any operator who customizes their profile (routine tradecraft) evades it entirely, and several paths are extremely common legitimate filenames (real jQuery CDN releases, the classic Google Analytics `__utm.gif` beacon), so the false-positive:true-positive ratio on real traffic is realistically thousands to one. Treat it as a hunt-query starting point, not a production alert."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `method` | rule detection block | Confirms the request verb (GET) |\n| `uri` | rule detection block | The matched stock-profile path |\n| `id.orig_h` | event source (Zeek http.log) | Internal requesting host — containment target |\n| `id.resp_h` | event source (Zeek http.log) | Destination server — primary TI artifact |\n| `host` | event source (Zeek http.log) | Requested HTTP Host header — domain TI artifact |\n| `status_code` | event source (Zeek http.log) | Response check the rule's own FP note demands |\n| `user_agent` | event source (Zeek http.log) | Stock C2-profile UAs are a supporting (not conclusive) indicator |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `host` / full URL → OTX; escalate on **any pulse match**.\n- `id.resp_h` → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: is the destination a known CDN or analytics provider the org legitimately uses? Check proxy/egress baselines and prior case history for the destination.\n- The URI match alone proves nothing — these are real, common filenames; no malicious label without the TI citation."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → Tier D: enrich and queue for analyst review; no automated action.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.http\" and http.request.method : \"GET\" and url.path : (*/pixel.gif* or */__utm.gif* or */jquery-3.3.1.min.js* or */jquery-3.3.2.min.js* or */en_US/all.js* or */dpixel*)\n   ```\n2. Beacon-cadence check: bucket the source→destination pair over time — repeated identical GETs at a regular interval with near-constant response sizes is the beaconing shape; a single request in browsing context is not.\n3. Endpoint hand-off: on the `id.orig_h` host, find the requesting process via Sysmon process-creation telemetry in the same window — a browser fetching a CDN asset and an unknown binary polling `/dpixel` triage very differently.\n4. False-positive checks (from the rule): legitimate sites genuinely serving a matching file at that literal path — check the response (`status_code`, response size, destination reputation) before escalating.\n**Escalation:** regular-interval repetition plus an OTX pulse or AbuseIPDB ≥ 50% on the destination → treat as active C2; promote to Tier B (isolate the requesting host) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full http.log and conn.log slices for the source→destination pair — the request timing series is the beacon evidence.\n- If C2 is confirmed: perimeter-block the destination IP/domain, isolate the host, acquire memory, identify the beaconing process, and hash its binary for VT; remove whatever launcher persists it.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full http.log and conn.log slices for the source→destination pair — the request timing series is the beacon evidence.",
+    "If C2 is confirmed: perimeter-block the destination IP/domain, isolate the host, acquire memory, identify the beaconing process, and hash its binary for VT; remove whatever launcher persists it.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,89 @@
+{
+  "id": "posh_data_compression_staging",
+  "title": "PowerShell-Native Data Compression Staging",
+  "ruleFile": "rules/sigma/posh_data_compression_staging.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "PowerShell Script Block Logging",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "PowerShell Script Block Logging"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Collection"
+    ],
+    "techniques": [
+      "T1560 — Archive Collected Data"
+    ]
+  },
+  "aiContext": {
+    "playbook": "posh_data_compression_staging",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Collection |\n| Technique(s) | T1560 — Archive Collected Data |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (PowerShell/Operational) |\n| Trigger condition | A 4104 script block referencing the .NET `System.IO.Compression` namespace, OR containing `Compress-Archive` together with a temp-style destination literal (`\\Temp\\`, `\\AppData\\Local\\Temp\\`, `$env:TEMP`) |\n\nDetects PowerShell-native file bundling — the equivalent of the RAR/WinRAR staging pattern, favored when a target host has no third-party archiver. `Compress-Archive` alone is common in legitimate admin scripts, so the cmdlet branch requires a temp-style destination. The rule states this destination-path scoping as a real, accepted coverage gap, not just an FP-reduction measure: staging to any path outside the three temp-path strings — e.g. `C:\\ProgramData\\`, `C:\\Users\\Public\\`, or a mapped share, all real-world staging choices — evades the `Compress-Archive` branch entirely."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Channel scoping — script-block logging events (4104) only |\n| `ScriptBlockText` | rule detection block | Recovered script content — carries the archive destination path and the source file set being bundled |\n| `ScriptBlockId` | event source (4104) | Reassembly/dedup key for chunked blocks |\n| `MessageNumber`, `MessageTotal` | event source (4104) | Chunk ordering — export every chunk before analysis |\n| `Path` | event source (4104) | On-disk `.ps1` path when run from a file; collection target |\n| `Computer`, `UserID` | event source (4104) | Host and executing-account SID — containment and Sysmon-correlation anchors |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Decoded domain/URL in the block (an upload/exfil destination alongside the compression) → OTX; escalate on **any pulse match**.\n- Hash of any payload or tool the block drops or references → VirusTotal; escalate at **≥ 5 malicious verdicts**. The staged archive itself is the victim's own data — hash it for the evidence record, not for a TI verdict.\n- Internal-only: does a known deployment/backup job own this script (script hash/path baseline, change calendar)? What data population does the source path hold?\n- An archive at a temp path is not malicious on its own — do not label it so without a cited verdict or internal case."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host action. On OTX pulse or VT ≥ 5 for a decoded artifact, auto-add that indicator to the blocklist and open an analyst ticket; no TI confirmation → Tier D triage.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; the returned text decides the branch — the `Compress-Archive` branch also requires one of the temp-destination literals in the same block):\n   ```\n   winlog.event_id : 4104 and winlog.event_data.ScriptBlockText : (*System.IO.Compression* or *Compress-Archive*)\n   ```\n2. Locate the archive at the destination path parsed from `ScriptBlockText`: hash it, inventory its contents (what data was staged). Correlate the 4104 event to its launching process via the host's Sysmon process-creation events in the same window (then follow the Windows Process Creation family baseline), and check the host's subsequent hours for egress pairings (large HTTP POST / SMTP-attachment detections).\n3. False-positive check: a legitimate PowerShell deployment/backup script that compresses files to a temp path as an intermediate step — baseline and exclude by script hash/path if recurring.\n**Escalation:** archive contents include credential stores or sensitive data sets, or a paired egress event from the same host → promote to the high-severity flow (Tier B isolate) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the staged archive and the full 4104 chunk set before removal; the archive inventory drives any data-exposure notification scope.\n- If egress is confirmed, treat as an exfiltration incident: block the destination, isolate the host, and reset the executing account's credentials.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the staged archive and the full 4104 chunk set before removal; the archive inventory drives any data-exposure notification scope.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}
