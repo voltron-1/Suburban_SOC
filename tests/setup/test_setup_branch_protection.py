@@ -47,6 +47,11 @@ SCRIPT_CHECKS = [
     "pytest-cov >= 70% (slo_metrics / run_hunts / weekly_ciso_report)",
     "gitleaks",
     "Analyze (python)",
+    "Python dependency audit (pip-audit)",
+    "Container image scan (Trivy) (ai-agent, scripts/setup/ai_agent)",
+    "Container image scan (Trivy) (hive-mind-broker, scripts/hive-mind-broker)",
+    "Container image scan (Trivy) (zeek/zeek)",
+    "IaC / compose misconfig scan (Trivy config)",
 ]
 
 FAKE_GH = r"""#!/usr/bin/env bash

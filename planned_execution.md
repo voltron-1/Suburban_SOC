@@ -19,7 +19,9 @@ It has since been reopened by owner decision to hold **#567** — the
 `soc_alert_on_failure.sh` rate-limit gap that PR #566's measurements exposed —
 on the grounds that M26's own theme (monitoring that does not defeat itself) is
 not met while its alert path can mute its own topic. M25 stays closed. Other
-milestones (M16, M17, M18, M23) hold only environment-/human-blocked issues.
+milestones (M16, M18, M23) hold only environment-/human-blocked issues; **M17
+picked up 2 non-blocked issues 2026-09-25** (#576, #577 — see LAST SESSION
+below), both addressable without live infra.
 
 **M26 is deliberately not "done" yet, and the tracker now says so.** The
 milestone previously read 8/8 complete while none of its code was installed and
@@ -76,6 +78,40 @@ Filebeat/Logstash for #556's syslog input and run
 `bash scripts/setup/deploy_detections.sh` for its 2 new Sigma rules, then
 enable `stack-health.timer` and `zeek-capture-liveness.timer`. `NTFY_TOPIC`
 provisioning (#554) stays last and stays gated on item 1.
+
+## LAST SESSION — 2026-09-25
+
+Checked PR #574 (dependabot: `asyncssh` 2.23.1→2.24.0 in
+`scripts/hive-mind-broker`) CI status. 3 checks red: `detections`, `live-fire`,
+`Container image scan (Trivy) (zeek/zeek)`. Confirmed all 3 pre-existing on
+`main` (its last "Security Scan" run,
+[35597211629](https://github.com/voltron-1/Suburban_SOC/actions/runs/35597211629),
+2026-09-21, already fails the same way) — not caused by #574's diff, which
+doesn't touch any of the three lanes.
+
+Filed and milestoned into M17 (Detection Rule Coverage & Correctness):
+
+- **[#576](https://github.com/voltron-1/Suburban_SOC/issues/576)** —
+  `sigma convert` raises `TypeError: 'str' object is not callable` in
+  `sigma/conditions.py:134` (`arg.postprocess(...)`), breaking both
+  `detections` and `live-fire` on every PR regardless of content (per #168's
+  no-path-filter design, this masks unrelated regressions repo-wide).
+  `.github/workflows/detections.yml:55` pins `sigma-cli==3.1.0
+  pysigma==1.5.0 pysigma-backend-elasticsearch==2.1.1` exactly per #330 —
+  root cause (pin drift in an unpinned transitive dep of
+  `pysigma-backend-elasticsearch`, vs. the pinned pysigma release itself
+  changing post-hoc) not yet confirmed; needs a local repro with `pip freeze`
+  captured against the pin before scoping the fix.
+- **[#577](https://github.com/voltron-1/Suburban_SOC/issues/577)** —
+  `CVE-2026-13221` (CRITICAL) in `libperl5.40` inside the pinned `zeek/zeek`
+  image, fixed upstream at `5.40.1-6+deb13u1`. Transitive OS package in the
+  upstream image, not something this repo's own Dockerfile controls; fix is
+  bumping the pinned `zeek/zeek` tag/digest once one carries the patched
+  package — not yet confirmed such a tag exists.
+
+Both issues are cloud-session-filed, no code changes attempted this session;
+next unstarted item for M17 is reproducing #576 locally to confirm root
+cause before writing a fix.
 
 ## LAST SESSION — 2026-09-07 (later)
 
