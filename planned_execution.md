@@ -9,7 +9,7 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 ## NEXT UP
 
-**Status as of 2026-09-08 (capture host).**
+**Status as of 2026-09-28 (capture host).**
 
 **Current phase:** M26 (Sensor Liveness & Monitoring Independence) — **8/9
 issues closed; the milestone was REOPENED 2026-09-08.**
@@ -19,9 +19,21 @@ It has since been reopened by owner decision to hold **#567** — the
 `soc_alert_on_failure.sh` rate-limit gap that PR #566's measurements exposed —
 on the grounds that M26's own theme (monitoring that does not defeat itself) is
 not met while its alert path can mute its own topic. M25 stays closed. Other
-milestones (M16, M18, M23) hold only environment-/human-blocked issues; **M17
-picked up 2 non-blocked issues 2026-09-25** (#576, #577 — see LAST SESSION
-below), both addressable without live infra.
+milestones (M16, M18, M23) hold only environment-/human-blocked issues. **M17
+is 32/36:** #576 done 2026-09-28 (PR #578); #577 stays open only to track a
+time-boxed Trivy exception for CVE-2026-48930 (expires 2026-10-28 — bump the
+`zeek/zeek` pin once upstream ships a patched image). See LAST SESSION below.
+
+**Capture host as of 2026-09-28 — Zeek blind again since 2026-09-14 15:38**
+(newest `conn.log` write). The Zeek lane recovered after the 2026-09-07 outage
+below, then stopped again: `zeek-host-capture.service` is `activating
+(auto-restart)`, `NRestarts=392`, each cycle exiting 126 with
+`host_capture.sh: Permission denied`; `slo-metrics.service` is `failed`; the 3
+M26 units are still not installed. Suricata, Filebeat, intel-refresh and Docker
+Desktop are all up. The exit-126 signature matches the repo-traversal fault
+PR #566 fixed in the repo, which suggests the installed unit predates #566 —
+**not verified**; check the installed unit against the repo before assuming it.
+The redeploy will also pull the new `zeek/zeek:9.0.0` pin (PR #578).
 
 **M26 is deliberately not "done" yet, and the tracker now says so.** The
 milestone previously read 8/8 complete while none of its code was installed and
@@ -78,6 +90,41 @@ Filebeat/Logstash for #556's syslog input and run
 `bash scripts/setup/deploy_detections.sh` for its 2 new Sigma rules, then
 enable `stack-health.timer` and `zeek-capture-liveness.timer`. `NTFY_TOPIC`
 provisioning (#554) stays last and stays gated on item 1.
+
+## LAST SESSION — 2026-09-28
+
+Local capture-host session. Merged (by owner): **PR #578**, **PR #574**, **PR #575**.
+
+- [x] **#576** — root cause: pysigma 1.5.0 allows pyparsing 3.3.3, which breaks
+  `sigma convert` on every rule (bisected; 3.3.2 is the last known-good).
+  `pyparsing==3.3.2` pinned in `detections.yml` (both jobs),
+  `deploy_detections.sh` and the live-fire hint. Closed by hand after merge.
+  [PR #578](https://github.com/voltron-1/Suburban_SOC/pull/578)
+- [~] **#577** — the pinned 8.2.1 image actually carried **4** fixed-upstream
+  CRITICAL CVEs (3 perl + CVE-2026-48930 nodejs); upstream's 8.2.1 rebuild
+  had the same. Pin bumped **8.2.1 → 9.0.0** across the 4 capture paths + 3
+  test pins, clearing the perl CVEs. Golden-output diff of 164 fixture pcaps
+  through both images: identical; CI `live-fire` MIME + field-cap tests
+  green on the real image. CVE-2026-48930 is in every published image and
+  isn't reachable as deployed (ZeekJS-only path; capture loads `.zeek`
+  only) → ignored for the zeek-image Trivy job only, **expires 2026-10-28**,
+  SOP-008 Tracked Exceptions. Stays open to track that.
+  [PR #578](https://github.com/voltron-1/Suburban_SOC/pull/578)
+- [x] `asyncssh` 2.23.1 → 2.24.0 (CVE-2026-62949) — in #578; #574 merged after.
+- [x] `soc_pipeline.sh` health checks test the HTTP status code (a 401 from
+  ES was printing PASS). [PR #578](https://github.com/voltron-1/Suburban_SOC/pull/578)
+- [x] **Security scan is now required.** `security-scan.yml` runs on every PR
+  (path filter removed) and its 5 jobs (pip-audit + 4 Trivy) were added to
+  `setup_branch_protection.sh`; applied to `main` after merge — read-back
+  shows 14 required checks, `strict=true`, `enforce_admins=true`.
+- [x] PR #575 (HTML playbook system) — ruff F401 ×3 and 8 mypy errors fixed
+  (`c475126`), then merged. **Gap:** `tests/ai_agent/test_playbooks_blueprint.py`
+  (15 tests) is not run by any CI workflow.
+- CLAUDE.md trimmed to durable rules (dated status removed; native zeek
+  version corrected to 9.0.0).
+
+Next unstarted item unchanged: deploy M26 to the capture host (see NEXT UP —
+Zeek has been blind since 2026-09-14).
 
 ## LAST SESSION — 2026-09-25
 
