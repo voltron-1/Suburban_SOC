@@ -1,0 +1,12 @@
+# Scoped to the `zeek-image` Trivy job only (security-scan.yml passes this file
+# via `trivyignores:`); the other Trivy jobs never read it.
+#
+# CVE-2026-48930 (CRITICAL, libnode115/nodejs 20.19.2+dfsg-1+deb13u2, fixed in
+# +deb13u3): Node.js TLS hostname handling. Present in every published zeek/zeek
+# image as of 2026-09-28 (8.2.1 and 9.0.0), so no pin clears it. `zeek` links
+# libnode.so.115 via the built-in Zeek::JavaScript plugin, but the vulnerable
+# TLS/resolver bindings are reachable only from JavaScript scripts, and every
+# capture path loads .zeek scripts only. Tracked in #577 and in SOP-008's
+# Tracked Exceptions table. The exp: date makes Trivy fail again on it
+# automatically — bump the image or re-justify before then, don't just extend it.
+CVE-2026-48930 exp:2026-10-28

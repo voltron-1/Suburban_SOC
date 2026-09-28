@@ -91,6 +91,10 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           vuln-type: os,library
+          # #577: time-boxed exception for CVE-2026-48930 (no published
+          # zeek/zeek image carries the fix yet). Scoped to this job only; the
+          # file's exp: date makes the job fail again on its own.
+          trivyignores: .github/trivy/zeek-image.trivyignore
 
   iac:
     name: IaC / compose misconfig scan (Trivy config)
