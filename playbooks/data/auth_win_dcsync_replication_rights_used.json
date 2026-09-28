@@ -1,0 +1,89 @@
+{
+  "id": "auth_win_dcsync_replication_rights_used",
+  "title": "DCSync — Directory Replication Rights Exercised by a Non-DC Account",
+  "ruleFile": "rules/sigma/auth_win_dcsync_replication_rights_used.yml",
+  "status": "experimental",
+  "severity": "critical",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1003.006 — OS Credential Dumping: DCSync"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_dcsync_replication_rights_used",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1003.006 — OS Credential Dumping: DCSync |\n| Severity (`level`) | critical |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4662 with `AccessMask` 0x100 (control access) and `Properties` containing one of the three DS-Replication extended-right GUIDs, excluding machine accounts (`SubjectUserName` ending `$`) |\n\nDetects the directory-replication extended rights being exercised: holding DS-Replication-Get-Changes(-All) lets a principal ask a DC to replicate any account's password hashes — the mainline DCSync technique of Mimikatz `lsadump::dcsync` and Impacket `secretsdump.py`, needing no code execution on the DC itself; the third GUID covers the RODC filtered-set variant. The GUID filter is what makes 4662 deployable at all, and the trailing-`$` filter removes the DC-to-DC replication baseline. Accounts that legitimately replicate are site-specific and must be excluded per environment."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the directory object-access event (4662) |\n| `AccessMask` | rule detection block | `0x100` — extended-right (control access) exercise |\n| `Properties` | rule detection block | Which replication GUID was used (Get-Changes / Get-Changes-All / Filtered-Set) |\n| `SubjectUserName` | rule detection block | Principal exercising replication rights — containment target |\n| `SubjectDomainName`, `SubjectLogonId` | event source (standard) | Domain context; logon-session pivot to find where the session originated |\n| `Computer` | event source (standard) | The DC that served the replication |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only: compare `SubjectUserName` against the site's replication allowlist (Azure AD Connect / Entra Connect, backup products) — a directory-replication event has no external artifact, so AbuseIPDB/OTX/VT do not apply; any change to the allowlist itself is a privileged-access event.\n- `SubjectLogonId` → internal session trace: find the matching logon event to recover the source host/IP of the session that exercised the right.\n- The rule match plus the verbatim 4662 is the cited evidence for a non-allowlisted account — attribution beyond that still requires the session trace."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity critical → Tier A, automatic on rule match (behaviorally conclusive): disable `SubjectUserName`, revoke all its sessions and Kerberos tickets, EDR-isolate the session's source host once the logon-session pivot identifies it; page the IR lead.\n**Analyst triage path** (runs in parallel with Tier A, to scope rather than decide):\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4662 and winlog.event_data.AccessMask : \"0x100\"\n     and winlog.event_data.Properties : (*1131f6aa-9c07-11d1-f79f-00c04fc2dcd2* or *1131f6ad-9c07-11d1-f79f-00c04fc2dcd2* or *89e95b76-444d-4c62-991a-0facbeda640c*)\n   ```\n2. Identity sweep: locate the 4624 whose logon ID matches this event's `SubjectLogonId` to recover the source workstation/IP; sweep all replication-GUID 4662 hits by the same account — Get-Changes-All means full hash replication was possible.\n3. False-positive checks: Azure AD Connect / DirSync, Entra Connect, or a backup product whose service account holds replication rights by design (exclude those specific accounts by name); DC computer accounts replicating with each other are already removed by the trailing-`$` filter.\n**Escalation:** already paged at Tier A; a confirmed non-allowlisted account means assume domain-wide credential compromise and open a major incident."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the DC Security-log slice and the session-trace events first; then reset the exercising account and audit the directory ACL to find who granted it replication rights, and when.\n- Post-eviction: double-reset `krbtgt`, rotate all privileged credentials, and remove the replication grant; treat every domain secret as potentially replicated until the grant window is bounded.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the DC Security-log slice and the session-trace events first; then reset the exercising account and audit the directory ACL to find who granted it replication rights, and when.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

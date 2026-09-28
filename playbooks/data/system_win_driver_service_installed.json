@@ -1,0 +1,89 @@
+{
+  "id": "system_win_driver_service_installed",
+  "title": "Kernel or File-System Driver Service Installed",
+  "ruleFile": "rules/sigma/system_win_driver_service_installed.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows System Log - Service Control Manager & Event Log Service",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows System Log - Service Control Manager & Event Log Service"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1068 — Exploitation for Privilege Escalation"
+    ]
+  },
+  "aiContext": {
+    "playbook": "system_win_driver_service_installed",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Privilege Escalation |\n| Technique(s) | T1068 — Exploitation for Privilege Escalation |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows System) |\n| Trigger condition | System 7045 where `ServiceType` equals `0x1` (kernel) or `0x2` (file-system driver) exactly, or contains the descriptive strings `kernel` / `file system driver` |\n\nDetects registration of a driver-class service — rare and genuinely notable on an endpoint, and a real privilege-escalation/defense-evasion primitive when malicious (a vulnerable-signed \"BYOVD\" or unsigned driver executes arbitrary code in kernel context). The rule states its own limits: System 7045 carries no code-signing field, so it only proves a driver-class service was registered — every signature/trust judgment belongs in triage; and the rendering of `ServiceType` has not been validated against a real 7045 event, which is part of why the rule remains `experimental`. Hex values are matched by exact equality (not `contains`) so the rule does not fire on the routine user-mode types `0x10`/`0x20`."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Selects System 7045 (new service installed) |\n| `ServiceType` | rule detection block | Driver-class discriminator (`0x1` kernel / `0x2` file-system) |\n| `ServiceName` | event source (System 7045) | Compare against the environment's known-good driver-service baseline |\n| `ImagePath` | event source (System 7045) | Path to the `.sys` driver file — the collection and hash pivot |\n| `StartType` | event source (System 7045) | Boot/system-start drivers load earliest and persist across reboot |\n| `Computer` | event source (System channel) | Host; the record timestamp anchors the timeline |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Driver file at `ImagePath` → VirusTotal; escalate at **≥ 5 malicious verdicts**. The 7045 event carries no hash: a driver is loaded by the kernel, not spawned, so no Sysmon EID 1 exists for the driver itself — collect the file from disk and hash it. The *installer's* Sysmon EID 1 (the tool that registered the service, same window) is the process-side pivot.\n- Internal-only checks: known-good driver baseline (AV/EDR agents, VPN clients, virtualization tooling, printer/peripheral drivers), software-deployment records, change calendar.\n- A driver-class 7045 alone proves registration, nothing more — no maliciousness call without the VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on a VT verdict ≥ 5 for the collected driver-file hash, auto-add the hash to the EDR blocklist; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; System channel is raw `winlog.*`):\n   ```\n   winlog.event_id : 7045 and winlog.event_data.ServiceType : (\"0x1\" or \"0x2\" or *kernel*)\n   ```\n   Review `winlog.event_data.ServiceType` in the results by eye as well — the descriptive-string rendering is the unvalidated case.\n2. Pivot to the installer: Sysmon EID 1 on the host ±5 minutes around the 7045 — which process registered the driver, launched by whom.\n3. False-positive checks: legitimate AV/EDR agent, VPN client, virtualization platform, or printer/peripheral driver installation or update — baseline the known-good driver service names and exclude them by name.\n**Escalation:** driver file fails offline signature validation, appears on a published vulnerable-driver blocklist, or returns VT ≥ 5 → page the IR lead; treat the kernel as potentially compromised."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Before removal: collect and hash the `.sys` file at `ImagePath`, export the service registry key (`HKLM\\SYSTEM\\CurrentControlSet\\Services\\<ServiceName>`), and record whether the driver actually loaded.\n- Cleanup: delete the service registration, remove the driver file, reboot to unload. If a malicious driver ran in kernel context, on-host telemetry from that period is untrustworthy — prefer reimage on confirmation.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Before removal: collect and hash the `.sys` file at `ImagePath`, export the service registry key (`HKLM\\SYSTEM\\CurrentControlSet\\Services\\<ServiceName>`), and record whether the driver actually loaded.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

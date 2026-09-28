@@ -1,0 +1,91 @@
+{
+  "id": "proc_creation_win_powershell_downloadstring",
+  "title": "PowerShell Remote Download Cradle",
+  "ruleFile": "rules/sigma/proc_creation_win_powershell_downloadstring.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution",
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1059.001 — Command and Scripting Interpreter: PowerShell; T1105 — Ingress Tool Transfer"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_powershell_downloadstring",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution, Command and Control |\n| Technique(s) | T1059.001 — Command and Scripting Interpreter: PowerShell; T1105 — Ingress Tool Transfer |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `powershell.exe`/`pwsh.exe` with a download-cradle token on the command line (`downloadstring`, `downloadfile`, `downloaddata`, `invoke-webrequest`, `invoke-restmethod`, `start-bitstransfer`, `webrequest::create`, `httpclient`) |\n\nDetects PowerShell fetching (and typically executing) remote content via a WebClient/WebRequest/HttpClient/BITS download cradle — the classic fileless-payload delivery pattern. Stated overlap: this rule overlaps `proc_creation_win_powershell_encoded.yml` (the `-enc` flag itself) and `posh_ps_obfuscated_scriptblock.yml` (same technique on the 4104 script-block data source) — expect double-alerting where script-block logging is enabled; this rule covers hosts/configs where it isn't."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\powershell.exe` / `\\pwsh.exe` |\n| `CommandLine` | rule detection block | Carries the cradle token and the fetch URL — the primary artifacts |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (Office macro, script host, remote-execution service) |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the PowerShell binary (Microsoft-signed; TI applies to URL and payload) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- URL/domain parsed from `CommandLine` → AlienVault OTX; escalate on **any pulse match**.\n- SHA-256 of the fetched payload (from disk via `downloadfile`/BITS destination, or the correlated Sysmon file events) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: is the URL an internal config/update repository (the documented benign population)? Check deployment records.\n- Do not call the URL or payload malicious without the citing OTX/VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host on an OTX pulse for the URL/domain or a payload VT verdict ≥ 5 malicious; account actions on analyst confirm.\n**Analyst triage path** (TI not confirming) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.executable : (*\\\\powershell.exe or *\\\\pwsh.exe) and process.args : (*downloadstring* or *downloadfile* or *downloaddata* or *invoke-webrequest* or *invoke-restmethod* or *start-bitstransfer* or *webrequest\\:\\:create* or *httpclient*)\n   ```\n2. Process-tree analysis: pivot on `process.parent.name` / `process.parent.args`; a cradle piped to `IEX` means the payload ran in-memory — check the same host's 4104 events (`posh_ps_obfuscated_scriptblock.yml`) for the script content, and enumerate PowerShell's children.\n3. False-positive check: legitimate admin scripts that pull configuration or update files over HTTP.\n**Escalation:** the URL is external with an OTX pulse, the payload executed (IEX or spawned children), or the parent is an Office/mail process → page the IR lead; sweep the fleet for other fetches of the same URL."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Capture the full command line and retrieve the payload (re-fetch in a sandbox if not on disk); hash it; export the child-process tree and correlated 4104 script blocks.\n- Block the URL/domain once TI-confirmed; remove dropped files and any persistence installed; hunt the payload hash and URL fleet-wide.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Capture the full command line and retrieve the payload (re-fetch in a sandbox if not on disk); hash it; export the child-process tree and correlated 4104 script blocks.",
+    "Block the URL/domain once TI-confirmed; remove dropped files and any persistence installed; hunt the payload hash and URL fleet-wide.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

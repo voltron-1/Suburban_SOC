@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_psexec_client_side_launch",
+  "title": "PsExec Client-Side Remote Execution Launch",
+  "ruleFile": "rules/sigma/proc_creation_win_psexec_client_side_launch.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution"
+    ],
+    "techniques": [
+      "T1569.002 — System Services: Service Execution"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_psexec_client_side_launch",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution |\n| Technique(s) | T1569.002 — System Services: Service Execution |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `psexec.exe`/`psexec64.exe` (or `OriginalFileName` `psexec.c`) launched with a `\\\\host` remote-target argument on the command line |\n\nDetects PsExec.exe itself being launched to initiate remote command execution — the LAUNCHING side of a PsExec deployment, complementary to the two target-side signals in this corpus: `system_win_remote_service_creation_psexec_style.yml` (the PSEXESVC service registered ON the target) and `proc_creation_win_lateral_tool_parent.yml` (a shell spawned WITH PSEXESVC.exe as parent, also on the target). The `\\\\host` remote-target argument is the trigger because it is what actually distinguishes \"targets a remote host\" from \"runs locally\"; `-accepteula` was deliberately dropped as an indicator — it is cached per-user after first run and also appears on purely local invocations."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\psexec.exe` / `\\psexec64.exe` |\n| `OriginalFileName` | rule detection block | Catches a renamed PsExec by its PE-header name (`psexec.c`) |\n| `CommandLine` | rule detection block | Carries the `\\\\host` target(s), credentials flags, and the command to run remotely |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Interactive admin shell vs. script vs. an already-compromised process |\n| `User` | event source (Sysmon EID 1) | The account whose credentials drive the remote execution |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the PsExec binary — TI check for repacked/renamed variants |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Source host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts** (the genuine Sysinternals binary is signed and clean — a hit here means a repacked variant).\n- Internal-only: extract the target host from the `\\\\host` argument; check the change calendar and known admin workflows for a sanctioned deployment from this source host by this account.\n- Do not label the launch malicious without the workflow miss plus corroborating target-side evidence or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host action; on a VT verdict ≥ 5 malicious for the binary, auto-add its hash to the EDR blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   (process.executable : (*\\\\psexec.exe or *\\\\psexec64.exe) or process.pe.original_file_name : \"psexec.c\") and process.args : \\\\\\\\*\n   ```\n2. Cross-host pivot: on each target named in the `\\\\host` argument, look for the paired target-side signals — the PSEXESVC-style service creation and a shell with PSEXESVC.exe as parent — and for what the remote command actually did there.\n3. False-positive check: legitimate administrative use of PsExec for remote troubleshooting or software deployment — a common, real IT-operations pattern; correlate the source host and target against the change calendar and known admin workflows.\n**Escalation:** the target-side rules fire on the named host, the source is not an admin workstation, or the remote command is a shell/recon/credential command → treat as lateral movement in progress, promote to the high-severity flow, and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the source-side command line(s) and the target-side service/shell events as one correlated timeline — together they are the complete lateral-movement record.\n- Reset the credentials of the account used; on each target, remove PSEXESVC remnants and whatever the remote command deployed; review the source host for the initial foothold.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the source-side command line(s) and the target-side service/shell events as one correlated timeline — together they are the complete lateral-movement record.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

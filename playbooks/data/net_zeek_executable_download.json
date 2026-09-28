@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_executable_download",
+  "title": "Executable or Script Payload Downloaded Over HTTP (Zeek Files)",
+  "ruleFile": "rules/sigma/net_zeek_executable_download.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1105 — Ingress Tool Transfer"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_executable_download",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1105 — Ingress Tool Transfer |\n| Severity (`level`) | low |\n| Data source | Zeek files.log |\n| Trigger condition | files.log record whose `source` is `HTTP` and whose `mime_type` matches one of ten executable/script types (PE `application/x-dosexec`, ELF, shared-lib/PIE, shell/Python/Perl/Ruby shebang scripts, `@echo off`-style batch, bare `.lnk`, Mach-O) |\n\nDetects executable or script payloads transferred over plain HTTP as classified by Zeek's own content-magic engine. The rule states its own limits: network-layer download detection alone cannot distinguish attacker staging from routine software updates (files.log carries no HTTP hostname — that lives in http.log, joined only by `uid`); archive/container formats (`.zip`/`.iso`) produce no `mime_type` at all, so a wrapped EXE is invisible; `.ps1`/`.vbs`/`.js`/`.wsf` type as `text/plain` and are permanently uncovered; the batch and interpreter entries are shebang/content-anchored and miss common authoring variants. Deliberately `level: low` for those reasons."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `source` | rule detection block | Confirms the carrying protocol is HTTP |\n| `mime_type` | rule detection block | Content-derived payload class (Zeek's magic, not the server's declared type) |\n| `id.orig_h` | event source (Zeek files.log) | Internal downloading host — containment target |\n| `id.resp_h` | event source (Zeek files.log) | Serving host — primary TI artifact |\n| `uid` | event source (Zeek files.log) | Join key to http.log for URL/hostname context |\n| `filename` | event source (Zeek files.log) | Declared name when the transfer carries one — attacker-controllable, context only |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Payload SHA-256 → VirusTotal; escalate at **≥ 5 malicious verdicts**. The files.log record itself yields no hash — obtain one if file hashing is enabled on the sensor, or once the payload is retrieved from the endpoint.\n- `id.resp_h` (serving IP) → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: correlate http.log by `uid` (raw Zeek log) for the URL and server host; check whether the source host is patch-management/provisioning infrastructure (cloud-init, PXE, internal mirrors).\n- A matching MIME type alone is not a verdict — label nothing malicious without the VT/AbuseIPDB citation or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → Tier D: enrich and queue for analyst review; no automated action.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.files\" and zeek.source : \"HTTP\" and mime_type : (\"application/x-dosexec\" or \"application/x-executable\" or \"application/x-sharedlib\" or \"text/x-shellscript\" or \"text/x-python\" or \"text/x-perl\" or \"text/x-ruby\" or \"text/x-msdos-batch\" or \"application/x-ms-shortcut\" or \"application/x-mach-o-executable\")\n   ```\n2. Endpoint hand-off: on the `id.orig_h` host, sweep Sysmon process-creation telemetry in the surrounding window for the downloading process (browser, script host, LOLBin) and any child execution of the payload.\n3. False-positive checks (from the rule): legitimate software distribution, installers, and update downloads; internal patch-management or deployment traffic; provisioning/configuration-management scripts fetched over plaintext HTTP — the dominant real source of the script-type hits.\n**Escalation:** VT ≥ 5 on the payload hash, or evidence the payload executed on the endpoint → promote to Tier B (isolate the downloading host) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Retrieve and quarantine the payload from the endpoint; record its SHA-256 before deletion. Export the files.log and correlated http.log slices for the `uid`.\n- If confirmed malicious: perimeter-block the serving IP (and URL once identified), remove any persistence the payload installed, and re-image or verify-clean the host per the endpoint findings.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Retrieve and quarantine the payload from the endpoint; record its SHA-256 before deletion. Export the files.log and correlated http.log slices for the `uid`.",
+    "If confirmed malicious: perimeter-block the serving IP (and URL once identified), remove any persistence the payload installed, and re-image or verify-clean the host per the endpoint findings.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

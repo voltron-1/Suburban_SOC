@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_wmi_process_create",
+  "title": "WMI Process Call Create",
+  "ruleFile": "rules/sigma/proc_creation_win_wmi_process_create.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution"
+    ],
+    "techniques": [
+      "T1047 — Windows Management Instrumentation"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_wmi_process_create",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution |\n| Technique(s) | T1047 — Windows Management Instrumentation |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `wmic.exe` with a command line containing `process`, `call`, and `create` |\n\nDetects the use of WMIC to create a new process, a common technique for local or remote execution. With a `/node:` argument the same syntax executes on a remote host — the launched process then appears on the target parented by WmiPrvSE.exe, which is covered by the lateral-tool-parent rule."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\wmic.exe`) |\n| `CommandLine` | rule detection block | The created process's command line, plus any `/node:`/`/user:` remote-execution arguments |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Admin console vs. script host or implant |\n| `User` | event source (Sysmon EID 1) | The account whose rights the created process inherits |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (wmic itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the binary the WMI call launches (collected from the payload path in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: if `/node:` is present, resolve the target host in the asset inventory and check whether the initiating account administers it; remote-administration runbooks and the change calendar.\n- No TI-eligible network artifact is asserted from this event alone; remote-target context is handled as internal asset lookup.\n- Malicious only with the citing VT verdict or an internal case ID — WMIC execution is a routine administrative pattern."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier C — indicator block on TI-confirm: severity medium → on launched-binary VT verdict ≥ 5 malicious, auto-add the hash to the EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\wmic.exe and process.args : *process* and process.args : *call* and process.args : *create*\n   ```\n2. Follow the execution: locally, find the created process's own Sysmon EID 1 event; for `/node:` remote calls, pivot to the target host for a WmiPrvSE.exe-parented process in the same window (lateral-movement chain).\n3. False-positive check: legitimate remote administration.\n**Escalation:** launched payload VT-confirmed malicious, or a `/node:` call from a non-admin workstation → treat as lateral movement; promote to the high-severity flow and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect/hash the launched payload binary from its command-line path; capture the process tree on both source and (for remote calls) target hosts.\n- Remove the payload and any persistence it created on every host it was pushed to; review the initiating account's recent authentications and reset credentials if the account is confirmed compromised.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect/hash the launched payload binary from its command-line path; capture the process tree on both source and (for remote calls) target hosts.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

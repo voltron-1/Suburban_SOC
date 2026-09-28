@@ -1,0 +1,91 @@
+{
+  "id": "proc_creation_win_service_creation_sc",
+  "title": "Windows Service Creation via Sc.exe",
+  "ruleFile": "rules/sigma/proc_creation_win_service_creation_sc.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence",
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1543.003 — Create or Modify System Process: Windows Service"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_service_creation_sc",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence, Privilege Escalation |\n| Technique(s) | T1543.003 — Create or Modify System Process: Windows Service |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `sc.exe` with a command line containing both `create` and `binpath` |\n\nDetects creation of a new Windows service with sc.exe, frequently abused for persistence and privilege escalation — the service binary runs under the service's identity (typically SYSTEM) at every boot. Reconfiguration of an existing service's path is the sibling rule `proc_creation_win_sc_config_binpath_change`; the SCM's own record of the install lands as a Windows System 7045 event covered by the System-log family."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\sc.exe`) |\n| `CommandLine` | rule detection block | New service name and `binpath` — the binary that will run as the service |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Installer vs. shell/script-host delivery |\n| `User` | event source (Sysmon EID 1) | Must be elevated; a lateral-movement context often shows a remote-exec parent |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (sc.exe itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **service binary** (collected from the `binpath` value in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: software-deployment calendar; service-name conventions (PsExec-style random or single-word names are the anomaly); correlated System 7045 event for the SCM's own record.\n- No external IP/domain artifact on this event.\n- Service installation is routine installer behavior — malicious only with the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier C — indicator block on TI-confirm: severity medium → on service-binary VT verdict ≥ 5 malicious, auto-add the hash to the EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\sc.exe and process.args : *create* and process.args : *binpath*\n   ```\n2. Collect/hash the binpath target; pivot the parent lineage — a service created from a WMI or PsExec-style remote-execution parent chains into the lateral-movement rules. Confirm whether the service was started and what it spawned.\n3. False-positive check: legitimate software installing a service.\n**Escalation:** service binary VT-confirmed malicious, binpath embedding a command interpreter or user-writable path, or a remote-execution parent → promote to the high-severity flow (Tier B isolate on analyst confirm) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the service definition (name, binpath, start type) and collect/hash the service binary before removal.\n- Stop and delete the service, remove the binary, and sweep the estate for the same service name or binary hash on other hosts.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the service definition (name, binpath, start type) and collect/hash the service binary before removal.",
+    "Stop and delete the service, remove the binary, and sweep the estate for the same service name or binary hash on other hosts.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

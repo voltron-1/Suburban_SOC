@@ -1,0 +1,89 @@
+{
+  "id": "auth_win_explicit_cred_account_sweep",
+  "title": "Explicit-Credential Sign-In Recorded (Windows Security 4648)",
+  "ruleFile": "rules/sigma/auth_win_explicit_cred_account_sweep.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110.003 — Brute Force: Password Spraying"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_explicit_cred_account_sweep",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1110.003 — Brute Force: Password Spraying |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Any Security 4648 explicit-credential logon event (single-event logic of record; alerting is done by the threshold companion) |\n\nIdentifies \"a logon was attempted using explicit credentials\" events. This file is the logic-of-record for the paired Elastic threshold rule `rules/elastic/threshold/auth-win-explicit-cred-account-sweep.ndjson`, which buckets 4648 events by source host and alerts when **one host uses ≥ 6 distinct target accounts within a 5-minute window** — a password-spray / account-sweep indicator. Deliberately `experimental` so it is not also deployed as a noisy per-event query rule."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the explicit-credential logon event (4648) |\n| `SubjectUserName` | event source (standard) | Session that supplied the credentials — the operator |\n| `TargetUserName` | event source (standard) | Credential being used — the companion counts distinct values |\n| `TargetServerName` | event source (standard) | Where each credential was pointed |\n| `ProcessName` | event source (standard) | The tool making the attempts |\n| `IpAddress` | event source (standard) | Network source when the initiating request is remote — TI artifact |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `IpAddress` → AbuseIPDB when populated with a routable address; escalate at **≥ 50% confidence**.\n- Internal-only checks: is the sweeping host an admin workstation, helpdesk seat, or backup/scanner service host (the rule's FP inventory); is `SubjectUserName` expected to touch many accounts.\n- The ≥ 6-distinct-account sweep is the corroborating internal evidence — cite it and the operator context, not intent."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B (identity): on AbuseIPDB ≥ 50% for `IpAddress`, auto-disable the operating account (`SubjectUserName`) and revoke its sessions; swept-account resets on analyst confirm.\n**Analyst triage path** (no TI confirmation) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`), counting distinct target accounts per 5-minute window (≥ 6 matches the companion threshold):\n   ```\n   winlog.event_id : 4648 and host.name : \"<source_host>\"\n   ```\n2. Tool pivot: group the hits by `ProcessName` and `TargetServerName` — one process sweeping many accounts toward many servers is the lateral/spray shape; correlate 4624/4625 outcomes for each swept account to see which credentials actually worked.\n3. False-positive checks: IT help desk or password-reset tooling touching many accounts from one admin workstation; backup or scanning service accounts connecting to many targets with explicit credentials.\n**Escalation:** sweep from a non-admin workstation, or swept credentials subsequently succeeding on new hosts → page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Disable and reset the operator account and any swept account confirmed abused; examine the source host for credential-harvesting or lateral tooling via the endpoint (Sysmon) family.\n- Export the 4648 slice plus correlated 4624/4625 outcomes — the target-account list is the sweep's scope document.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the 4648 slice plus correlated 4624/4625 outcomes — the target-account list is the sweep's scope document.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

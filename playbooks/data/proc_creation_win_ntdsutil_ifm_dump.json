@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_ntdsutil_ifm_dump",
+  "title": "NTDS.dit Extraction via ntdsutil IFM Media Creation",
+  "ruleFile": "rules/sigma/proc_creation_win_ntdsutil_ifm_dump.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1003.003 — OS Credential Dumping: NTDS"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_ntdsutil_ifm_dump",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1003.003 — OS Credential Dumping: NTDS |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `ntdsutil.exe` (by path or `OriginalFileName`) with both an NTDS-instance activation phrase (`ac i ntds` / `activate instance ntds`) and a media verb (`create full` / `ifm`) on the command line |\n\nDetects ntdsutil.exe creating an Install-From-Media snapshot, which writes a copy of NTDS.dit (the full AD credential database) plus the SYSTEM hive to an operator-chosen path. Legitimate AD backup uses the identical syntax — the rule cannot separate the two on command line alone, so it is scoped to alert and be triaged against the change calendar, not to fire silently as high-confidence evil. Significant stated blind spot: the documented IFM workflow is normally driven interactively at successive `ntdsutil:` prompts, which puts none of the verbs on the launching command line — this rule only sees the less-common single-line form, and no console-input telemetry exists in this environment to close that gap."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\ntdsutil.exe` |\n| `OriginalFileName` | rule detection block | Catches a renamed ntdsutil copy by its PE-header name |\n| `CommandLine` | rule detection block | Activation phrase, media verb, and the destination path of the NTDS.dit/SYSTEM copy |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Backup scheduler vs. shell/remote-execution service |\n| `User` | event source (Sysmon EID 1) | Must be a Domain Admin-equivalent for IFM to succeed — identity at stake |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of ntdsutil.exe (Microsoft-signed; TI applies to the parent binary if suspect) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host (a DC), timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary → VirusTotal; escalate at **≥ 5 malicious verdicts** (ntdsutil itself is Microsoft-signed).\n- Destination path parsed from `CommandLine` → internal-only: confirm whether the IFM media exists there; the media is evidence, not a TI artifact.\n- Internal-only: change calendar and backup schedule for a sanctioned IFM/backup job at this time; destination path plausibility (backup share vs. user-writable/removable/network staging path).\n- Do not label the extraction malicious without the change-calendar miss plus corroborating evidence or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the parent-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm.\n**Analyst triage path** (usually no TI-confirmable artifact) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.executable : *\\\\ntdsutil.exe or process.pe.original_file_name : \"ntdsutil.exe\"\n   ```\n   Review `process.args` of each hit for the activation phrase plus `ifm`/`create full`. Querying the binary alone is deliberate: it also surfaces the interactive-console launches the rule itself cannot flag.\n2. Process-tree analysis: pivot on `process.parent.name` / `process.parent.args`; check the destination path for the written NTDS.dit/SYSTEM copies and any follow-on archiving or transfer of that media.\n3. False-positive checks: a scheduled or operator-run Active Directory backup creating IFM media legitimately — correlate with the change calendar and the destination path. Note the rule's own caveat: the interactive-console form is invisible to this rule entirely, so absence of further alerts is not evidence of absence.\n**Escalation:** no change-calendar entry, a staging-style destination (user-writable, removable, or network path), or follow-on compression/transfer of the media → page the IR lead immediately; treat as domain credential-database theft in progress."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Hash and secure the IFM output (NTDS.dit + SYSTEM hive) in place before removal; capture the process tree and any transfer activity.\n- If theft is confirmed: assume every domain credential is exposed — perform the double krbtgt reset, force domain-wide password resets by tier, and revoke Kerberos tickets; delete the staged media only after hashing.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Hash and secure the IFM output (NTDS.dit + SYSTEM hive) in place before removal; capture the process tree and any transfer activity.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

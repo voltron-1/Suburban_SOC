@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_domain_group_discovery",
+  "title": "Domain Group Discovery via Net.exe",
+  "ruleFile": "rules/sigma/proc_creation_win_domain_group_discovery.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1069.002 — Permission Groups Discovery: Domain Groups"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_domain_group_discovery",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1069.002 — Permission Groups Discovery: Domain Groups |\n| Severity (`level`) | low |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `net.exe` or `net1.exe` whose command line contains both `group` and `/domain` |\n\nDetects net.exe enumerating domain groups (e.g. Domain Admins) — account discovery during recon. This single-event definition is deliberately kept at level low as the logic-of-record for hunting and correlation (#217); the alerting signal is the Elastic threshold companion `rules/elastic/threshold/disc-win-domain-group-discovery-repeat.ndjson`, which fires at severity medium on **≥ 3** matching events counted per `host.name` within its 10-minute detection window (evaluated every 10 minutes over a 20-minute lookback that guarantees full window containment, per review #393) — repeated enumeration on the same host being what distinguishes automated recon tooling from routine account administration; a single deliberate attacker execution is still recorded in raw telemetry, just not alerted on alone. Rule falsepositives: help-desk and IAM administration."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Which binary ran (`\\net.exe` / `\\net1.exe` — net.exe frequently proxies through net1.exe) |\n| `CommandLine` | rule detection block | Which domain group was enumerated (e.g. `Domain Admins`) — the recon-interest evidence |\n| `OriginalFileName` | event source (Sysmon EID 1) | Rename-evasion check (the rule matches on `Image` only) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | IAM/helpdesk tooling vs attacker shell or script |\n| `User` | event source (Sysmon EID 1) | Admin/helpdesk account vs standard user running domain recon |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host (the companion's counting key), timeline anchor, pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: help-desk/IAM ticket check for the user; case history for the host; count sibling `group /domain` executions on the same host (the companion's ≥ 3-in-10-minutes condition) and note which groups were queried — privileged groups first is a recon signature.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- A single enumeration by an admin account is routine; keep the verdict tied to repetition, group selection, and context, each cited from the telemetry."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → **Tier D — triage-only**: enrich and queue for analyst review; no automation. The threshold companion firing (≥ 3 on one host in 10 minutes, severity medium) is what elevates this into an active analyst investigation.\n**Analyst triage path:**\n1. Verify and burst-check with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   process.executable : (*\\\\net.exe or *\\\\net1.exe)\n   and process.args : *group* and process.args : */domain*\n   ```\n   Bucket by `host.name` over 10-minute windows; ≥ 3 matches on one host reproduces the companion's alert condition.\n2. Discovery-chain pivot: process-tree via `process.parent.name` / `process.parent.args`; sweep the host/user ±60 min for companion discovery alerts (arp cache, nltest, user discovery) and for the queried groups' membership being subsequently targeted (logons, credential-access alerts against those members).\n3. False-positive checks: help-desk and IAM administration — a matching ticket, known IAM tooling parent, and non-privileged group queries support benign closure.\n**Escalation:** the threshold companion fires, privileged groups (Domain Admins et al.) are queried from a non-IAM context, or a second discovery-family rule hits the same host/user → promote to an analyst-led discovery-stage investigation and watch the queried groups' members for follow-on targeting."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the host's process-creation slice for the burst window; record which groups were enumerated — that list predicts the attacker's next targets.\n- No host artifact cleanup applies to enumeration; if the chain is confirmed, remediation follows the downstream technique and the queried privileged accounts get heightened monitoring.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the host's process-creation slice for the burst window; record which groups were enumerated — that list predicts the attacker's next targets.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

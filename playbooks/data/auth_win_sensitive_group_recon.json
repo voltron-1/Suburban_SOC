@@ -1,0 +1,88 @@
+{
+  "id": "auth_win_sensitive_group_recon",
+  "title": "Object Access Against a Privileged AD Group",
+  "ruleFile": "rules/sigma/auth_win_sensitive_group_recon.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1069.002 — Permission Groups Discovery: Domain Groups"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_sensitive_group_recon",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1069.002 — Permission Groups Discovery: Domain Groups |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4661 (handle to an object requested) whose `ObjectName` matches Domain Admins, Enterprise Admins, Schema Admins, or Administrators by display name (contains) or well-known SID/RID suffix (endswith -512/-519/-518/-544) |\n\n4661 fires on read access as well as modification, making this a reconnaissance-capable signal — an attacker enumerating who is in these groups before targeting them — complementary to `auth_win_priv_group_membership_change.yml`, which only catches actual membership changes. The SID-suffix arm, not the name arm, is the rule's load-bearing detection path (name-only matching is not proven reliable for this event). Operational prerequisites: the \"Audit SAM\" and/or \"Audit Directory Service Access\" subcategory AND a SACL on the target group objects — 4661 is not emitted for arbitrary objects by default."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the handle-to-object request event (4661) |\n| `ObjectName` | rule detection block | Which privileged group was touched (SID/RID suffix arm is load-bearing) |\n| `SubjectUserName`, `SubjectUserSid` | event source (standard) | The enumerating account |\n| `ObjectServer`, `ObjectType` | event source (standard) | SAM/DS object context for the access |\n| `AccessList`, `AccessMask` | event source (standard) | Requested access — read-only enumeration vs write attempt |\n| `SubjectLogonId` | event source (standard) | Session pivot to the source of the enumerating logon |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only: baseline of AD administration/audit tooling and the accounts that run it; case history for `SubjectUserName`. No external artifact on this event — AbuseIPDB/OTX/VT not applicable.\n- Enumeration is only a finding with a pattern behind it — cite the multi-group access sequence or the account's lack of admin duties, never a single object touch."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium, internal-only enrichment → Tier D: enrich, queue for analyst review, no automation.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`) on the load-bearing SID/RID arm (confirm the name arm in the raw event):\n   ```\n   winlog.event_id : 4661 and winlog.event_data.ObjectName : (*-512 or *-519 or *-518 or *-544)\n   ```\n2. Recon-pattern pivot: a single incidental hit is ambiguous — domain-joined machines can reference these objects during normal Kerberos/Group Policy processing. The additional signal needed is one `SubjectUserName` touching several privileged groups in a short window, or an account with no admin duties doing it at all; then check for follow-on targeting of the enumerated members (spray, Kerberoast, explicit-credential hits against them).\n3. False-positive checks: legitimate AD administration or auditing tooling enumerating privileged group membership in routine access reviews (baseline expected accounts/tools); workstations incidentally referencing these objects during normal Kerberos/Group Policy processing — scope the underlying SACL narrowly to reduce this.\n**Escalation:** recon pattern from a non-admin account, or enumeration followed by authentication attacks against the enumerated members → promote to identity-compromise triage and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- On confirmed hostile recon: put the enumerated privileged accounts under heightened monitoring, review their exposure (SPNs, pre-auth, stale sessions), and investigate the enumerating account's origin session.\n- Tighten the SACL scope if the alert volume shows incidental machine traffic.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

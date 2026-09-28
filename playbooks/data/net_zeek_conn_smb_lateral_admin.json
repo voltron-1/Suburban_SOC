@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_conn_smb_lateral_admin",
+  "title": "SMB Connection Crossing Private/Public Address Boundary",
+  "ruleFile": "rules/sigma/net_zeek_conn_smb_lateral_admin.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Lateral Movement"
+    ],
+    "techniques": [
+      "T1021.002 — Remote Services: SMB/Windows Admin Shares"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_conn_smb_lateral_admin",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Lateral Movement |\n| Technique(s) | T1021.002 — Remote Services: SMB/Windows Admin Shares |\n| Severity (`level`) | high |\n| Data source | Zeek conn |\n| Trigger condition | TCP connection to responder port 445 unless both originator and responder are inside RFC1918 space — internal-to-internal is the only traffic excluded |\n\nSMB legitimately stays entirely internal on a well-run network; a session with either leg outside private address space is either external exposure of an internal share or lateral-movement tooling reaching across a boundary — distinguishable from the address ranges alone, without assuming where the sensor sits. Same stated limit as the RDP sibling rule: internal ranges not covered by the three RFC1918 blocks will wrongly appear external — verify the addressing plan."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `id.resp_p` | rule detection block | Confirms the SMB service port (445) |\n| `proto` | rule detection block | Confirms TCP transport |\n| `id.orig_h` | rule detection block | Originator — determines the flow's direction across the boundary |\n| `id.resp_h` | rule detection block | Responder — the other leg; one of the two is the external TI artifact |\n| `id.orig_p` | event source (Zeek conn.log) | Originator port context |\n| `conn_state`, `history`, `duration`, `orig_bytes`, `resp_bytes` | event source (raw Zeek conn.log) | Established session and transfer volume vs. blocked/reset attempt |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Whichever of `id.orig_h` / `id.resp_h` is outside RFC1918 → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: is this a documented cross-site file-share replication link? Check the change calendar and the firewall configuration for the specific pair.\n- Direction matters: internal originator → external 445 is possible data movement or credential exposure to an attacker-controlled server; external originator → internal responder is an exposed share. Record which shape this event is.\n- Neither shape is malicious without the AbuseIPDB verdict or an internal case ID — cite one before acting."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the internal leg when the external leg is AbuseIPDB-confirmed at ≥ 50% confidence; account actions on analyst confirm. Without TI confirmation: Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   destination.port : 445 and network.transport : \"tcp\" and not ((source.ip : \"10.0.0.0/8\" or source.ip : \"172.16.0.0/12\" or source.ip : \"192.168.0.0/16\") and (destination.ip : \"10.0.0.0/8\" or destination.ip : \"172.16.0.0/12\" or destination.ip : \"192.168.0.0/16\"))\n   ```\n2. Establishment check: `conn_state`/`history`/`orig_bytes`/`resp_bytes` are not indexed — pull the raw conn.log record; a perimeter-blocked attempt (rejected/reset, no payload) triages differently from an established session moving bytes.\n3. Endpoint pivot: on the internal leg, sweep Sysmon process-creation events in the flow window for the process that opened or served the session; follow the Windows Process Creation family baseline.\n4. False-positive checks: a deliberate, firewalled cross-site file-share replication link with one leg outside private address space (allowlist the specific source/destination pair rather than excluding port 445 broadly); internal ranges not covered by the three RFC1918 blocks. An edge NAT can also translate a peer's address so an operationally internal session shows a public leg — the raw conn.log context plus the addressing plan is needed to distinguish.\n**Escalation:** established cross-boundary session with meaningful transfer volume, or the internal leg hosts sensitive shares → page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the conn.log slice for the pair (and the internal host's Security log window if a logon accompanied the session) before rollover.\n- Block 445 across the boundary at the perimeter — SMB should never cross it; allowlist only the documented replication pair if one exists.\n- If credentials were presented outbound, treat them as exposed: reset and revoke. Review share ACLs on an exposed internal responder.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and both endpoints."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the conn.log slice for the pair (and the internal host's Security log window if a logon accompanied the session) before rollover.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and both endpoints."
+  ],
+  "unmappedContent": []
+}

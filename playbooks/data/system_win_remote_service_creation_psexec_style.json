@@ -1,0 +1,90 @@
+{
+  "id": "system_win_remote_service_creation_psexec_style",
+  "title": "Remote-Style Service Creation (PsExec Pattern)",
+  "ruleFile": "rules/sigma/system_win_remote_service_creation_psexec_style.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows System Log - Service Control Manager & Event Log Service",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows System Log - Service Control Manager & Event Log Service"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence",
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1543.003 — Create or Modify System Process: Windows Service"
+    ]
+  },
+  "aiContext": {
+    "playbook": "system_win_remote_service_creation_psexec_style",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence, Privilege Escalation |\n| Technique(s) | T1543.003 — Create or Modify System Process: Windows Service |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows System) |\n| Trigger condition | System 7045 with `ServiceName` exactly `PSEXESVC` |\n\nDetects PsExec's default temporary service name on the target host — used by the legitimate Sysinternals tool and by virtually every reimplementation (Impacket's psexec.py, CrackMapExec, most C2 lateral-movement modules) unless explicitly overridden. It fires at service registration itself, before any payload executes, complementing `proc_creation_win_lateral_tool_parent.yml`, which only fires later if the service goes on to spawn a shell. Known, accepted limitation stated by the rule: an operator who renames the service (`-r <name>` in PsExec) evades it. The lateral-movement context is real, but the event itself — a service registered on this host — is a persistence/privilege-escalation primitive, hence the T1543.003 tagging."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Selects System 7045 (new service installed) |\n| `ServiceName` | rule detection block | `PSEXESVC` — the PsExec-family default |\n| `ImagePath` | event source (System 7045) | Path to the dropped service executable — the hash pivot |\n| `AccountName` | event source (System 7045) | Account the service runs as |\n| `StartType` | event source (System 7045) | Demand-start is the tool's normal pattern |\n| `Computer` | event source (System channel) | Target host; the record timestamp orders a multi-host sweep |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Service binary at `ImagePath` → VirusTotal; escalate at **≥ 5 malicious verdicts**. The hash comes from the correlated Sysmon EID 1 event for that binary (when the service starts), not from the 7045 event itself, which carries no hash field. A clean verdict on a genuine Sysinternals binary does not make the use authorized — authorization is an internal question.\n- Internal-only checks: change calendar and the known-admin source-host list (legitimate PsExec use is a real IT-operations pattern here per the rule's own falsepositives); case history for the initiating account.\n- Do not label the session malicious without the TI verdict or an internal case ID — the service name alone is tool identification, not intent."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the target host when the service-binary hash is VT-confirmed ≥ 5; disable the initiating account on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify and fleet-sweep with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 7045 and winlog.event_data.ServiceName : \"PSEXESVC\"\n   ```\n   Count distinct `host.name` values over the last 24 h — one host reads as targeted admin activity or a single pivot; several reads as a campaign.\n2. Identity sweep: correlate the Security-channel network logon (4624 LogonType 3) on the target in the same minute to identify the initiating account and source host; pivot Sysmon EID 1 for what the service executed.\n3. False-positive check: legitimate administrative use of PsExec for remote troubleshooting or software deployment — correlate against the change calendar and known admin source hosts before treating as malicious.\n**Escalation:** `PSEXESVC` registered on two or more hosts in a short window, or an initiating account/source host outside the admin baseline → treat as active lateral movement; page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the service executable at `ImagePath` and export the 7045 plus the correlated logon events before any cleanup; PsExec normally removes its service on exit, so a still-registered `PSEXESVC` is itself worth noting.\n- Delete any leftover service registration and binary; treat the initiating account's credentials as exposed on this host — reset and revoke its sessions on confirmation; sweep for the same service creation fleet-wide.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the service executable at `ImagePath` and export the 7045 plus the correlated logon events before any cleanup; PsExec normally removes its service on exit, so a still-registered `PSEXESVC` is itself worth noting.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

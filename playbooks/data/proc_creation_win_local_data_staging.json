@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_local_data_staging",
+  "title": "Recursive Document Copy Into a Temp or Public Staging Path",
+  "ruleFile": "rules/sigma/proc_creation_win_local_data_staging.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Collection"
+    ],
+    "techniques": [
+      "T1074.001 — Data Staged: Local Data Staging"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_local_data_staging",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Collection |\n| Technique(s) | T1074.001 — Data Staged: Local Data Staging |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `robocopy.exe`/`xcopy.exe` running a recursive copy (` /E` or ` /S`) whose command line contains both a document/data extension (`.doc`, `.docx`, `.xls`, `.xlsx`, `.pdf`, `.pst`, `.csv`) AND a staging-shaped destination (`\\Temp\\`, `\\AppData\\Local\\Temp\\`, `\\Users\\Public\\`, `\\ProgramData\\`) |\n\nDetects bulk-copying documents into a temp or public path an attacker (or a script running under a compromised account) can freely write to and later collect from — the standard precursor to archiving and exfiltrating them, the same staging role `posh_data_compression_staging.yml`/`proc_creation_win_rar_archive_staging.yml` serve for the compression step that typically follows. All four conditions (image, recursive flag, extension, destination) are required together — robocopy/xcopy invocations are extremely common in legitimate backup/deployment tooling, so the rule leans on the destination-path signal to separate staging from routine copying. Coverage gap the rule states plainly: staging to any path outside the three listed — a mapped network share, a OneDrive sync folder, a non-default temp location — evades it entirely, and the extension list is a starting set, not exhaustive."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `robocopy.exe`/`xcopy.exe` |\n| `CommandLine` | rule detection block | Source path, destination path, recursive flag, and the extension(s) matched — defines the collection scope |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (interactive shell, script, or scheduled task) |\n| `User` | event source (Sysmon EID 1) | Account performing the copy; scopes data-access review |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of robocopy.exe/xcopy.exe — stock system binaries, so a clean VT verdict is expected and decides nothing by itself |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of `robocopy.exe`/`xcopy.exe` (`Hashes`) → VirusTotal; escalate at **≥ 5 malicious verdicts** — a near-certain miss for these stock binaries, so a match here is itself an anomaly worth an incident on its own.\n- Internal-only (the primary signal for this rule): source path parsed from `CommandLine` → data-classification and asset-owner lookup; is the source a known sensitive share (finance, HR, legal)? Change calendar for any sanctioned bulk migration/backup job.\n- The event carries no network artifact — egress confirmation comes from correlated network-family alerts, not from this event.\n- Do not label the staging malicious without an internal case or a paired egress/archive-staging alert; routine backup tooling produces the same shape."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on the (unlikely) VT ≥ 5 verdict for the copying binary, auto-add the hash to the blocklist and open an analyst ticket; no TI confirmation → Tier D triage.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : (*\\\\robocopy.exe or *\\\\xcopy.exe) and process.args : (*.doc* or *.docx* or *.xls* or *.xlsx* or *.pdf* or *.pst* or *.csv*) and process.args : (*\\\\Temp\\\\* or *\\\\AppData\\\\Local\\\\Temp\\\\* or *\\\\Users\\\\Public\\\\* or *\\\\ProgramData\\\\*)\n   ```\n   The recursive flag (` /E`/` /S`) cannot be expressed as a KQL wildcard token — confirm it by reading `process.args`.\n2. Process-tree pivot on `process.parent.name` / `process.parent.args`; identify the source directory's data classification, and check the host's subsequent hours for an archive-staging or egress event (RAR/7-Zip/PowerShell compression, large HTTP POST, SMTP attachment) consuming the same staged path.\n3. False-positive check: a legitimate IT/backup script recursively copying documents into a temp or public staging path as an intermediate deployment/migration step, or application installers/update tooling staging document/template assets under ProgramData — baseline and exclude by script hash/path if recurring.\n**Escalation:** a paired archive-staging or egress alert from the same host consuming the staged path, or the source directory holds sensitive/regulated data → promote to the high-severity flow (Tier B isolate) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the staged file set at the destination before removal; inventory it against the source directory to scope the data-exposure assessment (what would have left the estate).\n- Remove the staged copies; if a follow-on archive was created, treat it under `proc_creation_win_rar_archive_staging.yml`'s/`proc_creation_win_archive_staging_non_rar.yml`'s remediation.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the staged file set at the destination before removal; inventory it against the source directory to scope the data-exposure assessment (what would have left the estate).",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

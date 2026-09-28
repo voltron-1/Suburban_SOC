@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_installutil_bypass",
+  "title": "InstallUtil Execution Bypassing Uninstall Logging",
+  "ruleFile": "rules/sigma/proc_creation_win_installutil_bypass.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1218.004 — System Binary Proxy Execution: InstallUtil"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_installutil_bypass",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1218.004 — System Binary Proxy Execution: InstallUtil |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `installutil.exe` launched with any one of the uninstall switch (`/u`/`-u`) or the log-suppression flags (`/logfile=`, `-logfile=`, `/logtoconsole=false`) |\n\nDetects InstallUtil.exe — a signed Microsoft binary — proxy-executing an attacker-supplied .NET assembly's `[Uninstall]`-attributed method. The rule deliberately matches on any one of these flags rather than requiring them together: `/U` alone (with no log-suppression flags at all) is the canonical form of the technique and must not be missed just because logging wasn't also suppressed."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\installutil.exe`) |\n| `CommandLine` | rule detection block | Carries the flag(s) and the path of the .NET assembly being executed — the primary artifact |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Separates deployment tooling (msiexec, CI agents) from shells and script hosts |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of installutil.exe itself (Microsoft-signed; low TI value on its own) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **assembly** named on `CommandLine` (collect from disk or the correlated Sysmon file events) → VirusTotal; escalate at **≥ 5 malicious verdicts**. InstallUtil itself is Microsoft-signed — the payload assembly is the TI artifact.\n- SHA-256 of the parent process binary → VirusTotal at the same threshold when the parent is not recognized deployment tooling.\n- Internal-only: change calendar / software-deployment records for a sanctioned uninstall or rollback at this time.\n- Do not label the assembly malicious without the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the assembly (or parent-binary) VT verdict is ≥ 5 malicious; account actions on analyst confirm.\n**Analyst triage path** (TI not confirming) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel — `process.args`, not `process.command_line`):\n   ```\n   process.executable : *\\\\installutil.exe and process.args : (\"/u\" or \"-u\" or *logfile=* or *logtoconsole=false*)\n   ```\n2. Process-tree analysis: pivot on `process.parent.name` / `process.parent.args`; inspect the assembly on disk — unsigned, user-writable staging path, or recently dropped reads as attacker-supplied.\n3. False-positive check: legitimate .NET application uninstall/rollback during software deployment tooling (msiexec, CI agents).\n**Escalation:** assembly confirms on VT, or the parent is a shell, script host, or Office process rather than deployment tooling → page the IR lead and isolate the host."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the assembly named on `CommandLine` before removal; capture the full process tree.\n- Remove the assembly and whatever persistence launched it (scheduled task, service, Run key); hunt the assembly hash fleet-wide.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the assembly named on `CommandLine` before removal; capture the full process tree.",
+    "Remove the assembly and whatever persistence launched it (scheduled task, service, Run key); hunt the assembly hash fleet-wide.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

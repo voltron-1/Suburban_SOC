@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_dns_dga_nxdomain_burst",
+  "title": "NXDOMAIN Response for a DGA-Characteristic Domain Name",
+  "ruleFile": "rules/sigma/net_zeek_dns_dga_nxdomain_burst.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1568.002 — Dynamic Resolution: Domain Generation Algorithms"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_dns_dga_nxdomain_burst",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1568.002 — Dynamic Resolution: Domain Generation Algorithms |\n| Severity (`level`) | medium |\n| Data source | Zeek dns |\n| Trigger condition | DNS response `rcode_name: NXDOMAIN` for a query containing a 20+ character alphanumeric label |\n\nDetects the structural shape of DGA malware probing for its next-active C2 domain (most candidates never resolve). The rule states its own limits: label length is a proxy for entropy, and per-source burst cardinality cannot be expressed in a single Sigma condition — burst confirmation is an analyst step below. Rule falsepositives: typo'd or stale internal hostnames retried by misconfigured clients; CDN/cloud failover schemes probing several long randomized candidate hostnames."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `query` | rule detection block | Candidate DGA domain — primary TI artifact |\n| `rcode_name` | rule detection block | Confirms non-resolution (NXDOMAIN) |\n| `id.orig_h` | event source (Zeek dns.log) | Internal querying host — containment target |\n| `id.resp_h` | event source (Zeek dns.log) | Resolver used (flags rogue-resolver bypass) |\n| `qtype_name` | event source (Zeek dns.log) | Query type context |\n| `answers` | event source (Zeek dns.log) | Non-empty on a later sibling hit = the campaign's live domain |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `query` domain → OTX: escalate on any pulse match for the exact or registered domain.\n- If a related query from the same `id.orig_h` later resolves, enrich the answer IP → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: burst confirmation — count distinct long-label NXDOMAIN queries from the same source over 10 minutes; ≥ 10 distinct is a strong DGA signal (the cardinality check the Sigma rule cannot express).\n- A single NXDOMAIN with no pulse and no burst is not malicious — do not label it so without a cited verdict."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host isolation. On OTX pulse or AbuseIPDB ≥ 50% confirmation, auto-add the domain to the DNS/perimeter blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify and burst-check with KQL (index `logstash-*`; Zeek fields are ECS-mapped):\n   ```\n   dns.response_code : \"NXDOMAIN\" and source.ip : \"<orig_h>\"\n   ```\n   Bucket `dns.question.name` over 10-minute windows; count distinct long-label queries.\n2. Pivot for the live domain: `source.ip : \"<orig_h>\" and dns.response_code : \"NOERROR\"` in the surrounding hour — a resolving sibling with a similar shape is the live C2 candidate; enrich its answer IP.\n3. Endpoint pivot: correlate the host's Sysmon process-creation events in the same window to find the querying process (then follow the Windows Process Creation family baseline).\n4. False-positive checks: internal search-domain suffixes appended to hostnames; CDN failover probes.\n**Escalation:** confirmed burst plus a resolving sibling domain → treat as active C2; promote to the high-severity flow (Tier B isolate of the querying host)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full Zeek dns.log slice for the source host before index rollover — the query-name set is the campaign fingerprint.\n- If a live C2 domain is identified: perimeter-block the domain and answer IPs, EDR-isolate the host, acquire memory, identify the beaconing process, and hash its binary for VT.\n- Endpoint persistence cleanup follows whatever launcher is found (Run key / scheduled task / service).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source IP."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full Zeek dns.log slice for the source host before index rollover — the query-name set is the campaign fingerprint.",
+    "If a live C2 domain is identified: perimeter-block the domain and answer IPs, EDR-isolate the host, acquire memory, identify the beaconing process, and hash its binary for VT.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source IP."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,89 @@
+{
+  "id": "auth_win_firewall_rule_added",
+  "title": "Firewall Rule Added via Windows Firewall Policy Engine",
+  "ruleFile": "rules/sigma/auth_win_firewall_rule_added.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1562.004 — Impair Defenses: Disable or Modify System Firewall"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_firewall_rule_added",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1562.004 — Impair Defenses: Disable or Modify System Firewall |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4946 — \"a rule was added to the Windows Firewall exception list\" |\n\nDetects the firewall policy engine's own native audit event, which fires regardless of whether the addition came from `netsh`, the `New-NetFirewallRule` PowerShell cmdlet, or the GUI — closing the exact PowerShell-cmdlet blind spot `proc_creation_win_netsh_firewall_rule_added.yml` (below) discloses it cannot see. Requires the non-default \"Audit MPSSVC Rule-Level Policy Change\" (Policy Change) Advanced Audit Policy subcategory — unlike most Security-channel event IDs this pipeline collects, 4946 is not on by default."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the firewall-rule-added event (4946) |\n\nDeliberately minimal: no live Windows endpoint has confirmed how Winlogbeat renders 4946's richer fields (`RuleName`, `ApplicationPath`, `ProfileChanged` per Microsoft's documented schema) in this environment, so none are mapped or selected on yet — guessing here risks a silently-broken field-name mismatch, the same class of gap this repo's own `#217` review found and fixed elsewhere. Pending that verification, triage on this alert needs the raw Windows event itself (Event Viewer / a live KQL pull of the full `winlog.event_data` object) for the rule name and permitted program, not the fields this table lists."
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- **Internal-only** — no field here carries an external TI artifact (IP, hash, domain) until the richer 4946 fields are mapped; correlate against the change calendar and deployment records, same as the netsh sibling rule below.\n- Pull the full raw event (`winlog.event_data`) for the rule name, direction, port, and permitted program to enrich manually until those fields are mapped.\n- Cross-check `proc_creation_win_netsh_firewall_rule_added.yml`'s own alerts for the same host/window — a host firing only this rule (not the netsh one) indicates the PowerShell or GUI path, the exact case this rule exists to catch."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium, Internal-only enrichment (no TI to auto-confirm against) → no automated action; every alert routes to analyst triage.\n**Analyst triage path** — 30-minute SLA:\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4946 and winlog.computer_name : \"<host>\"\n   ```\n2. Pull the raw event for the added rule's name, direction, port, and permitted program (not yet in the ECS-mapped fields above).\n3. Cross-check the netsh sibling rule for the same host/window (see Enrichment Criteria).\n4. False-positive check: legitimate IT/deployment automation opening a required port for a new service, via any of netsh/PowerShell/the GUI — correlate against the change calendar.\n**Escalation:** the added rule permits an unsigned or user-writable-path program, opens an inbound port outside any change window, or coincides with other suspicious activity on the same host → page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full rule definition (`netsh advfirewall firewall show rule` or `Get-NetFirewallRule`) and hash the permitted binary before any change.\n- Delete the unauthorized rule; remove the permitted binary and its persistence if TI-confirmed.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full rule definition (`netsh advfirewall firewall show rule` or `Get-NetFirewallRule`) and hash the permitted binary before any change.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and host before cleanup."
+  ],
+  "unmappedContent": []
+}

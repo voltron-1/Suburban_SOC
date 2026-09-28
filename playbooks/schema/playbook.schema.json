@@ -1,0 +1,116 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "suburban-soc-playbook.schema.json",
+  "title": "Suburban-SOC Rule Response Playbook",
+  "description": "Structured representation of one per-rule playbook entry, migrated from docs/playbooks/IR_Sigma_Playbook.md. Mirrors that document's own 5-subsection shape (Rule Summary & MITRE Mapping / Automated Extraction Fields / Enrichment Criteria / Containment Decision Flow / Remediation & Evidence Preservation) rather than inventing a new structure, so migration is lossless and reviewable against the source.",
+  "type": "object",
+  "required": ["id", "title", "ruleFile", "status", "severity", "category", "sections"],
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Matches the rule's filename stem exactly, e.g. 'proc_creation_win_bitsadmin_download'. This is the anchor id in the source Markdown and the filename stem under rules/sigma/ or rules/suricata/.",
+      "pattern": "^[a-z0-9_]+$"
+    },
+    "title": {
+      "type": "string",
+      "description": "The rule's human-readable name, from the ##### heading."
+    },
+    "ruleFile": {
+      "type": "string",
+      "description": "Repo-relative path to the rule definition, e.g. 'rules/sigma/proc_creation_win_bitsadmin_download.yml'."
+    },
+    "status": {
+      "enum": ["experimental", "stable", "deprecated"]
+    },
+    "severity": {
+      "enum": ["low", "medium", "high", "critical"]
+    },
+    "category": {
+      "type": "string",
+      "description": "Rule family, e.g. 'Windows Process Creation'. Must be one of playbooks/schema/enums.json#/category."
+    },
+    "version": {
+      "type": "string",
+      "default": "1.0"
+    },
+    "lastUpdated": {
+      "type": "string",
+      "description": "ISO date this structured record was generated/last synced from the source Markdown, used for the drift check."
+    },
+    "tags": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "integrations": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Must be values from playbooks/schema/enums.json#/integrations."
+    },
+    "mitre": {
+      "type": "object",
+      "description": "Structured MITRE ATT&CK mapping extracted from subsection 1's table.",
+      "properties": {
+        "tactics": {"type": "array", "items": {"type": "string"}},
+        "techniques": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "aiContext": {
+      "type": "object",
+      "description": "Machine-consumable pointer for the AI triage layer (build-prompt Phase 16) — never the rendered HTML, never scraped.",
+      "properties": {
+        "playbook": {"type": "string"},
+        "dataSource": {"type": "string"},
+        "triggerCondition": {"type": "string"}
+      }
+    },
+    "sections": {
+      "type": "array",
+      "description": "The 5 fixed subsections, in source order. Content within each is preserved as structured sub-blocks (paragraph / table / list / codeBlock / queryBlock) rather than raw HTML.",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "type", "blocks"],
+        "properties": {
+          "id": {
+            "enum": [
+              "rule-summary-mitre-mapping",
+              "automated-extraction-fields",
+              "enrichment-criteria",
+              "containment-decision-flow",
+              "remediation-evidence-preservation"
+            ]
+          },
+          "title": {"type": "string"},
+          "type": {"enum": ["procedure", "reference"]},
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["blockType"],
+              "properties": {
+                "blockType": {
+                  "enum": ["paragraph", "table", "list", "codeBlock", "queryBlock", "warning", "note", "markdown"]
+                },
+                "content": {},
+                "language": {
+                  "type": "string",
+                  "description": "For codeBlock/queryBlock: 'bash', 'kql', 'zeek', etc. Used to route to CommandBlock vs QueryBlock rendering (build-prompt Phase 11)."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Evidence-collection instructions extracted from the Remediation & Evidence Preservation subsection, surfaced separately for the EvidenceBlock component."
+    },
+    "unmappedContent": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Build-prompt Phase 8 fallback: any source content that could not be reliably mapped into a structured block is preserved here verbatim rather than discarded, with the issue documented in the migration report."
+    }
+  }
+}

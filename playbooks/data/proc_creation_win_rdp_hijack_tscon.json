@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_rdp_hijack_tscon",
+  "title": "RDP Session Hijacking via Tscon",
+  "ruleFile": "rules/sigma/proc_creation_win_rdp_hijack_tscon.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Lateral Movement"
+    ],
+    "techniques": [
+      "T1563.002 — Remote Service Session Hijacking: RDP Hijacking (per the rule's `attack.t1563.002` tag)"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_rdp_hijack_tscon",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Lateral Movement |\n| Technique(s) | T1563.002 — Remote Service Session Hijacking: RDP Hijacking (per the rule's `attack.t1563.002` tag) |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `tscon.exe` executed with a command line containing `/dest:` |\n\nDetects the use of tscon.exe to hijack an RDP session by passing a destination session ID. Redirecting a disconnected user's session to the attacker's own — without that user's credentials — requires SYSTEM context, so the parent lineage of the tscon call is the deciding triage signal."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\tscon.exe`) |\n| `CommandLine` | rule detection block | Source session ID and `/dest:` target session name |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | SYSTEM-context shell or service parent = hijack pattern; help-desk tool = admin use |\n| `User` | event source (Sysmon EID 1) | SYSTEM vs. named administrator decides intent plausibility |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (tscon itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (from the parent's own Sysmon EID 1 event — `tscon.exe` is Microsoft-signed) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: identify the owner of the `/dest:` target session (RDS session records / correlated logon telemetry); check the help-desk ticket queue and change calendar for a sanctioned session takeover.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- Do not label the activity malicious without the citing VT verdict or an internal case ID; a SYSTEM-parent tscon is a strong behavioral signal but is documented as such, not asserted as attribution."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier B — auto-isolate on TI-confirm: severity high → auto EDR-isolate the host when the parent-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\tscon.exe and process.args : */dest\\:*\n   ```\n2. Process-tree pivot: how did the caller obtain SYSTEM? Look for a preceding service creation, `sc config`, or scheduled-task alert on the same host; sweep the hijacked session's account for post-hijack activity.\n3. False-positive check: IT administrators forcefully connecting to specific sessions — confirm the operator and ticket before closing.\n**Escalation:** tscon parented by a SYSTEM-context process with no matching admin ticket, or the target session belongs to a privileged account → page the IR lead and treat the session owner's credentials and open applications as compromised."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Capture the RDS session records and the process tree before logoff clears them; screenshot/export the session ownership evidence.\n- Force logoff of the hijacked session, reset the session owner's password, revoke their tokens and cached sessions; remove whatever privilege-escalation artifact gave the caller SYSTEM.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Capture the RDS session records and the process tree before logoff clears them; screenshot/export the session ownership evidence.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

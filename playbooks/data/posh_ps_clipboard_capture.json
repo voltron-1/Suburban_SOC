@@ -1,0 +1,89 @@
+{
+  "id": "posh_ps_clipboard_capture",
+  "title": "PowerShell Clipboard Access or Polling",
+  "ruleFile": "rules/sigma/posh_ps_clipboard_capture.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "PowerShell Script Block Logging",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "PowerShell Script Block Logging"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Collection"
+    ],
+    "techniques": [
+      "T1115 — Clipboard Data"
+    ]
+  },
+  "aiContext": {
+    "playbook": "posh_ps_clipboard_capture",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Collection |\n| Technique(s) | T1115 — Clipboard Data |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (PowerShell/Operational) |\n| Trigger condition | A 4104 script block containing `Get-Clipboard`, OR the `user32`/`GetClipboardData` P/Invoke pattern |\n\nDetects PowerShell reading clipboard content — either the native `Get-Clipboard` cmdlet (PowerShell 5.0+) or the older `Add-Type`-against-`user32`/`GetClipboardData` pattern used on older PowerShell versions or to avoid the cmdlet's own audit signature. Clipboard content routinely holds credentials, crypto-wallet addresses, and other sensitive text copied moments earlier. The rule states its own confidence split: the `Get-Clipboard` branch is deliberately broad — a single invocation is common in legitimate admin/automation scripts too, so this is a visibility-layer tripwire, not a high-confidence standalone signal — while the `GetClipboardData`/`user32` branch is the higher-confidence half, since legitimate scripts essentially never reach for the raw Win32 API when the built-in cmdlet does the same job. Known scope limit, same as this corpus's other 4104 rules: substring matching only, not regex."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Channel scoping — script-block logging events (4104) only |\n| `ScriptBlockText` | rule detection block | Recovered script content — which branch fired (cmdlet vs. raw Win32 API), and what the captured value is subsequently sent to, if visible in the same or an adjacent block |\n| `ScriptBlockId` | event source (4104) | Reassembly/dedup key for chunked blocks |\n| `MessageNumber`, `MessageTotal` | event source (4104) | Chunk ordering — export every chunk before analysis |\n| `Path` | event source (4104) | On-disk `.ps1` path when run from a file; empty for the typical pasted one-liner |\n| `Computer`, `UserID` | event source (4104) | Host and executing-account SID — containment and Sysmon-correlation anchors |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Decoded domain/URL in an adjacent block exfiltrating the captured clipboard content → OTX; escalate on **any pulse match**.\n- Hash of any dropped payload or tool the block references (via the host's Sysmon file-creation events) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: is a known clipboard-manager, accessibility, or IT-helpdesk automation script recognized for this host (script hash/path baseline, change calendar)?\n- The clipboard-access call proves capability, not exfiltration — do not label it malicious without the citing TI verdict or an internal case."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on OTX pulse or VT ≥ 5 for a decoded artifact, auto-add that indicator to the blocklist and open an analyst ticket; no TI confirmation → Tier D triage.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4104 and winlog.event_data.ScriptBlockText : (*Get-Clipboard* or *GetClipboardData* or *user32*)\n   ```\n2. Correlate the 4104 event to its launching process via the host's Sysmon process-creation events in the same window (then follow the Windows Process Creation family baseline). Pull the same host/user's surrounding 4104 events for a follow-on exfiltration destination — static decode only, never execute recovered script content.\n3. False-positive check: a legitimate admin/automation script reading a value the operator just copied for a scripted paste step, or a clipboard-manager/productivity tool implemented in PowerShell — baseline and exclude by script hash/path if recurring; accessibility tooling or IT helpdesk scripts that legitimately poll or relay clipboard content.\n**Escalation:** the `GetClipboardData`/`user32` branch fired (the higher-confidence half), a follow-on exfil destination is found, or the host shows a paired credential-harvesting alert → promote to the high-severity flow (Tier B isolate) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full 4104 chunk set for the `ScriptBlockId`; collect the on-disk script (`Path`) if present.\n- Assume any credential or sensitive value the user had recently copied is exposed: force a reset for it if identifiable; remove the capturing script and its persistence.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full 4104 chunk set for the `ScriptBlockId`; collect the on-disk script (`Path`) if present.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_dns_txt_record_abuse",
+  "title": "TXT Record Query with Encoded-Looking Payload (Possible C2/Exfil Channel)",
+  "ruleFile": "rules/sigma/net_zeek_dns_txt_record_abuse.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1071.004 — Application Layer Protocol: DNS"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_dns_txt_record_abuse",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1071.004 — Application Layer Protocol: DNS |\n| Severity (`level`) | medium |\n| Data source | Zeek dns |\n| Trigger condition | DNS query with `qtype_name: TXT` whose query name contains a run of 40+ contiguous alphanumeric characters |\n\nDetects the upload direction of TXT-based DNS C2/exfil: the same encoded-payload shape as `net_zeek_dns_tunneling_high_entropy` but scoped to TXT specifically, the record type most C2 frameworks (Empire, Merlin, some Cobalt Strike DNS profiles) favor because it carries more payload per query. Honesty caveats carried from the rule: length stands proxy for entropy, and this is a per-query structural indicator, not a volume/burst detector — per-source cardinality over a time window cannot be expressed in a single Sigma detection, so the volume half is an analyst step (a threshold companion is a noted future option, deliberately not built)."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `qtype_name` | rule detection block | Confirms the TXT record type |\n| `query` | rule detection block | Long-label query name — payload carrier; its registered domain is the TI artifact |\n| `id.orig_h` | event source (Zeek dns.log) | Querying host — containment target |\n| `id.resp_h` | event source (Zeek dns.log) | Resolver used |\n| `rcode_name` | event source (Zeek dns.log) | A consistently answering domain indicates a live server side |\n| `answers` | event source (Zeek dns.log) | Non-empty encoded answers = the download direction is active too |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Registered domain of `query` → OTX: escalate on any pulse match.\n- Internal-only: volume confirmation — count distinct long-label TXT queries from `id.orig_h` to the same parent domain over 10-minute windows; a steady stream of unique labels is the exfil/beacon cadence the rule itself cannot measure.\n- Internal-only: mail-context check — DKIM/SPF/DMARC lookups explain most legitimate long TXT queries; confirm whether the source and domain fit that picture.\n- One structurally suspicious query is a lead, not a finding — the label waits for the OTX verdict or an internal case."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host isolation. On an OTX pulse for the parent domain, auto-add it to the DNS/perimeter blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   dns.question.type : \"TXT\" and source.ip : \"<orig_h>\"\n   ```\n   KQL cannot express the 40-character run — confirm it on the returned `dns.question.name` values (or the raw dns.log slice), then count distinct long-label queries under the same parent domain per 10-minute window.\n2. Direction pairing: inspect `dns.answers` on the same events and check the download-side sibling (`net_zeek_dns_txt_answer_abuse`) for the same domain — encoded content in both directions is the full C2 loop.\n3. Endpoint pivot: sweep `id.orig_h`'s Sysmon process-creation events in the window for the querying process; follow the Windows Process Creation family baseline.\n4. False-positive checks: DKIM/SPF/DMARC TXT lookups for domains with long selector or policy strings; some SaaS domain-verification TXT records use long random tokens.\n**Escalation:** confirmed unique-label burst to one parent domain plus a responsible process on the host → active exfil/C2 channel; promote to the high-severity flow (Tier B isolate of the querying host)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full dns.log slice for `id.orig_h` before rollover — the ordered query-name set is the exfiltrated payload itself; preserve it intact for reconstruction.\n- Block the parent domain at the resolver/perimeter; identify and remove the client tool and its launcher on the endpoint; hash the binary for VT.\n- Scope the exfiltration: estimate volume from the label count × label size, and determine what data the host could access in the active window.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source host."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full dns.log slice for `id.orig_h` before rollover — the ordered query-name set is the exfiltrated payload itself; preserve it intact for reconstruction.",
+    "Block the parent domain at the resolver/perimeter; identify and remove the client tool and its launcher on the endpoint; hash the binary for VT.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and source host."
+  ],
+  "unmappedContent": []
+}

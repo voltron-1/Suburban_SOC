@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_conn_external_rdp_inbound",
+  "title": "RDP Connection Originating From Outside Private Address Space",
+  "ruleFile": "rules/sigma/net_zeek_conn_external_rdp_inbound.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Lateral Movement"
+    ],
+    "techniques": [
+      "T1021.001 — Remote Services: Remote Desktop Protocol"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_conn_external_rdp_inbound",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Lateral Movement |\n| Technique(s) | T1021.001 — Remote Services: Remote Desktop Protocol |\n| Severity (`level`) | high |\n| Data source | Zeek conn |\n| Trigger condition | TCP connection to responder port 3389 where the originator address falls outside all three RFC1918 blocks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) |\n\nDetects a genuinely externally-sourced RDP session — not merely RDP \"seen by the sensor\" — by CIDR-checking the originator against RFC1918 space instead of assuming boundary sensor placement. Stated limit: if the campus addressing plan uses ranges outside the three RFC1918 blocks (e.g. carrier-grade NAT space, RFC6598 100.64.0.0/10), internal sources in those ranges wrongly appear external — verify against the real addressing plan before relying on this in production."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `id.resp_p` | rule detection block | Confirms the RDP service port (3389) |\n| `proto` | rule detection block | Confirms TCP transport |\n| `id.orig_h` | rule detection block | External originator — primary TI artifact |\n| `id.resp_h` | event source (Zeek conn.log) | Internal RDP responder — containment target |\n| `id.orig_p` | event source (Zeek conn.log) | Originator port; ties the flow to related sessions |\n| `conn_state`, `history`, `duration`, `orig_bytes`, `resp_bytes` | event source (raw Zeek conn.log) | Established interactive session vs. unanswered probe |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `id.orig_h` (external originator) → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: asset inventory on `id.resp_h` — is it a sanctioned, firewalled remote-desktop gateway? Check the change calendar and the firewall rule set for an intentional exposure.\n- Case history: prior alerts for the same external source (scanning, brute force) raise confidence.\n- An external address touching 3389 is not by itself malicious — cite the AbuseIPDB verdict or an internal case before labeling it so."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the internal responder `id.resp_h` when the external originator is AbuseIPDB-confirmed at ≥ 50% confidence; account actions on analyst confirm. Without TI confirmation: Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; Zeek fields are ECS-mapped):\n   ```\n   destination.port : 3389 and network.transport : \"tcp\" and not (source.ip : \"10.0.0.0/8\" or source.ip : \"172.16.0.0/12\" or source.ip : \"192.168.0.0/16\")\n   ```\n2. Session-vs-probe check: `conn_state`/`history`/`duration`/`resp_bytes` are not indexed — pull the flow's raw conn.log record; an unanswered probe (near-zero bytes) triages very differently from a long bidirectional session. Then confirm an actual interactive logon on the responder: `winlog.event_id : 4624 and winlog.event_data.LogonType : \"10\"`.\n3. Endpoint pivot: sweep `id.resp_h`'s Sysmon process-creation events in the session window for the logon's child processes; follow the Windows Process Creation family baseline for anything spawned.\n4. False-positive checks: an intentionally provisioned, firewalled remote-desktop gateway (allowlist its specific source/destination pair rather than excluding port 3389 broadly); internal ranges not covered by the three RFC1918 blocks (e.g. CGN 100.64.0.0/10). A NAT or port-forward boundary between sensor and client can also present a translated public source for an operationally internal session — distinguishing this needs the raw conn.log context plus the addressing plan.\n**Escalation:** established session (meaningful bidirectional bytes) plus a matching LogonType 10 logon on the responder → page the IR lead; treat `id.resp_h` as compromised pending review."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the conn.log slice for the `id.orig_h` ↔ `id.resp_h` pair and the responder's Security log window (4624/4625) before rollover.\n- Close the exposure: remove or restrict the firewall/NAT rule publishing 3389; force traffic through the sanctioned gateway path.\n- If a logon succeeded: reset the accounts used, revoke their sessions and tickets, and hunt lateral movement originating from `id.resp_h`.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and both endpoint addresses."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the conn.log slice for the `id.orig_h` ↔ `id.resp_h` pair and the responder's Security log window (4624/4625) before rollover.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and both endpoint addresses."
+  ],
+  "unmappedContent": []
+}

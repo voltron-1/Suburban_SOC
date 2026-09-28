@@ -16,6 +16,11 @@ from agent import (
     _read_queue, safe_tenant, Agent, _RESOLVED_STATUSES
 )
 
+# Dynamic HTML playbook system (docs/playbooks/IR_Sigma_Playbook.md migration).
+# Read-only analyst UI: /playbooks, /playbooks/<id>. Never executes commands —
+# see playbooks_blueprint.py's module docstring for the full boundary.
+from playbooks_blueprint import playbooks_bp
+
 # generate_dedup_key() (checkpoints.py) always produces a 64-char sha256 hex
 # digest. alert_id is interpolated unquoted into Elasticsearch REST paths in
 # checkpoints.py (e.g. _create/{alert_id}.claim), so an id that doesn't match
@@ -24,6 +29,7 @@ from agent import (
 _ALERT_ID_RE = re.compile(r"^[0-9a-f]{64}$")
 
 app = Flask(__name__)
+app.register_blueprint(playbooks_bp)
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 # Initialize the Agent

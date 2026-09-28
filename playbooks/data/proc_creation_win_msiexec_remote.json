@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_msiexec_remote",
+  "title": "MSI Package Installed from a Remote URL",
+  "ruleFile": "rules/sigma/proc_creation_win_msiexec_remote.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1218.007 — System Binary Proxy Execution: Msiexec"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_msiexec_remote",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1218.007 — System Binary Proxy Execution: Msiexec |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `msiexec.exe` with an install verb immediately adjacent to an http URL on the command line (`/i http`, `/i\"http`, `-i http`, `/package http`, `/a http`) |\n\nDetects msiexec.exe installing a package directly from an http(s) URL rather than a local or UNC path — a common technique for delivering a signed-binary-proxied payload past naive allowlisting. The rule matches the install-verb-adjacent-to-URL phrase directly rather than the flag and `http` as independent floating tokens, since the latter also matches routine deployments that pass an unrelated URL-valued MSI property (e.g. `SERVERURL=https://...`) alongside a purely local package path."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\msiexec.exe` |\n| `CommandLine` | rule detection block | Carries the install verb and the package URL — the primary artifact |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Deployment agent vs. shell/script host |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of msiexec.exe (Microsoft-signed; TI applies to the URL and the MSI) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Package URL/domain from `CommandLine` → AlienVault OTX; escalate on **any pulse match**.\n- SHA-256 of the fetched MSI (retrieve from the URL or the Windows Installer cache `C:\\Windows\\Installer`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: is the URL an internal software-repository host? Check deployment-tooling records and the change calendar.\n- Do not label the package malicious without the citing OTX/VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host action; on OTX pulse or MSI VT verdict ≥ 5 malicious, auto-add the domain/URL to the perimeter/DNS blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.executable : *\\\\msiexec.exe and process.args : (\"/i\" or \"-i\" or \"/package\" or \"/a\") and process.args : http*\n   ```\n   Confirm on the raw command line that the URL is the package argument directly adjacent to the install verb — an unrelated URL-valued property beside a local package path is not a match for this rule.\n2. Process-tree analysis: pivot on `process.parent.name`; enumerate what the installed package wrote and executed (msiexec's children and correlated file events).\n3. False-positive check: enterprise software deployment tools that legitimately push MSIs from an internal HTTP repository.\n**Escalation:** external URL with an OTX pulse, an unsigned or VT-confirmed MSI, or a shell/Office parent → promote to the high-severity flow (Tier B host isolation) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Retrieve and hash the MSI (installer cache or re-fetch in a sandbox); export the package's file-write and child-process activity.\n- Uninstall the package, remove files and persistence it installed, and block the source domain once TI-confirmed; hunt the MSI hash and URL fleet-wide.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Retrieve and hash the MSI (installer cache or re-fetch in a sandbox); export the package's file-write and child-process activity.",
+    "Uninstall the package, remove files and persistence it installed, and block the source domain once TI-confirmed; hunt the MSI hash and URL fleet-wide.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

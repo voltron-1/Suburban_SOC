@@ -1,0 +1,88 @@
+{
+  "id": "auth_win_rdp_logon_type10",
+  "title": "Interactive Logon via RDP (LogonType 10)",
+  "ruleFile": "rules/sigma/auth_win_rdp_logon_type10.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Lateral Movement"
+    ],
+    "techniques": [
+      "T1021.001 — Remote Services: Remote Desktop Protocol"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_rdp_logon_type10",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Lateral Movement |\n| Technique(s) | T1021.001 — Remote Services: Remote Desktop Protocol |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4624 with `LogonType` 10 (RemoteInteractive) |\n\nDetects a session established over RDP (or another remote-desktop protocol Windows classifies the same way) — a primary lateral-movement and hands-on-keyboard vector. This is the network-independent, endpoint-side complement to `net_zeek_conn_external_rdp_inbound.yml`: it fires on the target host itself regardless of what the network sensor can see, including segments the campus sensor has no visibility into."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the successful-logon event (4624) |\n| `LogonType` | rule detection block | `10` RemoteInteractive — an RDP-class session |\n| `TargetUserName` | event source (standard) | Account that logged on |\n| `IpAddress`, `WorkstationName` | event source (standard) | RDP client source — primary TI artifact |\n| `Computer` | event source (standard) | RDP target host — where the in-session activity will appear |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `IpAddress` → AbuseIPDB; escalate at **≥ 50% confidence** for external sources; internal sources pivot to asset-owner lookup.\n- Internal-only checks: is RDP intentionally enabled on `Computer`; the host's baseline of expected source/account pairs; correlation with `net_zeek_conn_external_rdp_inbound` for boundary-crossing sessions.\n- One RDP logon carries no verdict by itself — the citation is the TI hit, the baseline deviation, or what the session did next."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on AbuseIPDB ≥ 50% for `IpAddress`, auto-add the source to the perimeter blocklist; no host or account automation without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4624 and winlog.event_data.LogonType : 10\n   ```\n2. Baseline pivot: a single RDP logon is not adjudicable alone — routine volume is expected wherever RDP is intentionally enabled. The additional signal needed is deviation: a new source/account pairing, off-hours access, an external source, or in-session process activity on `Computer` that trips endpoint detections.\n3. False-positive check: legitimate remote administration via RDP by IT staff or the account owner — expect routine volume on any host RDP is intentionally enabled on; baseline expected source hosts/accounts and alert on deviation rather than every hit.\n**Escalation:** external or TI-confirmed source, or in-session activity firing endpoint-family rules → promote to the Tier B identity flow (terminate the session, disable the account) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- On confirmed misuse: log off/terminate the RDP session, disable and reset the account, and block the source; review everything the session executed on `Computer`.\n- Reduce exposure where the alert revealed unexpected RDP reachability (firewall scope, NLA, jump-host policy).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

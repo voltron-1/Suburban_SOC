@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_wmic_shadowcopy_delete",
+  "title": "Shadow Copy Deletion via WMIC",
+  "ruleFile": "rules/sigma/proc_creation_win_wmic_shadowcopy_delete.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Impact"
+    ],
+    "techniques": [
+      "T1490 — Inhibit System Recovery"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_wmic_shadowcopy_delete",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Impact |\n| Technique(s) | T1490 — Inhibit System Recovery |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `wmic.exe` (by image path or OriginalFileName) with a command line containing both `shadowcopy` and `delete` |\n\nDetects `wmic shadowcopy delete` (or `wmic.exe shadowcopy where \"...\" delete`) — the WMIC-driven route to the same effect as the vssadmin-based detection: destroying Volume Shadow Copies to block recovery ahead of encryption. A distinct, genuinely complementary signal, not a duplicate: WMIC is a separate binary with its own command grammar, and ransomware operators (CISA AA23-320A names this explicitly for Vice Society/Rhysida activity) commonly favor it specifically because vssadmin-based detections are widely deployed and well known."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\wmic.exe`) |\n| `OriginalFileName` | rule detection block | PE metadata catches a renamed wmic.exe |\n| `CommandLine` | rule detection block | Deletion scope, including any `where \"...\"` selector |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Storage-management script vs. shell/ransomware parent — the deciding context |\n| `User` | event source (Sysmon EID 1) | Requires elevation; identifies the compromised account |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (wmic itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (from its own Sysmon EID 1 event — `wmic.exe` is Microsoft-signed; the parent is where the ransomware payload shows itself) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: backup/storage-management software inventory for any tool that prunes shadow copies via WMIC on this host; change calendar; current recovery state.\n- No external IP/domain artifact on this event.\n- Label the event ransomware activity only with the citing VT verdict, a correlated Impact-tactic alert, or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier B — auto-isolate on TI-confirm: severity high → auto EDR-isolate the host when the parent-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   (process.executable : *\\\\wmic.exe or process.pe.original_file_name : \"wmic.exe\") and process.args : *shadowcopy* and process.args : *delete*\n   ```\n2. Ransomware-preparation sweep: query the same host ±30 min for the sibling primitives (`vssadmin delete shadows`, `wbadmin delete catalog`, `bcdedit`) and mass file-modification activity; pivot the parent's full process tree.\n3. False-positive check: backup software or a storage-management script pruning shadow copies via WMIC — rare in practice; verify context and correlate against the change calendar.\n**Escalation:** any second Impact-tactic rule firing on the same host — `proc_creation_win_vss_delete_shadows`, `proc_creation_win_wbadmin_delete_catalog`, or `proc_creation_win_bcdedit_recovery_disabled` — is treated as **ransomware-in-progress**: page the IR lead immediately and isolate without waiting for TI."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Verify recovery state before cleanup: enumerate surviving shadow copies, confirm the host's off-host backup coverage and last good restore point, and isolate backup infrastructure from the affected segment.\n- Collect/hash the parent payload and its dropped files; if encryption has not begun, containment and backup verification take priority over host cleanup — image before remediating if ransomware is suspected.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect/hash the parent payload and its dropped files; if encryption has not begun, containment and backup verification take priority over host cleanup — image before remediating if ransomware is suspected.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

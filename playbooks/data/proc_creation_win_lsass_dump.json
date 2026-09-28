@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_lsass_dump",
+  "title": "LSASS Memory Dump via Comsvcs.dll",
+  "ruleFile": "rules/sigma/proc_creation_win_lsass_dump.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1003.001 — OS Credential Dumping: LSASS Memory"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_lsass_dump",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1003.001 — OS Credential Dumping: LSASS Memory |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `rundll32.exe` launched with a command line containing both `comsvcs.dll` and `MiniDump` |\n\nDetects `rundll32.exe` invoking the exported MiniDump function of `comsvcs.dll` to write LSASS process memory to disk — a living-off-the-land credential-dumping method that needs no attacker tooling. Rule falsepositives: rare legitimate debugging operations."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\rundll32.exe`) |\n| `CommandLine` | rule detection block | Carries the target PID and the dump output file path |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (shell, script host, service) |\n| `User` | event source (Sysmon EID 1) | Account context; drives credential-reset scope |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (from the parent's own Sysmon EID 1 event — `rundll32.exe` itself is Microsoft-signed) → VirusTotal; treat as confirmed-malicious at **≥ 5 malicious verdicts**.\n- Dump output path parsed from `CommandLine` → internal-only: confirm the file exists, quarantine it. The dump is evidence, not a TI artifact.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- Comsvcs MiniDump has no routine administrative use; behavioral confidence is high even without a TI verdict, but record the rule ID and the verbatim event as the cited evidence — do not assert attribution."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the parent-binary VT verdict is ≥ 5 malicious; disable the initiating account on analyst confirm.\n**Analyst triage path** (no TI-confirmable artifact) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped — note `process.args`, not `process.command_line`):\n   ```\n   process.executable : *\\\\rundll32.exe and process.args : *comsvcs.dll* and process.args : *MiniDump*\n   ```\n2. Process-tree analysis: pivot on `process.parent.name` / `process.parent.args`; sweep the host ±30 min for sibling children of the same parent.\n3. False-positive check: sanctioned debugging session? Confirm against the change calendar and the EDR console operator log.\n**Escalation:** dump file confirmed on disk, or a non-interactive parent (service host, WmiPrvSE, script engine) → page the IR lead; treat every credential with a session on the host as exposed."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire full host memory **before** any cleanup or reboot; collect and hash the dump output file.\n- Force password resets for every account with a session on the host; revoke Kerberos tickets and cached sessions for those accounts; hunt post-event authentications by those accounts from new source hosts.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire full host memory **before** any cleanup or reboot; collect and hash the dump output file.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

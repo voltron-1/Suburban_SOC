@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_certutil_encode_exfil_prep",
+  "title": "Data Encoded for Exfiltration via Certutil",
+  "ruleFile": "rules/sigma/proc_creation_win_certutil_encode_exfil_prep.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Exfiltration"
+    ],
+    "techniques": [
+      "T1132.001 — Data Encoding: Standard Encoding"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_certutil_encode_exfil_prep",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Exfiltration |\n| Technique(s) | T1132.001 — Data Encoding: Standard Encoding |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `certutil.exe` (by `Image` path or `OriginalFileName` `CertUtil.exe`) with a space-anchored encode flag — ` -encode` or ` /encode` — on the command line |\n\nDetects `certutil.exe -encode` (or `/encode`), which base64-encodes an arbitrary local file — a standard LOLBin step to defeat egress controls that inspect for binary/archive signatures but pass what looks like text; the exact inverse of the corpus's `-decode` rule. The match is space-anchored (security review #235/#236): flag-form-only matching still collided with hyphen-compound filenames like `base64-encoded-output.txt`, and real certutil syntax always has the leading space a compound filename does not. Rule falsepositives: rare legitimate certificate-encoding workflows (e.g. converting a binary cert to base64 PEM format for transfer) — correlate the input/output file paths against the change calendar."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\certutil.exe`) |\n| `OriginalFileName` | rule detection block | Rename-resistant identification of certutil (`CertUtil.exe`) |\n| `CommandLine` | rule detection block | The input file (what data is being staged) and the encoded output path — the exfil-scope evidence |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | What orchestrated the staging (interactive shell vs script) |\n| `User` | event source (Sysmon EID 1) | Whose data access rights were used |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` (and of the encoded output once collected) → VirusTotal; escalate at **≥ 5 malicious verdicts** — the executing binary's hash flags a renamed impostor; the output hash fingerprints the staged data for fleet hunting.\n- Internal-only: classify the **input** file (what data was staged — sensitivity, owner); change calendar for certificate-management work; egress-log check for a transfer of the output file after this event.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- Staging is not exfiltration; state what the encoded file contained and whether egress evidence exists rather than asserting data loss without it."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → **Tier C — indicator block on TI-confirm**: on VT ≥ 5, auto-add the confirmed hash to the EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   (process.executable : *\\\\certutil.exe or process.pe.original_file_name : CertUtil.exe)\n   and process.args : (-encode* or /encode*)\n   ```\n2. Exfil-chain pivot: process-tree via `process.parent.name` / `process.parent.args`, then sweep the host's subsequent events for transfer activity referencing the output path (bitsadmin, script hosts, network utilities) and check egress/proxy logs for the same window.\n3. False-positive checks: rare legitimate certificate-encoding workflows (binary cert → base64 PEM for transfer) — correlate the input/output file paths against the change calendar; if the paths are ambiguous, say so and rest the verdict on the collected file contents.\n**Escalation:** sensitive input file plus any egress evidence for the output → declare an exfiltration incident, page the IR lead, and promote to Tier B host isolation on analyst confirm."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the input and encoded output files; record the input file's data classification and owner before any cleanup.\n- Cleanup: remove the staged output, eradicate the orchestrating parent, and if egress occurred, follow data-breach handling for the input file's contents (owner notification, credential/key rotation if credentials were inside).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the input and encoded output files; record the input file's data classification and owner before any cleanup.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

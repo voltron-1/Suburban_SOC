@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_reg_save_sam",
+  "title": "SAM Hive Dump via Reg.exe",
+  "ruleFile": "rules/sigma/proc_creation_win_reg_save_sam.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1003.002 — OS Credential Dumping: Security Account Manager"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_reg_save_sam",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1003.002 — OS Credential Dumping: Security Account Manager |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `reg.exe` with a command line containing both `save` and `hklm\\sam` |\n\nDetects reg.exe saving the SAM registry hive to disk — offline credential theft (Credential Access). The saved hive yields local account password hashes once combined with the SYSTEM hive's boot key, so a companion `save hklm\\system` on the same host is the expected second half of the technique."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\reg.exe`) |\n| `CommandLine` | rule detection block | Hive saved and the output file path — the file to locate and quarantine |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (interactive admin shell vs. script host or implant) |\n| `User` | event source (Sysmon EID 1) | Must already be elevated for the save to succeed; drives reset scope |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (reg.exe itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (from its own Sysmon EID 1 event — `reg.exe` is Microsoft-signed) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Hive output path parsed from `CommandLine` → internal-only: confirm the file exists and quarantine it; the dump is evidence, not a TI artifact.\n- Internal-only: change calendar and backup-runbook check for a sanctioned registry backup; case history for prior credential-access alerts on this host.\n- No external IP/domain artifact on this event. Record the rule ID and the verbatim event as the cited evidence; do not assert attribution."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier B — auto-isolate on TI-confirm: severity high → auto EDR-isolate the host when the parent-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\reg.exe and process.args : *save* and process.args : *hklm\\\\sam*\n   ```\n2. Sweep the same host ±30 min for the companion saves: `process.args : (*hklm\\\\system* or *hklm\\\\security*)` — SAM plus SYSTEM confirms a usable credential dump, SECURITY adds cached domain credentials.\n3. False-positive check: legitimate registry backups by administrators (rare; verify) — require the operator, ticket, and destination path to line up.\n**Escalation:** companion SYSTEM/SECURITY hive save found, or the output file leaves the host (share path, subsequent archive/egress alert) → page the IR lead; treat every local account on the host as exposed."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the saved hive file(s), then remove them from disk; acquire the process tree and any staging directory contents.\n- Rotate the local Administrator password (LAPS rotation if deployed) and all local accounts on the host; hunt for pass-the-hash-style logons using local accounts from this host afterward.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the saved hive file(s), then remove them from disk; acquire the process tree and any staging directory contents.",
+    "Rotate the local Administrator password (LAPS rotation if deployed) and all local accounts on the host; hunt for pass-the-hash-style logons using local accounts from this host afterward.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

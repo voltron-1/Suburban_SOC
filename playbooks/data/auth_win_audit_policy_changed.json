@@ -1,0 +1,88 @@
+{
+  "id": "auth_win_audit_policy_changed",
+  "title": "Audit Policy Changed",
+  "ruleFile": "rules/sigma/auth_win_audit_policy_changed.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1562.002 — Impair Defenses: Disable Windows Event Logging"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_audit_policy_changed",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1562.002 — Impair Defenses: Disable Windows Event Logging |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Any Security 4719 (\"System audit policy was changed\") event |\n\nDetects a Windows audit policy change. Attackers with administrative access commonly disable or narrow specific audit subcategories before acting, so those actions no longer generate the events this corpus's own detections depend on — this rule is partly a detection-integrity control for the rest of the rule set, not just a standalone technique detection."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the audit-policy change event (4719) |\n| `SubjectUserName`, `SubjectUserSid` | event source (standard) | Account that changed the policy — triage focus |\n| `CategoryId`, `SubcategoryGuid` | event source (standard) | Which audit subcategory was touched — maps to which detections lose telemetry |\n| `AuditPolicyChanges` | event source (standard) | Whether success/failure auditing was added or removed — removal is the evasion direction |\n| `Computer` | event source (standard) | Host whose policy changed |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only: change-management correlation (hardening rollouts produce planned hits); map the touched subcategory to the detections that depend on it; prior case history for `SubjectUserName`. This event carries no external artifact — AbuseIPDB/OTX/VT not applicable.\n- Treat the change as unauthorized only after the change-record check comes back empty — an uncorrelated hit is unverified, not yet malicious."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high with no external-TI artifact → routes to analyst triage (15-minute SLA); Tier B (identity) on analyst confirmation that the change is unauthorized — disable `SubjectUserName` and revoke its sessions (internal confirmation substitutes for a TI verdict on this artifact-free event).\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4719\n   ```\n2. Identity sweep: all activity by `SubjectUserName` on the host ±1 h; check whether events from the removed subcategory go silent afterwards, and look for a paired re-enable (attackers often restore the policy after acting inside the gap).\n3. False-positive check: legitimate, deliberate audit-policy tuning by IT/security staff (e.g. enabling a new subcategory as part of a hardening rollout) — expect occasional, planned hits; correlate with change-management records before escalating.\n**Escalation:** auditing narrowed or disabled (not added) with no change record, or followed by a measurable gap in expected event volume → page the IR lead; the detection corpus itself is degraded."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Restore the audit policy (GPO re-apply or `auditpol /restore`) and verify with `auditpol /get /category:*` against the baseline.\n- Treat the reduced-audit window as unobserved: sweep the surviving telemetry (Sysmon, network) for that window rather than assuming nothing happened in it.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

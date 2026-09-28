@@ -1,0 +1,90 @@
+{
+  "id": "create_remote_thread_win_susp_target",
+  "title": "Suspicious CreateRemoteThread Target or Source (Sysmon EventID 8)",
+  "ruleFile": "rules/sigma/create_remote_thread_win_susp_target.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Sysmon Specialized Events",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Sysmon Specialized Events"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion",
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1055 — Process Injection"
+    ]
+  },
+  "aiContext": {
+    "playbook": "create_remote_thread_win_susp_target",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion, Privilege Escalation |\n| Technique(s) | T1055 — Process Injection |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (create_remote_thread) |\n| Trigger condition | Sysmon EID 8 where either the target process image ends `\\lsass.exe` (any source account) or `SourceUser` is anything other than `NT AUTHORITY\\SYSTEM` |\n\nDetects CreateRemoteThread where the target is lsass.exe (classic credential-dumping-via-injection precursor) or the thread was created by a non-SYSTEM account. The rule states its own scope limits: the non-SYSTEM branch is broad by design and will match routine non-malicious activity (EDR/AV agents, debuggers, JIT/.NET hosting, accessibility and remote-support tooling, some installers) — expect meaningful alert volume on a live fleet; a SYSTEM-context actor injecting into a non-lsass target is not covered; and the SYSTEM exclusion matches the literal display string `NT AUTHORITY\\SYSTEM` (Sysmon exposes no SID for `SourceUser`), which is correct on English-locale hosts but needs a locale-specific value added on non-English builds."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Fixed at 8 (CreateRemoteThread) |\n| `TargetImage` | rule detection block | Injection target — `\\lsass.exe` marks the credential-access branch |\n| `SourceUser` | rule detection block | Account that created the thread — the non-SYSTEM branch trigger |\n| `SourceImage` | event source (Sysmon EID 8) | The injecting binary — primary artifact; hash it via its own EID 1 event |\n| `SourceProcessGuid`, `TargetProcessGuid` | event source (Sysmon EID 8) | Process-tree pivot keys for source and target |\n| `StartAddress`, `StartModule`, `StartFunction` | event source (Sysmon EID 8) | Thread start location — a start address backed by no module is an injection tell |\n| `Computer`, `UtcTime` | event source (Sysmon EID 8) | Host and timeline anchor |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the `SourceImage` binary (from that process's own Sysmon EID 1 event — EID 8 carries no hashes) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only checks: `SourceImage` against the deployed EDR/AV/debugging tooling inventory and the fleet allowlist; change calendar for a sanctioned debugging or support session.\n- A non-SYSTEM CreateRemoteThread alone is not malicious — the branch is broad by design; label the source binary malicious only with the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the `SourceImage` binary's VT verdict is ≥ 5 malicious; account actions on analyst confirm.\n**Analyst triage path** (no TI confirmation) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; raw winlog fields — this channel is not ECS-renamed):\n   ```\n   winlog.event_id : 8 and (winlog.event_data.TargetImage : *\\\\lsass.exe or not winlog.event_data.SourceUser : \"NT AUTHORITY\\\\SYSTEM\")\n   ```\n2. Process-tree analysis: pivot `SourceProcessGuid` to the source process's EID 1 event for its command line, parent, and hash; sweep the host ±30 min for other EID 8 events from the same source image.\n3. False-positive checks: legitimate security/monitoring agents (EDR, debuggers, backup software) that inject into or inspect LSASS for non-malicious purposes; on the non-SYSTEM branch, routine CreateRemoteThread by EDR/AV agents, debuggers, JIT/.NET runtimes, accessibility tooling, and remote-support software under a normal user account — expect tuning (allowlisting) to be required at this severity on a live fleet.\n**Escalation:** the lsass-target branch with a non-allowlisted source is a credential-access red flag — mirror the LSASS-dump treatment: page the IR lead and treat every credential with a session on the host as exposed."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire full host memory **before** any cleanup or reboot; collect and hash the `SourceImage` binary.\n- For a confirmed lsass-target case: force password resets for every account with a session on the host; revoke Kerberos tickets and cached sessions for those accounts; hunt post-event authentications by those accounts from new source hosts.\n- Remove the source binary's launcher (service, scheduled task, Run key — whatever the process tree shows) and verify the binary does not respawn.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire full host memory **before** any cleanup or reboot; collect and hash the `SourceImage` binary.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

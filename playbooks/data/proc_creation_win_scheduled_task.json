@@ -1,0 +1,90 @@
+{
+  "id": "proc_creation_win_scheduled_task",
+  "title": "Scheduled Task Creation via Schtasks",
+  "ruleFile": "rules/sigma/proc_creation_win_scheduled_task.yml",
+  "status": "stable",
+  "severity": "low",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution",
+      "Persistence"
+    ],
+    "techniques": [
+      "T1053.005 — Scheduled Task/Job: Scheduled Task"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_scheduled_task",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution, Persistence |\n| Technique(s) | T1053.005 — Scheduled Task/Job: Scheduled Task |\n| Severity (`level`) | low |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `schtasks.exe` with a command line containing both `/create` and `/tn` |\n\nDetects the creation of a new scheduled task using schtasks.exe. Task creation is a high-volume administrative operation; the rule exists as a triage and correlation signal, and the command line carries the task name and action needed to judge each instance."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\schtasks.exe`) |\n| `CommandLine` | rule detection block | Task name (`/tn`), action binary (`/tr`), trigger, and run-as principal (`/ru`) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Installer/management agent vs. shell or script host |\n| `User` | event source (Sysmon EID 1) | Who registered the task; SYSTEM run-as requests need elevation |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (schtasks itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the task **action binary** (collected from the `/tr` value in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: software-deployment calendar (installers create tasks constantly); task-name conventions — names imitating Windows defaults or random strings are the anomaly; case history for the same task name estate-wide.\n- No external IP/domain artifact on this event.\n- Volume alone means nothing here: a task is flagged malicious only on the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier D — triage-only: severity low → enrich and queue for analyst review; no automation.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\schtasks.exe and process.args : */create* and process.args : */tn*\n   ```\n2. Judge the task action: collect/hash the `/tr` target; a script-host or shell parent, a user-writable action path, or `/ru system` from a non-admin context moves this out of routine. Sweep for the same task name on other hosts.\n3. False-positive checks: software installations and updates; legitimate administrative tasks.\n**Escalation:** action binary VT-confirmed malicious, or the task creation correlates with another alert on the same host in ±30 min → promote severity and follow the correlated rule's containment flow."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the task XML (name, trigger, action, principal) and collect/hash the action binary before deletion.\n- Delete the task, remove the action binary, and check the other persistence surfaces on the host (Run keys, services) for siblings from the same window.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the task XML (name, trigger, action, principal) and collect/hash the action binary before deletion.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

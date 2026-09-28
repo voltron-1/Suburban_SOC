@@ -1,0 +1,89 @@
+{
+  "id": "posh_ps_amsi_bypass_attempt",
+  "title": "PowerShell AMSI Bypass Attempt",
+  "ruleFile": "rules/sigma/posh_ps_amsi_bypass_attempt.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "PowerShell Script Block Logging",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "PowerShell Script Block Logging"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1562.001 — Impair Defenses: Disable or Modify Tools"
+    ]
+  },
+  "aiContext": {
+    "playbook": "posh_ps_amsi_bypass_attempt",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1562.001 — Impair Defenses: Disable or Modify Tools |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (PowerShell/Operational) |\n| Trigger condition | A 4104 script block containing any AMSI-internals token: `AmsiUtils`, `amsiInitFailed`, `AmsiScanBuffer`, `AMSI_RESULT_NOT_DETECTED` |\n\nDetects script content referencing AMSI internals in ways consistent with a bypass — reflectively patching the `amsiInitFailed` field, referencing `AmsiUtils`/`AmsiScanBuffer` directly, or forcing the `AMSI_RESULT_NOT_DETECTED` scan result. Disabling AMSI is a standard precursor to running otherwise-detectable malicious script content. Known scope limit the rule states: substring matching only, not regex — trivial string-splitting/concatenation of these literal tokens evades it; treat as a tripwire against the common copy-pasted public bypass one-liners, not a comprehensive control."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Channel scoping — script-block logging events (4104) only |\n| `ScriptBlockText` | rule detection block | Recovered script content — which bypass primitive was used; the follow-on payload often appears in adjacent blocks from the same session |\n| `ScriptBlockId` | event source (4104) | Reassembly/dedup key for chunked blocks |\n| `MessageNumber`, `MessageTotal` | event source (4104) | Chunk ordering — export every chunk before analysis |\n| `Path` | event source (4104) | On-disk `.ps1` path when run from a file; empty for the typical pasted one-liner |\n| `Computer`, `UserID` | event source (4104) | Host and executing-account SID — containment and Sysmon-correlation anchors |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Decoded domain/URL recovered from this or an adjacent follow-on block → OTX; escalate on **any pulse match**.\n- Hash of any dropped payload (via the host's Sysmon file-creation events) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- If a decoded destination is a bare IP → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: authorized AMSI research, red-team tooling, or security-product testing on record for this host (engagement calendar)?\n- The bypass string itself proves tampering intent, not payload identity — cite the TI verdict or internal case before naming an indicator malicious."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when a decoded artifact confirms (OTX pulse or VT ≥ 5); no confirmable artifact → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4104 and winlog.event_data.ScriptBlockText : (*AmsiUtils* or *amsiInitFailed* or *AmsiScanBuffer* or *AMSI_RESULT_NOT_DETECTED*)\n   ```\n2. The bypass is stage-setting: pull the same host/user's surrounding 4104 events for the follow-on payload (static decode only — never execute recovered script content), and correlate to the launching process via the host's Sysmon process-creation events in the same window (then follow the Windows Process Creation family baseline).\n3. False-positive check: legitimate AMSI research, red-team tooling, or security-product testing performed by authorized staff on an isolated host — verify against the engagement calendar.\n**Escalation:** a follow-on payload block is found, or the host's AV/EDR telemetry goes quiet after the bypass → page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire host memory before any reboot — a successful patch lives in the PowerShell process's memory — and export the full 4104 set for the session window.\n- Verify AMSI/AV provider health on the host after containment; reset the executing account's credentials; block any TI-confirmed indicator from the decoded payload.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire host memory before any reboot — a successful patch lives in the PowerShell process's memory — and export the full 4104 set for the session window.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

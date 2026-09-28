@@ -1,0 +1,89 @@
+{
+  "id": "auth_linux_ssh_authorized_keys_change",
+  "title": "Reference to authorized_keys in Linux Auth Log",
+  "ruleFile": "rules/sigma/auth_linux_ssh_authorized_keys_change.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Linux Authentication",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Linux Authentication"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence"
+    ],
+    "techniques": [
+      "T1098.004 — Account Manipulation: SSH Authorized Keys"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_linux_ssh_authorized_keys_change",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence |\n| Technique(s) | T1098.004 — Account Manipulation: SSH Authorized Keys |\n| Severity (`level`) | medium |\n| Data source | Filebeat (Linux auth.log) |\n| Trigger condition | A Linux auth event (`event.module: system`) whose `message` mentions `authorized_keys` — most commonly a logged privileged command (e.g. `sudo vim ~/.ssh/authorized_keys`) touching the file |\n\nDetects auth.log references to `authorized_keys` — SSH public-key persistence works by adding an attacker's key to a user's `~/.ssh/authorized_keys`. Honesty caveat carried from the rule: this only catches edits made through a mechanism that gets logged to auth.log (sudo, or any other command auth.log records). A process running as the account's own UID writing directly to its own authorized_keys file produces no auth.log entry and is invisible to this rule — that requires file-integrity monitoring the repo does not currently collect. Treat this as a narrow, best-effort signal, not authorized_keys change detection in general."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `event.module` | rule detection block | Scopes to the Linux auth pipeline (`system`) |\n| `message` | rule detection block | The full logged line — for sudo-mediated edits it carries the invoking account, TTY, and the exact `COMMAND=` that touched the file |\n| `host.name` | event source | Host whose authorized_keys file was referenced |\n| `@timestamp` | event source | Change time — the anchor for the change-calendar check |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only artifact class: no external TI artifact on this event.\n- Internal-only checks: change-management records for a scheduled key rotation or config push; the invoking account (parsed from `message`) against the host's admin baseline; prior case history for the account and host.\n- If the log line alone cannot establish what was written to the file, say so in the case notes — the file's content is the evidence, not the mention of it."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** none — Internal-only artifact class, severity medium with no TI-confirmable artifact → Tier D: enrich and queue for analyst review.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; Linux auth fields are already ECS):\n   ```\n   event.module : \"system\" and message : \"authorized_keys\"\n   ```\n2. Identity sweep: parse the invoking account from `message`; pull that account's auth activity ±24 h on the host (logins, su/sudo events) to establish whether the session that made the edit was itself ordinary.\n3. Inspect the actual file on the host: compare the current key set against the known-good baseline or backup — the alert cannot tell you what changed, only that the file was touched.\n4. False-positive check: legitimate key-management automation (Ansible/Puppet/Chef pushing SSH keys, a user rotating their own key via a logged sudo command) — expect routine hits in any environment that manages authorized_keys this way; correlate with change-management records before escalating.\n**Escalation:** a key present in the file that no change record or owner accounts for → treat as confirmed persistence; open an incident and move to the identity-compromise flow for the key's account."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and SHA-256 hash the affected `authorized_keys` file before editing it; record file mtime and owner.\n- Remove the unauthorized key; force a credential review for the account (password reset, audit of the account's other keys and active sessions).\n- Because same-UID direct writes are invisible to this rule, sweep authorized_keys files fleet-wide (content diff or mtime review) rather than trusting the absence of further alerts.\n- Hunt logins that used the rogue key (subsequent SSH accepts for the account) and treat those sessions' activity as attacker activity.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and SHA-256 hash the affected `authorized_keys` file before editing it; record file mtime and owner.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

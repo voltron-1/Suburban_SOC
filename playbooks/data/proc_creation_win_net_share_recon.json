@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_net_share_recon",
+  "title": "Network Share Enumeration via net.exe",
+  "ruleFile": "rules/sigma/proc_creation_win_net_share_recon.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1135 — Network Share Discovery"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_net_share_recon",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1135 — Network Share Discovery |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `net.exe`/`net1.exe` (by path or `OriginalFileName`) with ` view` or ` share` on the command line |\n\nDetects `net view` (list shares/computers reachable from this host) and bare `net share` (list this host's own shares) — standard early discovery steps that reveal lateral-movement targets. The rule states its own scope honestly: this activity is genuinely common in normal IT administration, so it is deliberately a lower-confidence signal whose real value is correlation with the other discovery-stage rules, not a standalone high-confidence detection."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\net.exe` / `\\net1.exe` |\n| `OriginalFileName` | rule detection block | Catches a renamed copy of net.exe by its PE-header name |\n| `CommandLine` | rule detection block | `view` vs. `share`, and any target host argument |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Interactive admin shell vs. script vs. remote-execution service |\n| `User` | event source (Sysmon EID 1) | Account context — recon by a non-IT account is the interesting case |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary — TI check for a renamed/planted copy |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts** (only meaningful for a renamed or planted binary — the stock system copy is Microsoft-signed).\n- Internal-only: asset owner and role of `User` and `Computer`; case history for an active investigation on this host; login/logon-script inventory for sanctioned share enumeration.\n- Enumeration alone is never labeled malicious — it escalates only through correlation with other discovery-stage or lateral-movement signals, or a TI-confirmed follow-on artifact."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host action; on a VT verdict ≥ 5 malicious for the executing binary, auto-add the hash to the EDR blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   (process.executable : (*\\\\net.exe or *\\\\net1.exe) or process.pe.original_file_name : (\"net.exe\" or \"net1.exe\")) and process.args : (\"view\" or \"share\")\n   ```\n2. Correlation sweep: query the same host ±30 min for the other discovery-stage rules (`proc_creation_win_nltest_discovery`, `proc_creation_win_domain_group_discovery`, `proc_creation_win_user_discovery`) and for subsequent SMB/logon activity toward hosts the enumeration would have revealed.\n3. False-positive checks: routine IT/helpdesk troubleshooting of a mapped-drive or file-share access issue; login/logon scripts or asset-inventory tooling that enumerate shares as part of normal operation.\n**Escalation:** the same host fires multiple discovery-stage rules in one window, or share enumeration is followed by new SMB sessions to the enumerated targets → treat as a recon chain, promote to intrusion triage, and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the host's process-creation slice for the window — the discovery command sequence is the recon fingerprint.\n- No host artifact to clean for the enumeration itself; remediation follows whatever the correlation sweep uncovers (lateral movement, planted tooling).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the host's process-creation slice for the window — the discovery command sequence is the recon fingerprint.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

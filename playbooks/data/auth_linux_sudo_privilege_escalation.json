@@ -1,0 +1,89 @@
+{
+  "id": "auth_linux_sudo_privilege_escalation",
+  "title": "Sudo Command Execution Logged",
+  "ruleFile": "rules/sigma/auth_linux_sudo_privilege_escalation.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Linux Authentication",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Linux Authentication"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1548.003 — Abuse Elevation Control Mechanism: Sudo and Sudo Caching"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_linux_sudo_privilege_escalation",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Privilege Escalation |\n| Technique(s) | T1548.003 — Abuse Elevation Control Mechanism: Sudo and Sudo Caching |\n| Severity (`level`) | low |\n| Data source | Filebeat (Linux auth.log) |\n| Trigger condition | A Linux auth event (`event.module: system`) whose `message` contains both the tokens `sudo` and `command` — sudo logs a literal `COMMAND=` field for every invocation |\n\nDetects a sudo command invocation recorded in auth.log. Deliberately broad, not narrowed to specific commands: this flags every logged sudo invocation, not just suspicious ones — it is the visibility layer other, more targeted rules (like `auth_linux_ssh_authorized_keys_change.yml`) build on, not a standalone high-confidence alert. The rule's own promotion gate: it stays experimental until paired with a threshold companion or narrowed to commands of interest, because per-event alerting on all sudo usage is not operable at fleet scale."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `event.module` | rule detection block | Scopes to the Linux auth pipeline (`system`) |\n| `message` | rule detection block | The full sudo line — invoking user, `TTY=`, `PWD=`, `USER=<target>`, and the exact `COMMAND=` string |\n| `host.name` | event source | Host where the command ran |\n| `@timestamp` | event source | Invocation time — anchor for baseline comparison |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only artifact class: no external TI artifact on this event.\n- Internal-only checks: the invoking account against the host's expected-admin allowlist; the `COMMAND=` value against the account's routine pattern; change calendar for maintenance windows explaining unusual commands.\n- A sudo line is evidence that a command ran with privilege — nothing more. Suspicion needs the command content plus context, cited in the case."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** none — severity low, Internal-only → Tier D: enrich and queue for analyst review; no automation.\n**Analyst triage path** (context checks, not containment):\n1. Verify with KQL (index `logstash-*`; Linux auth fields are already ECS):\n   ```\n   event.module : \"system\" and message : \"sudo\" and message : \"command\"\n   ```\n2. Context check: parse the invoking account and `COMMAND=` from `message`; compare against that account's baseline on this host (expected accounts, routine commands, normal hours). Bucket by host/account over 24 h to see whether this is ordinary volume.\n3. Content check: does the `COMMAND=` touch credential material, `authorized_keys`, shell spawns (`sudo su`, `sudo -s`, `sudo bash`), or config the account has no business editing? Correlate with any sibling `authorized_keys` alert in the same window.\n4. False-positive check: routine, expected administrative sudo usage — the rule is deliberately broad; tune with an allowlist of expected accounts/commands per host rather than treating every hit as an incident.\n**Escalation:** a privileged command from an account outside the admin baseline, or a `COMMAND=` that manipulates credentials/keys/persistence with no change record → open a case and move to the identity-compromise flow for the invoking account."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- For an escalated case: export the auth.log window for the account (all sudo lines plus its originating login), preserving the exact `COMMAND=` strings verbatim.\n- If the invoking account is judged compromised (cited evidence required): reset credentials, audit sudoers membership, and reverse the escalated command's effects (restore edited files from backup, remove added keys/users).\n- Tune rather than mute: feed confirmed-benign account/command pairs into the per-host allowlist so the visibility layer stays reviewable.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "For an escalated case: export the auth.log window for the account (all sudo lines plus its originating login), preserving the exact `COMMAND=` strings verbatim.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

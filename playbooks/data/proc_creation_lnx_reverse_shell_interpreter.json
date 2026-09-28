@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_lnx_reverse_shell_interpreter",
+  "title": "Linux Reverse Shell via Interpreter Redirect or Exec Flag",
+  "ruleFile": "rules/sigma/proc_creation_lnx_reverse_shell_interpreter.yml",
+  "status": "experimental",
+  "severity": "critical",
+  "category": "Linux Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Linux Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution"
+    ],
+    "techniques": [
+      "T1059.004 — Command and Scripting Interpreter: Unix Shell"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_lnx_reverse_shell_interpreter",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution |\n| Technique(s) | T1059.004 — Command and Scripting Interpreter: Unix Shell |\n| Severity (`level`) | critical |\n| Data source | auditd execve via Filebeat (Linux process_creation, #442) |\n| Trigger condition | bash's `/dev/tcp/` pseudo-device redirect anywhere in the command line, OR `nc`/`ncat`/`netcat` with an ` -e ` exec flag, OR Python's `pty.spawn`, OR `socat` with an `EXEC:` address type |\n\nDetects the handful of one-liner reverse-shell idioms that dominate real-world Linux post-exploitation (revshells.com/PayloadsAllTheThings-class payloads) — the interpreter invocation itself, seen via #442's execve telemetry, is already the signal without needing a process-ancestry chain. `nc`/`socat` branches require BOTH the binary AND the exec-flag/`EXEC:` token — a bare `nc -l -p 4444` listener with no shell attached is routine and must not fire; `bash`'s `/dev/tcp/` and Python's `pty.spawn` need no companion flag since both are already narrow, rarely-legitimate strings on their own."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `CommandLine` | rule detection block | Which idiom fired, and — for the `/dev/tcp/` and `nc`/`ncat`/`netcat`/`socat` branches — the callback IP:port embedded in the argument text |\n| `Image` | rule detection block (nc/socat branches) / event source | The interpreter/binary actually executing the shell |\n| `process.name` (`comm`) | event source (auditd SYSCALL) | Short process name — cross-check against `process.executable` |\n| `process.pid`, `process.parent.pid` | event source (auditd SYSCALL) | Process/parent PID numbers only — no parent name (see family header) |\n| `user.id`, `user.name` | event source (auditd SYSCALL) | Executing account — the privilege level the attacker lands with |\n| `host.name`, `@timestamp` | event source | Host and execution time |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Callback IP:port parsed from `CommandLine` (the `/dev/tcp/<ip>/<port>` target, or the `nc`/`ncat`/`netcat`/`socat` connect address) → AbuseIPDB; escalate at **≥ 50% confidence** — record the verdict, but containment does not wait for it (critical policy row).\n- Internal-only: check the red-team engagement calendar and detection-validation schedule — the documented false-positive population for this rule (a rare legitimate `/dev/tcp/` health check, or `nc`/`socat` used deliberately for a non-shell file-transfer purpose).\n- Per policy, the 8 critical rules (this one included) are behaviorally conclusive: the rule match plus the verbatim event is the cited evidence. Record the callback IP and its TI verdict in the case; still never assert attribution."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity critical → Tier A: EDR network isolation + AD/IdP account disable (if the account is domain-joined via SSSD/Kerberos) + session revocation execute automatically on the rule match itself; the IR lead is paged. Analyst steps below run post-containment.\n**Analyst triage path** (verification after auto-containment):\n1. Verify with KQL (index `logstash-*`; requires #442's auditd pipeline live):\n   ```\n   event.dataset : \"auditd.execve\" and (process.args : *\\/dev\\/tcp\\/* or process.args : *pty.spawn* or (process.executable : (*\\/nc or *\\/ncat or *\\/netcat) and process.args : *-e*) or (process.executable : *\\/socat and process.args : *EXEC:*))\n   ```\n2. Extract the callback IP:port from `process.args` (the `/dev/tcp/<ip>/<port>` literal, or the `nc`/`socat` connect argument) and enrich it against AbuseIPDB; sweep the host ±60 min for the interpreter's own arrival (download, copy) and for sibling executions on other hosts.\n3. False-positive checks: an authorized red-team/pentest exercise or CTF on this host (confirm against the engagement calendar); a legitimate, rare `/dev/tcp/` connectivity/health check with no shell attached to the far end; `nc`/`ncat` used as a one-shot file-transfer or health-check tool with `-e` for a non-shell purpose (uncommon — most modern `nc` builds compile `-e` out specifically because of this abuse pattern).\n**Escalation:** already paged by Tier A. Additionally: the callback IP is AbuseIPDB-confirmed, or the shell's subsequent commands show further post-exploitation activity → declare a confirmed-compromise incident, not a contained attempt."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire host memory before cleanup — the live shell session and any staged tooling live in process memory; collect and hash whatever the interpreter subsequently executed.\n- Kill the shell's process tree; block the callback IP:port at the perimeter; remove any dropped tooling or persistence the session installed.\n- Reset every credential the landed account (`user.name`) had access to on this host, and audit for lateral movement using it.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire host memory before cleanup — the live shell session and any staged tooling live in process memory; collect and hash whatever the interpreter subsequently executed.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

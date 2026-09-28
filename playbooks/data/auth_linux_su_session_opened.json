@@ -1,0 +1,90 @@
+{
+  "id": "auth_linux_su_session_opened",
+  "title": "su Session Opened",
+  "ruleFile": "rules/sigma/auth_linux_su_session_opened.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "Linux Authentication",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Linux Authentication"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1078.003 — Valid Accounts: Local Accounts"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_linux_su_session_opened",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Privilege Escalation |\n| Technique(s) | T1078.003 — Valid Accounts: Local Accounts |\n| Severity (`level`) | low |\n| Data source | Filebeat (Linux auth.log) |\n| Trigger condition | A Linux auth event (`event.module: system`) whose `message` contains all three tokens `su`, `session`, and `opened` — PAM's session-open line for an `su` identity switch (the `su` token separates these from sshd's identically worded session-open lines for ordinary SSH logins) |\n\nDetects a `su` session being opened, per PAM's own logging (\"session opened for user <target> by <source>\"). A user switching identity via `su` (as opposed to running a single command via `sudo`) opens a persistent shell under the target account — worth the same visibility as sudo usage. This is a visibility-tier rule: the alert is a context question, not an incident."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `event.module` | rule detection block | Scopes to the Linux auth pipeline (`system`) |\n| `message` | rule detection block | The PAM line — carries both the target account (\"for user <target>\") and the source account (\"by <source>\") |\n| `host.name` | event source | Host where the identity switch happened |\n| `@timestamp` | event source | Session-open time — anchor for correlating the source account's login |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only artifact class: no external TI artifact on this event.\n- Internal-only checks: is su-to-<target> part of the source account's normal admin pattern on this host (baseline, prior case history)? Does a change-calendar entry cover the session window?\n- The PAM line proves the switch happened, not why — do not record intent without corroborating session context."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** none — severity low, Internal-only → Tier D: enrich and queue for analyst review; no automation.\n**Analyst triage path** (context checks, not containment):\n1. Verify with KQL (index `logstash-*`; Linux auth fields are already ECS):\n   ```\n   event.module : \"system\" and message : \"su\" and message : \"session\" and message : \"opened\"\n   ```\n2. Identity context: parse source and target accounts from `message`; find the source account's originating login (SSH accept line, its `source.ip`) — an su-to-root from a session that began as an anomalous remote login is a different event than a local admin's routine switch.\n3. Baseline check: is this source→target pair seen regularly on this host? Baseline expected accounts before escalating every hit.\n4. False-positive check: routine, legitimate use of `su` for administrative tasks — expect regular volume on any host where staff use `su` rather than `sudo -s`.\n**Escalation:** su to root (or a service account) by an account outside the host's admin baseline, or a source session originating from an unexpected remote address → open a case and move to the identity-compromise flow for the source account."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- For an escalated case: export the auth.log window covering the source account's login through session close, and capture the target account's shell history for the session.\n- If the source account is judged compromised (cited evidence required): reset its credentials, review its authorized_keys, and audit everything the su-acquired shell touched.\n- If benign but unbaselined: record the source→target pair in the host's admin baseline so future hits triage faster.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "For an escalated case: export the auth.log window covering the source account's login through session close, and capture the target account's shell history for the session.",
+    "If benign but unbaselined: record the source→target pair in the host's admin baseline so future hits triage faster.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

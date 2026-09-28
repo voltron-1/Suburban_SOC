@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_conn_tor_exit_node",
+  "title": "Connection to Tor's Default OR or Directory Port",
+  "ruleFile": "rules/sigma/net_zeek_conn_tor_exit_node.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1090.003 — Proxy: Multi-hop Proxy"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_conn_tor_exit_node",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1090.003 — Proxy: Multi-hop Proxy |\n| Severity (`level`) | medium |\n| Data source | Zeek conn |\n| Trigger condition | TCP connection to responder port 9001 (Tor onion-router) or 9030 (directory authority) |\n\nDetects a campus host acting as, or connecting out to, a Tor relay — anonymized C2 or policy-violating anonymization. The rule states its gaps plainly: obfs4 and other pluggable-transport bridges use arbitrary non-default ports, and meek/domain-fronting transports tunnel over 443 and are invisible to a port check — this catches default-configuration Tor only. Port 9001 is also a common alternate application port (some Tomcat, JBoss, etcd, HSQLDB deployments), so a hit is a weak indicator until the destination is verified."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `id.resp_p` | rule detection block | 9001 vs 9030 — OR circuit vs directory fetch |\n| `proto` | rule detection block | Confirms TCP transport |\n| `id.orig_h` | event source (Zeek conn.log) | Internal client — containment target |\n| `id.resp_h` | event source (Zeek conn.log) | Remote endpoint — primary TI artifact |\n| `service` | event source (Zeek conn.log) | Protocol Zeek recognized on the port (TLS on a real OR port) |\n| `duration`, `orig_bytes`, `resp_bytes` | event source (raw Zeek conn.log) | Long-lived circuit vs. one-shot probe |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `id.resp_h` → AbuseIPDB; escalate at **≥ 50% confidence** (relay and exit addresses are widely reported).\n- Internal-only: is `id.orig_h` a sanctioned research or CS-department host with a documented reason to run a relay/bridge? Check asset owner and prior case history.\n- Verify the destination is actually Tor before treating the hit as Tor — port 9001 alone does not establish it (see the false-positive list).\n- No verdict without the AbuseIPDB citation or an internal case — a port number is not evidence of intent."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host isolation. On AbuseIPDB ≥ 50% confirmation of `id.resp_h`, auto-add the IP to the perimeter blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   destination.port : (9001 or 9030) and network.transport : \"tcp\" and source.ip : \"<orig_h>\"\n   ```\n2. Behavior check: sweep the same source for repeated connections to multiple distinct destinations on these ports (`destination.port : (9001 or 9030)` without the source clause, bucketed by `source.ip`/`destination.ip`) — circuit-building touches several relays; a single hit to one host is more likely an unrelated service. Circuit longevity (`duration`, byte counts) needs the raw conn.log record.\n3. Endpoint pivot: sweep `id.orig_h`'s Sysmon process-creation events in the window for the client process (a Tor client/browser bundle, or something else entirely that happens to use the port); follow the Windows Process Creation family baseline.\n4. False-positive checks: a deliberately operated Tor relay/bridge (unusual on a campus network but possible for a research or CS-department host — allowlist by source if intentional); port 9001 as an alternate application port for unrelated services (Tomcat, JBoss, etcd, HSQLDB) — verify the destination before treating a hit as Tor.\n**Escalation:** destination confirmed as Tor infrastructure plus a non-sanctioned client process on the internal host → treat as anonymized C2 or deliberate evasion; promote to the high-severity flow (Tier B isolate of `id.orig_h`)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the conn.log slice for `id.orig_h` — the full set of touched relay addresses is the circuit evidence.\n- Remove the Tor client/relay software (or apply the policy action if this is misuse rather than compromise); block the confirmed relay IPs at the perimeter.\n- If the client process was not user-installed, treat the host as compromised and follow the endpoint family baseline for the process found.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and endpoints."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the conn.log slice for `id.orig_h` — the full set of touched relay addresses is the circuit evidence.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs/screenshots; record the UTC window and endpoints."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,89 @@
+{
+  "id": "system_win_eventlog_cleared",
+  "title": "Event Log Cleared (Windows System 104)",
+  "ruleFile": "rules/sigma/system_win_eventlog_cleared.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows System Log - Service Control Manager & Event Log Service",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows System Log - Service Control Manager & Event Log Service"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1070.001 — Indicator Removal: Clear Windows Event Logs"
+    ]
+  },
+  "aiContext": {
+    "playbook": "system_win_eventlog_cleared",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1070.001 — Indicator Removal: Clear Windows Event Logs |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows System) |\n| Trigger condition | System 104 (\"the <log> log was cleared\") — fires for any log channel cleared, no filters |\n\nDetects the native event the Windows Event Log service emits whenever any channel (Security, System, Application, …) is cleared. More reliable than command-line-based detection alone (`proc_creation_win_clear_event_logs.yml`) since it fires regardless of the tool used — kept alongside that rule and `auth_win_security_log_cleared.yml`, not a replacement for either. A log clear is an anti-forensics act: the interesting question is always what it was meant to conceal."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Selects System 104 (log cleared) |\n| `Channel` | event source (System 104) | Which log was cleared — a Security-channel clear is the highest-signal case |\n| `SubjectUserName`, `SubjectDomainName` | event source (System 104) | Account that performed the clear — identity pivot |\n| `BackupPath` | event source (System 104) | Backup file path when the clearing tool saved one — collect it if present |\n| `Computer` | event source (System channel) | Host; the record timestamp marks the end of the destroyed local window |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- The 104 event itself carries no hashable artifact; the TI target is the clearing tool: correlate Sysmon EID 1 on the host in the surrounding minutes (`wevtutil.exe`, PowerShell, or an unknown binary) and submit that binary's SHA-256 → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only checks: approved log-retention/rotation maintenance schedule; is `SubjectUserName` an expected admin or service account for this host; prior case history on the host.\n- The clear is proven by the event itself; who and why are not — cite the correlated process evidence or an internal case ID before labeling it hostile."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the clearing tool's hash is VT-confirmed ≥ 5; account actions on analyst confirm. No TI-confirmable artifact → Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 104 and host.name : \"<host>\"\n   ```\n   Read the cleared channel and the initiating account from the matched documents.\n2. Pivot: Sysmon EID 1 on the host ±10 minutes to find the clearing process and its parent; then sweep the host's other alerts — this event derives most of its meaning from what surrounds it.\n3. False-positive check: scheduled log-retention or rotation tooling that clears logs as part of approved maintenance — confirm against the maintenance schedule.\n**Escalation:** the clear co-occurs with any other alert on the same host (any family, ±24 h) → treat as high-priority anti-forensics concealing that activity; page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Pull the SIEM's forwarded copy of the cleared channel for the affected window — the shipped copy survives local clearing; export it before index rollover and hunt the concealed activity there. Collect `BackupPath` if the event names one.\n- Restore audit capability: verify the Event Log service is running and the cleared channel is receiving events again; revert any audit-policy changes found alongside the clear.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Pull the SIEM's forwarded copy of the cleared channel for the affected window — the shipped copy survives local clearing; export it before index rollover and hunt the concealed activity there. Collect `BackupPath` if the event names one.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

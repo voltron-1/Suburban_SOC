@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_powershell_encoded",
+  "title": "Suspicious PowerShell Encoded Command Execution",
+  "ruleFile": "rules/sigma/proc_creation_win_powershell_encoded.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution"
+    ],
+    "techniques": [
+      "T1059.001 — Command and Scripting Interpreter: PowerShell"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_powershell_encoded",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution |\n| Technique(s) | T1059.001 — Command and Scripting Interpreter: PowerShell |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `powershell.exe`/`pwsh.exe` with a boundary-delimited `-EncodedCommand` or any of its `-`/`/`-prefixed abbreviations (`-e`, `-en`, `-enc`, `-enco…`, `-ec`, and the `/` mirrors), excluding command lines carrying the unrelated `-Encoding` cmdlet parameter |\n\nDetects encoded PowerShell commands, a common obfuscation technique. The rule covers the abbreviation range because PowerShell resolves `-EncodedCommand` from any unambiguous prefix, and mirrors every entry with a `/` prefix since powershell.exe accepts `/` as a switch prefix identically to `-`. Documented residual gap: a tab-delimited `-enc` (tab as the argument separator, no adjacent space) still evades every entry — assessed low real-world likelihood and left as a stated gap rather than covered."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms `\\powershell.exe` / `\\pwsh.exe` |\n| `CommandLine` | rule detection block | Carries the flag and the Base64 payload — decode it; the decoded script is the real evidence |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (Office macro, scheduled task, remote-execution service) |\n| `User` | event source (Sysmon EID 1) | Account context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the PowerShell binary (Microsoft-signed; TI applies to decoded artifacts) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Decode the Base64 payload from `CommandLine` (UTF-16LE), then: SHA-256 of any payload the decoded script drops or fetches → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: compare the decoded script against known admin automation (deployment tooling legitimately uses encoding); check the correlated 4104 script-block events for the executed content.\n- The encoded flag alone is not a verdict — the decoded content plus a cited TI verdict or internal case ID is what escalates it."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host action; on a VT verdict ≥ 5 malicious for a decoded-payload hash, auto-add that hash to the EDR blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-mapped channel):\n   ```\n   process.executable : (*\\\\powershell.exe or *\\\\pwsh.exe)\n     and process.args : (\"-e\" or \"-en\" or \"-enc\" or -enco* or \"-ec\" or \"-EncodedCommand\" or \"/e\" or \"/en\" or \"/enc\" or /enco* or \"/ec\" or \"/EncodedCommand\")\n     and not process.args : (\"-Encoding\" or -Encoding\\:*)\n   ```\n2. Decode and read the payload; then process-tree analysis on `process.parent.name` / `process.parent.args` — an interactive admin console and a service-spawned encoded command are different verdicts.\n3. False-positive check: legitimate administrative scripts that use encoding.\n**Escalation:** the decoded script contains a download cradle, injection, credential access, or C2 addresses → promote to the high-severity flow (Tier B isolate on analyst confirm) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Preserve both the verbatim encoded command line and the decoded script as case evidence; export correlated 4104 events.\n- Act on the decoded content: remove dropped payloads/persistence it created, block any embedded URLs/IPs once TI-confirmed, and hunt the same encoded string fleet-wide.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve both the verbatim encoded command line and the decoded script as case evidence; export correlated 4104 events.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

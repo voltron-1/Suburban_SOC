@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_spooler_child_process_printnightmare",
+  "title": "Print Spooler Service Spawning a Suspicious Child Process",
+  "ruleFile": "rules/sigma/proc_creation_win_spooler_child_process_printnightmare.yml",
+  "status": "experimental",
+  "severity": "critical",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1068 — Exploitation for Privilege Escalation"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_spooler_child_process_printnightmare",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Privilege Escalation |\n| Technique(s) | T1068 — Exploitation for Privilege Escalation |\n| Severity (`level`) | critical |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | Parent image `\\spoolsv.exe` spawning `cmd.exe`, `powershell.exe`, `pwsh.exe`, `rundll32.exe`, `mshta.exe`, or `regsvr32.exe` |\n\nDetects spoolsv.exe (the Print Spooler, running as SYSTEM) spawning a command interpreter or script/LOLBin host — the characteristic endpoint of the PrintNightmare family of vulnerabilities (CVE-2021-1675/34527) and similar spooler-driver-loading exploit chains. Stated blind spot (security review #233): an in-process-only payload — a malicious driver DLL running entirely inside spoolsv.exe without calling CreateProcess — leaves no process-creation trace; the rule only catches exploitation that goes on to spawn a child, and no telemetry currently collected in this environment covers the in-process case."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `ParentImage` | rule detection block | Confirms the spooler (`\\spoolsv.exe`) as the spawning process |\n| `Image` | rule detection block | Which interpreter/LOLBin the exploit launched |\n| `CommandLine` | event source (Sysmon EID 1) | The attacker's first SYSTEM-context command — read it verbatim |\n| `ParentCommandLine` | event source (Sysmon EID 1) | Spooler service invocation context |\n| `User` | event source (Sysmon EID 1) | Expected SYSTEM — confirms the privilege level obtained |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the child binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the child binary (`Hashes`) and of any payload the child then executes → VirusTotal; escalate at **≥ 5 malicious verdicts** (the listed children are themselves signed Windows binaries — their command lines and descendants carry the signal).\n- Internal-only: host patch level against the CVEs referenced by the rule; print-server role inventory; any third-party print-management product known to run helpers from spooler context.\n- No external IP/domain artifact on this event.\n- Per policy the critical-severity rule match plus the verbatim event is the cited evidence for containment; enrichment scopes the intrusion, it does not gate the response."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier A — auto-isolate + identity kill: severity critical → EDR network isolation plus account disable and token/session/Kerberos-ticket revocation execute automatically on the rule match (no TI gate); the IR lead is paged.\n**Analyst triage path (post-containment validation):**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.parent.name : \"spoolsv.exe\" and process.executable : (*\\\\cmd.exe or *\\\\powershell.exe or *\\\\pwsh.exe or *\\\\rundll32.exe or *\\\\mshta.exe or *\\\\regsvr32.exe)\n   ```\n2. Process-tree analysis: follow every descendant of the spooler child — the exploit's SYSTEM shell is stage one, not the goal; look for the driver DLL drop preceding the spawn and for account creation, persistence, or credential access after it.\n3. False-positive check: a third-party print-management or driver-installation product that legitimately launches a helper process from spoolsv.exe context — baseline and exclude the specific child image path if confirmed.\n**Escalation:** already at Tier A. Host is a domain controller or print server serving many clients → declare a major incident; check every other host running the vulnerable spooler configuration for the same parent/child pattern."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire host memory before reboot (the loaded malicious driver DLL may be memory-resident); collect the spooler driver directories and hash any recently written driver DLLs.\n- Patch the CVEs the rule references, remove the malicious driver and any persistence created by the SYSTEM child, and rotate credentials for accounts with sessions on the host.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire host memory before reboot (the loaded malicious driver DLL may be memory-resident); collect the spooler driver directories and hash any recently written driver DLLs.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

@@ -1,0 +1,88 @@
+{
+  "id": "auth_win_asreproast_no_preauth_tgt",
+  "title": "AS-REP Roasting — TGT Requested for an Account Without Pre-Authentication",
+  "ruleFile": "rules/sigma/auth_win_asreproast_no_preauth_tgt.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1558.004 — Steal or Forge Kerberos Tickets: AS-REP Roasting"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_asreproast_no_preauth_tgt",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1558.004 — Steal or Forge Kerberos Tickets: AS-REP Roasting |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4768 TGT request with `PreAuthType` 0, excluding machine accounts (`TargetUserName` ending `$`) |\n\nDetects a Kerberos AS-REQ for an account with pre-authentication disabled: without pre-auth the KDC returns an AS-REP encrypted with the account's password hash to any unauthenticated requester, crackable offline with no prior domain access. Very low volume where pre-auth is universally enforced — a hit usually means either a genuinely misconfigured account or an attacker who just set the flag. Machine accounts are excluded because they never legitimately carry DONT_REQUIRE_PREAUTH; one appearing here would be a different finding entirely."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the Kerberos AS-REQ event (4768) |\n| `PreAuthType` | rule detection block | `0` = pre-auth disabled — the roastable condition |\n| `TargetUserName` | rule detection block | The roastable account; its hash is what the AS-REP exposes |\n| `IpAddress` | event source (standard) | Requesting client address (may be IPv6-mapped `::ffff:a.b.c.d`) — primary TI artifact |\n| `TicketEncryptionType` | event source (standard) | RC4 (`0x17`) AS-REPs are far cheaper to crack than AES |\n| `Computer` | event source (standard) | Issuing DC; timeline anchor |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `IpAddress` → AbuseIPDB for routable external sources; escalate at **≥ 50% confidence**. Internal RFC1918 sources pivot to asset-owner lookup instead.\n- Internal-only checks: was DONT_REQUIRE_PREAUTH set recently? Correlate account-changed events (4738) for the same `TargetUserName`; compare against the inventory of deliberately exempt legacy accounts.\n- Do not label the requester malicious without the AbuseIPDB verdict or an internal case ID — a lone hit on a known-exempt account is a standing misconfiguration, not an incident."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B (identity): on AbuseIPDB ≥ 50% for `IpAddress`, auto-disable the targeted account (its AS-REP is in the requester's hands and offline-crackable) and revoke its Kerberos tickets/sessions; no EDR isolation — containment here is account-centric.\n**Analyst triage path** (no TI confirmation) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4768 and winlog.event_data.PreAuthType : \"0\" and not winlog.event_data.TargetUserName : *$\n   ```\n2. Identity sweep: pull account-changed events for `TargetUserName` over the prior 24 h (a freshly set flag means the attacker already has write access to the account); sweep the same `IpAddress` for sibling 4768/4769 activity — roasting rarely arrives alone.\n3. False-positive check: a legacy or third-party account deliberately configured with pre-authentication disabled for compatibility — inventory these and exclude them by name; each one is a standing credential-exposure risk worth tracking regardless.\n**Escalation:** flag set recently with no change record, or the same source also generating RC4 service-ticket requests → page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Force a password reset on the targeted account — treat its current secret as exposed the moment the AS-REP was issued.\n- Re-enable pre-authentication unless the account is a documented exception; if the flag was attacker-set, also investigate how the write access to the account object was obtained.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

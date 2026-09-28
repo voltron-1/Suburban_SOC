@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_cmstp_execution",
+  "title": "CMSTP Execution via Malicious INF or Silent-Install Flags",
+  "ruleFile": "rules/sigma/proc_creation_win_cmstp_execution.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1218.003 — System Binary Proxy Execution: CMSTP"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_cmstp_execution",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1218.003 — System Binary Proxy Execution: CMSTP |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `cmstp.exe` with any of `/s`, `/ns`, `.inf`, `\\appdata\\`, `\\temp\\`, or `\\users\\public\\` on the command line |\n\nDetects cmstp.exe (Connection Manager Profile Installer) invoked with a silent-install flag or an .inf argument — a well-known UAC-bypass and AppLocker-bypass technique (Squiblydoo-style) where cmstp executes an arbitrary scriptlet or DLL referenced from the supplied profile. The rule states its own tuning rationale: cmstp.exe execution is already rare on modern endpoints, so the OR-based match is kept broad to catch the technique regardless of which specific invocation flag is used. Rule falsepositives: legitimate VPN/dial-up connection profile installation (rare on modern endpoints)."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\cmstp.exe`) |\n| `CommandLine` | rule detection block | The flags used and the INF file path — the payload pointer |\n| `OriginalFileName` | event source (Sysmon EID 1) | Rename-evasion check (the rule matches on `Image` only) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (Office child, script host, shell) |\n| `User` | event source (Sysmon EID 1) | Account context; relevant to the UAC-bypass value of the technique |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary; the INF/scriptlet payload hashes come from collection |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the INF file and any scriptlet/DLL it references (collected from the path in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: does the org actually deploy Connection Manager profiles (VPN/dial-up)? Check the software-deployment inventory and change calendar; a user-writable INF path (`\\appdata\\`, `\\temp\\`, `\\users\\public\\`) has no legitimate deployment story.\n- No external IP/domain artifact on this event itself; if the collected INF references a remote scriptlet URL, enrich that finding under its own citation.\n- Do not label the INF malicious without the citing VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → **Tier B — auto-isolate on TI-confirm**: auto EDR-isolate the host when the INF/payload hash returns VT ≥ 5; account actions on analyst confirm. Without a TI-confirmable artifact → Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   process.executable : *\\\\cmstp.exe\n   and process.args : (/s or /ns or *.inf* or *\\\\appdata\\\\* or *\\\\temp\\\\* or *\\\\users\\\\public\\\\*)\n   ```\n2. Process-tree pivot: `process.parent.name` / `process.parent.args` for the delivery vector, and children of the cmstp process — the proxied payload (scriptlet host, DLL loader) appears as its child or a near-simultaneous sibling.\n3. False-positive checks: legitimate VPN/dial-up connection profile installation (rare on modern endpoints) — a managed-deployment parent and a system-path INF support benign closure; a user-writable INF path does not.\n**Escalation:** INF in a user-writable path, a spawned child process, or a VT-confirmed payload → page the IR lead and isolate; treat as an active defense-evasion execution chain."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the INF file and every scriptlet/DLL it references before deletion; capture the child-process chain.\n- Cleanup: remove the INF and payload files, revert any connection-profile artifacts it installed, and eradicate the delivery vector; hunt the fleet for the same INF/payload hashes.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the INF file and every scriptlet/DLL it references before deletion; capture the child-process chain.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

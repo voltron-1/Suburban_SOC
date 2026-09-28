@@ -1,0 +1,91 @@
+{
+  "id": "proc_creation_win_accessibility_binary_debugger_swap",
+  "title": "Accessibility Feature Backdoor via Image/OriginalFileName Mismatch",
+  "ruleFile": "rules/sigma/proc_creation_win_accessibility_binary_debugger_swap.yml",
+  "status": "experimental",
+  "severity": "critical",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence",
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1546.008 — Event Triggered Execution: Accessibility Features"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_accessibility_binary_debugger_swap",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence, Privilege Escalation |\n| Technique(s) | T1546.008 — Event Triggered Execution: Accessibility Features |\n| Severity (`level`) | critical |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | Either (a) one of the six accessibility binaries (`sethc.exe`, `utilman.exe`, `osk.exe`, `magnify.exe`, `narrator.exe`, `displayswitch.exe`) launches with a PE `OriginalFileName` that does not match its own expected value — six independent `Image`-endswith / `OriginalFileName`-mismatch pairs, each pair evaluated as *selection and not its own filter* — or (b) the IFEO branch: `winlogon.exe` parents `cmd.exe` or `powershell.exe` whose `CommandLine` contains any of the six accessibility binary names |\n\nDetects two forms of the \"sticky keys\" class of pre-logon backdoor, both launchable from the Winlogon screen before any credential is entered. Form 1 is binary replacement: the accessibility executable is overwritten with cmd.exe, so `Image` still ends in e.g. `\\sethc.exe` while the PE metadata (`OriginalFileName`) still says `Cmd.Exe` — a mismatch a legitimate accessibility-tool launch never produces (matching is case-insensitive, so casing in the real string does not evade it). Form 2 is the IFEO `Debugger` redirect, which form 1's selectors structurally CANNOT see (security review #233): the launched process is a genuine `cmd.exe` with a genuine `OriginalFileName`, and the original target name appears only as an argument (`cmd.exe \"sethc.exe\"`) under a `winlogon.exe` parent — hence the separate detection branch. Rule falsepositives: an OriginalFileName-stripping packer or an unusual accessibility-tool build without standard PE metadata (treat missing/empty `OriginalFileName` the same as a mismatch); a legitimate pre-logon debugging/accessibility-testing tool launching cmd/powershell from winlogon with one of these names incidentally on its command line — uncommon in practice."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Which of the six accessibility binaries launched (form 1), or `cmd.exe`/`powershell.exe` (IFEO branch) |\n| `OriginalFileName` | rule detection block | The mismatch evidence — a value other than the binary's own name (e.g. `Cmd.Exe` under `\\sethc.exe`) is the finding |\n| `ParentImage` | rule detection block | `winlogon.exe` parent is the IFEO-branch trigger and confirms pre-logon launch context |\n| `CommandLine` | rule detection block | IFEO branch: carries the redirected target's name as an argument |\n| `ParentCommandLine` | event source (Sysmon EID 1) | Corroborates the launch context behind the parent |\n| `User` | event source (Sysmon EID 1) | Pre-logon launches run as SYSTEM — a SYSTEM shell with no logged-on user is the backdoor firing |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the launched binary for TI lookup and known-good comparison |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts**. Also compare against the known-good hash of the named binary from a reference host — a mismatch there is internal evidence even at VT 0.\n- Internal-only: IFEO registry check on the host — `Debugger` values under `HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Image File Execution Options\\<binary>` for each of the six names; file-system check of the six binaries in `System32` (hash, signature, timestamp); change-calendar and case-history lookup for the host.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- The mismatch itself is behavioral evidence; still record the rule ID, the verbatim event, and the registry/file findings as the citation — do not assert who planted it."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity critical → **Tier A — auto-isolate + identity kill**, executed automatically on rule match (no TI gate; the match plus the verbatim event is the cited evidence): EDR network isolation + AD/IdP account disable + token/session/Kerberos-ticket revocation; page the IR lead.\n**Analyst triage path** (post-containment validation):\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   (process.executable : *\\\\sethc.exe and not process.pe.original_file_name : sethc.exe)\n   or (process.executable : *\\\\utilman.exe and not process.pe.original_file_name : utilman.exe)\n   or (process.executable : *\\\\osk.exe and not process.pe.original_file_name : osk.exe)\n   or (process.executable : *\\\\magnify.exe and not process.pe.original_file_name : Magnify.exe)\n   or (process.executable : *\\\\narrator.exe and not process.pe.original_file_name : Narrator.exe)\n   or (process.executable : *\\\\displayswitch.exe and not process.pe.original_file_name : DisplaySwitch.exe)\n   or (process.parent.name : winlogon.exe\n       and process.executable : (*\\\\cmd.exe or *\\\\powershell.exe)\n       and process.args : (*sethc.exe* or *utilman.exe* or *osk.exe* or *magnify.exe* or *narrator.exe* or *displayswitch.exe*))\n   ```\n2. Process-tree analysis: pivot on `process.parent.name` / `process.parent.args`; a `winlogon.exe` parent at logon-screen time is the backdoor in use. Sweep the host ±24 h for who wrote the swapped binary or the IFEO key, and sweep the fleet for the same mismatch or IFEO value.\n3. False-positive checks: OriginalFileName-stripping packer or non-standard accessibility build (missing/empty `OriginalFileName` — triage as a mismatch, then verify the file hash against known-good); sanctioned pre-logon debugging/accessibility-testing tool — confirm against the change calendar.\n**Escalation:** already paged at Tier A. Evidence the backdoor was *used* (SYSTEM shell at the logon screen, interactive children of the flagged process) → treat as full host compromise with pre-auth persistence; extend the credential-exposure scope to every account that has logged on since the swap/IFEO write."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Acquire host memory and disk-image the six accessibility binaries plus the IFEO registry hive **before** cleanup; collect and hash the swapped binary and export the IFEO key.\n- Cleanup: delete the `Debugger` value(s) under the IFEO key(s); restore the replaced binary from a known-good source (component store / clean media) and verify its hash and signature; reset credentials for accounts with sessions on the host since the earliest planting evidence.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Acquire host memory and disk-image the six accessibility binaries plus the IFEO registry hive **before** cleanup; collect and hash the swapped binary and export the IFEO key.",
+    "Cleanup: delete the `Debugger` value(s) under the IFEO key(s); restore the replaced binary from a known-good source (component store / clean media) and verify its hash and signature; reset credentials for accounts with sessions on the host since the earliest planting evidence.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

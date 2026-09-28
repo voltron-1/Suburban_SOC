@@ -1,0 +1,90 @@
+{
+  "id": "wmi_win_event_subscription_binding",
+  "title": "Suspicious WMI Event Filter-to-Consumer Binding (WMI-Activity 5861)",
+  "ruleFile": "rules/sigma/wmi_win_event_subscription_binding.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "WMI Activity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "WMI Activity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence"
+    ],
+    "techniques": [
+      "T1546.003 — Event Triggered Execution: Windows Management Instrumentation Event Subscription"
+    ]
+  },
+  "aiContext": {
+    "playbook": "wmi_win_event_subscription_binding",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence |\n| Technique(s) | T1546.003 — Event Triggered Execution: Windows Management Instrumentation Event Subscription |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (WMI-Activity/Operational) |\n| Trigger condition | WMI-Activity/Operational EID 5861 whose `Operation` string contains both `PutInstance` and `FilterToConsumerBinding` — the operation that completes a permanent WMI event subscription |\n\nDetects the PutInstance operation that binds an `__EventFilter` to a consumer (`__FilterToConsumerBinding`) — the step that makes WMI-based persistence durable across reboots. The channel is enabled by default on Windows 8 / Server 2012 and later; no additional audit policy is required."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Fixed at 5861 — a binding was completed, not merely attempted |\n| `Operation` | rule detection block | The full PutInstance string — embeds the binding instance: filter name, consumer name/type, and for a CommandLineEventConsumer the command line that will run when the filter fires |\n| `Computer` | event source (WMI-Activity/Operational) | The host now carrying the permanent subscription |\n| `@timestamp` | event source | When the persistence was installed — anchor for the who-did-it pivot |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-first artifact class: match the filter/consumer names and the consumer command line (parsed from `Operation`) against known management tooling (SCCM, AV/EDR agents), the software inventory, the change calendar, and prior case history.\n- If the consumer command line references a payload on disk (executable, script, encoded command writing a file), collect that file and SHA-256 → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- The binding event proves persistence was installed; whether it is malicious rests on the consumer's payload and the internal match — cite one or the other before labeling."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when a payload referenced by the consumer command line hashes to VT ≥ 5 malicious; the binding itself (internal-first artifact class) routes to analyst triage otherwise.\n**Analyst triage path** (no TI confirmation) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`; raw winlog fields — this channel is not ECS-renamed):\n   ```\n   winlog.event_id : 5861 and winlog.event_data.Operation : *PutInstance* and winlog.event_data.Operation : *FilterToConsumerBinding*\n   ```\n2. Parse `Operation`: extract the filter name, consumer name/type, and command line; then pivot to the host's Sysmon EID 1 events around `@timestamp` to find the process that created the subscription (wmic, PowerShell, an installer, or an unknown binary).\n3. Enumerate the live subscription on the host (`root\\subscription`: `__EventFilter`, `CommandLineEventConsumer`/other consumers, `__FilterToConsumerBinding`) to capture exactly what is now persistent.\n4. False-positive check: legitimate WMI-based management or monitoring tooling (e.g. SCCM, some AV/EDR agents) that registers permanent event subscriptions — match the names and command line against the deployed-tooling inventory.\n**Escalation:** a consumer command line launching a shell/script host or an unknown binary, or a subscription no management tool accounts for → page the IR lead and treat as active persistence; isolate on confirm."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Before removal, export the full subscription triple from `root\\subscription` (e.g. `Get-CimInstance` of `__EventFilter`, the consumer class, and `__FilterToConsumerBinding`, saved to file) — the filter query and consumer command line are the core evidence.\n- Collect and hash any payload the consumer references before deleting it.\n- Remove all three objects — the `__FilterToConsumerBinding`, the `__EventFilter`, and the consumer (e.g. `CommandLineEventConsumer`) — removing only the binding leaves re-linkable parts behind; verify by re-enumerating `root\\subscription`.\n- Hunt sibling subscriptions: re-run the enumeration fleet-wide (or query this rule's history across hosts) for the same filter/consumer names or command-line pattern.\n- Identify and eradicate the creating process's own foothold (from the Sysmon pivot in triage).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup.\n\n# References and Resources\n- [`docs/detections/attack-coverage.md`](../detections/attack-coverage.md) — authoritative ATT&CK coverage matrix (auto-generated from `rules/sigma/`)\n- `rules/sigma/` — the 120 deployed Sigma rules (single source of truth for endpoint/network detection logic)\n- `rules/elastic/threshold/` — Elastic threshold companion rules carrying count-over-time logic for the 8 paired detections\n- [`docs/SOP-147-evidence-validation-runbook.md`](../SOP-147-evidence-validation-runbook.md) — evidence validation runbook (SHA-256 hashing, UTC windows, tamper-evident capture)\n- Threat intelligence sources: VirusTotal, AbuseIPDB, AlienVault OTX (thresholds defined in [Standard 4-Phase IR Workflow](#standard-4-phase-ir-workflow))\n- MITRE ATT&CK: <https://attack.mitre.org/>\n- Suburban-SOC Emulation Coverage Checklist"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Before removal, export the full subscription triple from `root\\subscription` (e.g. `Get-CimInstance` of `__EventFilter`, the consumer class, and `__FilterToConsumerBinding`, saved to file) — the filter query and consumer command line are the core evidence.",
+    "Collect and hash any payload the consumer references before deleting it.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

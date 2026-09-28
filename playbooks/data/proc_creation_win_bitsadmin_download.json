@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_bitsadmin_download",
+  "title": "Malicious File Download via Bitsadmin",
+  "ruleFile": "rules/sigma/proc_creation_win_bitsadmin_download.yml",
+  "status": "stable",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Command and Control"
+    ],
+    "techniques": [
+      "T1105 — Ingress Tool Transfer"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_bitsadmin_download",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Command and Control |\n| Technique(s) | T1105 — Ingress Tool Transfer |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `bitsadmin.exe` with `/transfer` on the command line |\n\nDetects the use of bitsadmin.exe to download files via the /transfer switch — a signed, built-in transfer client abused to pull payloads without a browser. Rule falsepositives: legitimate background update processes."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\bitsadmin.exe`) |\n| `CommandLine` | rule detection block | Carries the job name, the source URL/domain, and the local destination path — the primary artifacts |\n| `OriginalFileName` | event source (Sysmon EID 1) | Rename-evasion check (the rule matches on `Image` only) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Delivery vector (shell, script host, Office child) |\n| `User` | event source (Sysmon EID 1) | Account context for the download |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary; the downloaded file's hash comes from follow-up collection |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Downloaded file (collected from the destination path in `CommandLine`) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- URL/domain parsed from `CommandLine` → AlienVault OTX; escalate on **any pulse match**.\n- Internal-only: is the URL a known software-update or internal endpoint? Check the software-deployment inventory and change calendar.\n- Do not label the URL or file malicious without the citing OTX/VT verdict or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → **Tier C — indicator block on TI-confirm**: on OTX pulse (URL/domain) or VT ≥ 5 (file hash), auto-add the confirmed indicator to the perimeter/DNS/EDR blocklist and open an analyst ticket; no host action without an analyst.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   process.executable : *\\\\bitsadmin.exe and process.args : */transfer*\n   ```\n2. Process-tree pivot on `process.parent.name` / `process.parent.args`; then check whether the destination file was subsequently executed (a later process-creation event whose `process.executable` is the destination path).\n3. False-positive checks: legitimate background update processes — a known updater parent and a vendor URL support benign closure; an Office/script-host parent or a user-writable destination does not.\n**Escalation:** downloaded file executed, or TI-confirmed URL/hash on a user endpoint → promote to Tier B host isolation on analyst confirm and treat as an active ingress-tool-transfer incident."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the downloaded file from the destination path before deletion; enumerate BITS jobs (`bitsadmin /list /allusers`) and export the job details — BITS jobs persist and can re-fetch.\n- Cleanup: cancel the BITS job, remove the payload, block the confirmed URL/domain at the perimeter, and eradicate the parent delivery vector per its own findings.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the downloaded file from the destination path before deletion; enumerate BITS jobs (`bitsadmin /list /allusers`) and export the job details — BITS jobs persist and can re-fetch.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

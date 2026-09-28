@@ -1,0 +1,89 @@
+{
+  "id": "net_zeek_ssh_session_cadence_sustained",
+  "title": "Sustained Low-and-Slow SSH Session Cadence — Below detect-bruteforcing AND net_zeek_ssh_session_cadence's Own Rate Floor",
+  "ruleFile": "rules/sigma/net_zeek_ssh_session_cadence_sustained.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1110 — Brute Force"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_ssh_session_cadence_sustained",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1110 — Brute Force |\n| Severity (`level`) | medium |\n| Data source | Zeek ssh |\n| Trigger condition | identical detection block to the previous section — any ssh.log record whose `client` banner starts with `SSH-`; the two rules differ only in their threshold companions |\n\nThe deployed alert is `rules/elastic/threshold/net-zeek-ssh-session-cadence-sustained.ndjson`: **≥ 15 SSH sessions from one `source.ip` within a 30-minute lookback** (evaluated every 5 minutes) — roughly 0.5 sessions/minute, genuinely below both the sensor's notice threshold (~1/minute) and the 5-in-10 companion (the same ~1/minute rate). It closes the concrete evasion the shorter rule documented: one connection every 2 minutes = 15 sessions/30 min, previously invisible everywhere — at OpenSSH's default 6 tries per connection, up to ~180 guesses/hour with zero signal. Honest framing carried from the rule: this moves the rate floor, it does not close the problem — ~14 sessions/31 minutes (~162 guesses/hour) still evades it, and no per-source threshold at any value catches a distributed attack where many sources each stay under it. The `client`-optional undercounting limitation is inherited from the sibling."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `client` | rule detection block | Client banner — parsed-handshake proof and tool fingerprint |\n| `id.orig_h` | event source (Zeek ssh.log) | The counted source — containment target |\n| `id.resp_h` | event source (Zeek ssh.log) | Target host per session — spread analysis |\n| `auth_attempts` | event source (Zeek ssh.log) | Per-session attempt count — multiplies the guess-rate estimate |\n| `auth_success` | event source (Zeek ssh.log) | Same unreliability as the sibling — absent on failed-auth records |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Source IP → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: the 30-minute window makes routine configuration-management sweeps and monitoring the likeliest benign match — check the automation inventory, bastion list, and specifically whether the source is the SOC's own broker host, whose containment dispatcher legitimately opens SSH sessions to every router in a tenant's inventory (deliberately not excluded at the query level).\n- No malicious label without the AbuseIPDB citation or an internal case ID — a slow cadence is exactly the pattern where patience beats assumption."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: on AbuseIPDB ≥ 50%, auto-block the source IP at the perimeter; no host action without an analyst.\n**Analyst triage path:**\n1. Verify the sustained pattern with KQL (index `logstash-*`):\n   ```\n   event.dataset : \"zeek.ssh\" and client : SSH-* and source.ip : \"<orig_h>\"\n   ```\n   Count sessions per 30-minute bucket against the companion's ≥ 15 threshold, then extend the lookback hours backward — a low-and-slow campaign's distinguishing evidence is persistence across many windows.\n2. Compare the inter-session interval: near-constant spacing (e.g. one connection every ~2 minutes for hours) is automation, benign or hostile; ragged human-shaped timing points at interactive admin work.\n3. On the target(s), pull the auth outcome series from their own auth telemetry. Endpoint hand-off: for an internal source, find the connecting process via its Sysmon process-creation telemetry — a cron-driven guessing loop and an Ansible run look identical on the wire but not on the endpoint.\n4. False-positive checks (from the rule): admin/automation over a longer window (configuration-management sweeps, health checks); a bastion proxying users over an extended period; the operator's own long admin session; the SOC broker's containment dispatch fan-out.\n**Escalation:** metronomic cadence from an unrecognized source sustained across multiple windows, or any target-side authentication success → promote to Tier B (isolate/block the source, lock down targeted accounts) and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the full multi-hour ssh.log series for the source — the interval pattern is the primary evidence and disappears at rollover; pair it with each target's auth-log excerpt.\n- On confirmation: block the source, reset any credential with a post-campaign success, audit targets for persistence, and consider fail2ban/key-only enforcement on the targeted services; if the source was the compromised broker host, treat it under the SOC-infrastructure compromise path, not as an FP.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the full multi-hour ssh.log series for the source — the interval pattern is the primary evidence and disappears at rollover; pair it with each target's auth-log excerpt.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

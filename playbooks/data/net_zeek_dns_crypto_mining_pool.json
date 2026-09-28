@@ -1,0 +1,90 @@
+{
+  "id": "net_zeek_dns_crypto_mining_pool",
+  "title": "DNS Query for a Known Cryptocurrency Mining Pool",
+  "ruleFile": "rules/sigma/net_zeek_dns_crypto_mining_pool.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Zeek Network Telemetry",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Zeek Network Telemetry"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Impact"
+    ],
+    "techniques": [
+      "T1496 — Resource Hijacking"
+    ]
+  },
+  "aiContext": {
+    "playbook": "net_zeek_dns_crypto_mining_pool",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Impact |\n| Technique(s) | T1496 — Resource Hijacking |\n| Severity (`level`) | medium |\n| Data source | Zeek dns |\n| Trigger condition | DNS query exactly matching one of 11 mining-pool operator domains, or a dot-anchored subdomain of one (e.g. `.nanopool.org`) |\n\nDetects a host resolving a well-known cryptomining pool — unauthorized cryptojacking (a compromised host or a misused campus machine) reaching a pool to submit shares. Two honesty caveats the rule itself states: the hardcoded operator list needs periodic maintenance and is a starting point, not complete (severity is medium precisely to match that staleness risk); and the rule matches the observed query, not the response — any host that can send a DNS packet can emit an arbitrary label under a real operator domain, so a hit is an emission signal, not proof the query resolved or that a mining session followed."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `query` | rule detection block | Matched pool operator domain — primary TI artifact |\n| `id.orig_h` | event source (Zeek dns.log) | Querying host — containment target |\n| `id.resp_h` | event source (Zeek dns.log) | Resolver used (flags rogue-resolver bypass) |\n| `qtype_name` | event source (Zeek dns.log) | Query type context |\n| `rcode_name` | event source (Zeek dns.log) | Did the query actually resolve |\n| `answers` | event source (Zeek dns.log) | Resolved pool server IPs, if any |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `query` domain → OTX: escalate on any pulse match for the exact or registered domain.\n- If the query resolved, enrich the `answers` IPs → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: is `id.orig_h` on an isolated segment doing deliberate, authorized crypto/security research? Check asset owner and case history; check for repeated queries over hours (share-submission cadence) rather than a one-off lookup.\n- A single emission-shaped hit with no resolution and no pulse proves nothing — hold the label until a TI verdict or internal case supports it."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → Tier C: no automatic host isolation. On an OTX pulse (or AbuseIPDB-confirmed answer IP), auto-add the domain to the DNS/perimeter blocklist and open an analyst ticket.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   source.ip : \"<orig_h>\" and dns.question.name : (\"<pool_domain>\" or *.<pool_domain>)\n   ```\n   Drop the `source.ip` clause to sweep the fleet for other hosts querying the same operator.\n2. Cadence check: bucket the host's hits over hours — real mining resolves its pool repeatedly and long-term; check `dns.response_code` and `dns.answers` to confirm resolution rather than bare emission.\n3. Endpoint pivot: sweep `id.orig_h`'s Sysmon process-creation events for the responsible process — miners are long-running, CPU-bound, and often persisted; hash the binary for VT (≥ 5 malicious verdicts) and follow the Windows Process Creation family baseline.\n4. False-positive checks: deliberate, authorized crypto/security research on an isolated segment; a hit on a random-looking subdomain of a real operator is an emission signal only — do not treat a hit alone as proof a mining session followed.\n**Escalation:** recurring resolved queries plus a responsible process on the host → confirmed cryptojacking; promote to the high-severity flow (Tier B isolate of the querying host)."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the dns.log slice for `id.orig_h` (and the conn.log flows to any resolved pool IPs) before rollover.\n- Kill the miner process, remove its persistence (scheduled task/service/run key — whatever the endpoint pivot found), and hash the binary before deletion.\n- Block the operator domain(s) and resolved IPs; then work backwards to initial access — a dropped miner means something delivered it.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs and the miner binary; record the UTC window and source host."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the dns.log slice for `id.orig_h` (and the conn.log flows to any resolved pool IPs) before rollover.",
+    "Kill the miner process, remove its persistence (scheduled task/service/run key — whatever the endpoint pivot found), and hash the binary before deletion.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash exported logs and the miner binary; record the UTC window and source host."
+  ],
+  "unmappedContent": []
+}

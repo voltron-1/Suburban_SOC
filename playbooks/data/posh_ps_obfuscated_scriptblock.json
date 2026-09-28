@@ -1,0 +1,91 @@
+{
+  "id": "posh_ps_obfuscated_scriptblock",
+  "title": "Obfuscated or Encoded PowerShell Script Block",
+  "ruleFile": "rules/sigma/posh_ps_obfuscated_scriptblock.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "PowerShell Script Block Logging",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "PowerShell Script Block Logging"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Execution",
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1059.001 — Command and Scripting Interpreter: PowerShell; T1027 — Obfuscated Files or Information"
+    ]
+  },
+  "aiContext": {
+    "playbook": "posh_ps_obfuscated_scriptblock",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Execution, Defense Evasion |\n| Technique(s) | T1059.001 — Command and Scripting Interpreter: PowerShell; T1027 — Obfuscated Files or Information |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (PowerShell/Operational) |\n| Trigger condition | A 4104 script block matching **at least two of three** indicator classes: **execute** (boundary-anchored `IEX` forms, `Invoke-Expression`, `[scriptblock]::Create`, `.Invoke()`), **download** (`DownloadString`/`DownloadFile`/`DownloadData`, `Net.WebClient`, `Invoke-WebRequest`/`Invoke-RestMethod`, `Start-BitsTransfer`, boundary-anchored `iwr`/`irm` aliases including block-start position), **encode** (`FromBase64String`, `-EncodedCommand`, `-enc `, `-bxor`, `-bnot`) — i.e. execute+download, execute+encode, or download+encode |\n\nDetects both classic attacker shapes: IEX+WebClient download cradles with no encoding at all, and IEX+FromBase64String with no network call. Improves on `proc_creation_win_powershell_encoded`, which only catches the literal `-enc`/`-EncodedCommand` flag: 4104 logs PowerShell's own deobfuscated script-block text, so this also catches base64/bitwise obfuscation and IEX-based cradles that never pass an encoding flag on the command line. A single bare indicator (just `Invoke-Expression`, just a `Net.WebClient` reference) no longer fires (#217 redesign). Known scope limit: substring matching, not regex — trivial string reconstruction (e.g. splitting `Net.WebClient` across concatenated literals) evades it; a tripwire to complement, not replace, behavioral detections."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Channel scoping — script-block logging events (4104) only |\n| `ScriptBlockText` | rule detection block | The deobfuscated content — static decode yields the URLs, IPs, and payloads that drive enrichment |\n| `ScriptBlockId` | event source (4104) | Reassembly/dedup key for chunked blocks |\n| `MessageNumber`, `MessageTotal` | event source (4104) | Chunk ordering — export every chunk before decoding |\n| `Path` | event source (4104) | On-disk `.ps1` path when run from a file; empty for in-memory cradles |\n| `Computer`, `UserID` | event source (4104) | Host and executing-account SID — containment and Sysmon-correlation anchors |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Decoded URL/domain (the cradle's download source or C2) → OTX; escalate on **any pulse match**.\n- Hash of any dropped payload (via the host's Sysmon file-creation events) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- If the decoded source is a bare IP → AbuseIPDB; escalate at **≥ 50% confidence**.\n- Internal-only: script hash/path baseline for known bootstrap/deployment scripts that legitimately pair two classes.\n- Obfuscation alone is not a verdict — the decoded indicator plus its cited TI result is; never label without one."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when a decoded artifact confirms (OTX pulse, AbuseIPDB ≥ 50%, or VT ≥ 5); no confirmable artifact → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; deliberately broader than the rule — unanchored `IEX`, representative tokens per class — then confirm which two classes co-occur by reading the returned `ScriptBlockText`):\n   ```\n   winlog.event_id : 4104 and winlog.event_data.ScriptBlockText : (*Invoke-Expression* or *IEX* or *DownloadString* or *Net.WebClient* or *Invoke-WebRequest* or *FromBase64String* or *-EncodedCommand* or *-bxor*)\n   ```\n2. Static-decode the block offline (base64, XOR) — never execute recovered script content; then correlate the 4104 event to its launching process via the host's Sysmon process-creation events in the same window (then follow the Windows Process Creation family baseline) and check Sysmon file-creation events for a dropped payload.\n3. False-positive check: legitimate administrative or deployment scripts that combine two of these categories for non-malicious reasons — rare, but e.g. a bootstrap script that both downloads and dynamically invokes trusted, signed local content.\n**Escalation:** decode yields an external URL/IP **and** there is evidence the cradle ran (child process, dropped file, or a matching network connection) → treat as an active intrusion; page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export and reassemble all 4104 chunks for the `ScriptBlockId` before decoding; archive both the raw and decoded forms.\n- Block TI-confirmed URLs/IPs at the perimeter; collect and hash any dropped payload; remove whatever launcher the process correlation surfaces (Run key, scheduled task, service) under that rule family's flow.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export and reassemble all 4104 chunks for the `ScriptBlockId` before decoding; archive both the raw and decoded forms.",
+    "Block TI-confirmed URLs/IPs at the perimeter; collect and hash any dropped payload; remove whatever launcher the process correlation surfaces (Run key, scheduled task, service) under that rule family's flow.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

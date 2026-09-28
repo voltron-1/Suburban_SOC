@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_sharphound_bloodhound_collection",
+  "title": "SharpHound / BloodHound AD Collection Execution",
+  "ruleFile": "rules/sigma/proc_creation_win_sharphound_bloodhound_collection.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1087.002 — Account Discovery: Domain Account"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_sharphound_bloodhound_collection",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1087.002 — Account Discovery: Domain Account |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | \"sharphound\" appearing in the image path, OriginalFileName, or command line; or a command line containing `--collectionmethod`, `-CollectionMethod`, or `Invoke-BloodHound` |\n\nDetects SharpHound.exe (the .NET collector) or its command-line ingestor flags, and the BloodHound Python collector's distinctive `--collectionmethod` argument syntax — one of the earliest observable indicators of an AD compromise-path reconnaissance campaign. Stated blind spot (security review #233): SharpHound run via an in-memory/reflective loader (e.g. Cobalt Strike's execute-assembly) creates no new process, so no image or command line ever contains the indicators; this is common tradecraft, not a theoretical edge case, and the rule has no visibility into it."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Collector binary path (often a user-writable staging directory) |\n| `OriginalFileName` | rule detection block | PE metadata catches a renamed SharpHound.exe |\n| `CommandLine` | rule detection block | Collection method(s), domain target, and output zip path |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Interactive operator shell vs. implant delivery |\n| `User` | event source (Sysmon EID 1) | The domain account doing the enumeration — the identity to contain |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the collector — the primary TI artifact |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the executing collector binary (`Hashes`) → VirusTotal; escalate at **≥ 5 malicious verdicts** (public SharpHound builds are widely known to VT).\n- Internal-only: authorized-assessment/purple-team exercise calendar — the one sanctioned use; the initiating account's role and normal workstation; case history for prior discovery alerts from this host or account.\n- No external IP/domain artifact on this event.\n- Without the VT verdict or a matching exercise/case record, report the run as unconfirmed collection tooling — do not attribute."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier B — auto-isolate on TI-confirm: severity high → auto EDR-isolate the host when the collector-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *sharphound* or process.pe.original_file_name : *sharphound* or process.args : (*sharphound* or *--collectionmethod* or *-CollectionMethod* or *Invoke-BloodHound*)\n   ```\n2. Identity sweep: enumerate what the initiating account touched — correlate LDAP/session enumeration side effects (surrounding discovery-family and auth-family alerts) and locate the output zip on disk.\n3. False-positive check: a security team running SharpHound/BloodHound during an authorised AD attack-path assessment or purple-team exercise — confirm against the exercise calendar and the named operator.\n**Escalation:** no matching exercise record, or follow-on credential-access alerts (Kerberoasting, DCSync) involving the same account/host → page the IR lead; assume the domain's attack-path graph is in adversary hands."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect and hash the collector binary and the output zip (the zip shows exactly what the adversary learned); capture the process tree.\n- Disable/reset the initiating account on confirmation; review the collected attack paths and prioritize breaking them (privileged-session hygiene, ACL fixes) — the graph the adversary built is the remediation worklist.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect and hash the collector binary and the output zip (the zip shows exactly what the adversary learned); capture the process tree.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

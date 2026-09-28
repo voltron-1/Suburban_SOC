@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_vss_delete_shadows",
+  "title": "Shadow Copy Deletion via Vssadmin",
+  "ruleFile": "rules/sigma/proc_creation_win_vss_delete_shadows.yml",
+  "status": "stable",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Impact"
+    ],
+    "techniques": [
+      "T1490 — Inhibit System Recovery"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_vss_delete_shadows",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Impact |\n| Technique(s) | T1490 — Inhibit System Recovery |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `vssadmin.exe` with a command line containing both `delete` and `shadows` |\n\nDetects deletion of Volume Shadow Copies via vssadmin — a hallmark of ransomware inhibiting system recovery. This is one of four recovery-inhibition primitives detected in this corpus (with the WMIC shadow-copy route, wbadmin catalog deletion, and bcdedit recovery-disable); any one firing puts the host on a pre-encryption footing until disproven."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\vssadmin.exe`) |\n| `CommandLine` | rule detection block | Scope of deletion (`/all`, `/for=` volume, `/quiet`) |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Backup agent vs. shell/script/ransomware parent — the deciding context |\n| `User` | event source (Sysmon EID 1) | Requires elevation; identifies the compromised account |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 for TI lookup (vssadmin itself is Microsoft-signed) |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, process-tree pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 of the **parent** process binary (from its own Sysmon EID 1 event — `vssadmin.exe` is Microsoft-signed; the parent is where ransomware shows itself) → VirusTotal; escalate at **≥ 5 malicious verdicts**.\n- Internal-only: backup-software inventory (which agent, if any, legitimately prunes shadow copies on this host) and the change calendar; current backup/recovery state of the host.\n- No external IP/domain artifact on this event.\n- Label the event ransomware activity only with the citing VT verdict, a correlated Impact-tactic alert, or an internal case ID."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** Tier B — auto-isolate on TI-confirm: severity high → auto EDR-isolate the host when the parent-binary VT verdict is ≥ 5 malicious; account actions on analyst confirm. No TI confirmation → Tier D with 15-minute analyst SLA, Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; ECS-renamed channel):\n   ```\n   process.executable : *\\\\vssadmin.exe and process.args : *delete* and process.args : *shadows*\n   ```\n2. Ransomware-preparation sweep: query the same host ±30 min for the sibling primitives (`wmic shadowcopy delete`, `wbadmin delete catalog`, `bcdedit`) and for mass file-modification or cipher/wipe activity; pivot the parent's full process tree.\n3. False-positive check: backup software pruning shadow copies (rare; verify context).\n**Escalation:** any second Impact-tactic rule firing on the same host — `proc_creation_win_wmic_shadowcopy_delete`, `proc_creation_win_wbadmin_delete_catalog`, or `proc_creation_win_bcdedit_recovery_disabled` — is treated as **ransomware-in-progress**: page the IR lead immediately and isolate without waiting for TI."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Verify recovery state before anything else: enumerate remaining shadow copies (`vssadmin list shadows`), confirm the last known-good off-host backup for this host, and isolate backup infrastructure from the potentially compromised network segment.\n- Collect/hash the parent binary and its dropped files; if encryption has not begun, the priority is containment and backup verification — do not reboot or \"clean\" before imaging if ransomware is suspected.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect/hash the parent binary and its dropped files; if encryption has not begun, the priority is containment and backup verification — do not reboot or \"clean\" before imaging if ransomware is suspected.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

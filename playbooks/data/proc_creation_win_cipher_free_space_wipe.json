@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_cipher_free_space_wipe",
+  "title": "Free Disk Space Wiped via cipher.exe",
+  "ruleFile": "rules/sigma/proc_creation_win_cipher_free_space_wipe.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Impact"
+    ],
+    "techniques": [
+      "T1485 — Data Destruction"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_cipher_free_space_wipe",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Impact |\n| Technique(s) | T1485 — Data Destruction |\n| Severity (`level`) | high |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `cipher.exe` (by `Image` path or `OriginalFileName`) with a space-anchored ` /w` flag on the command line (covers `/w` and `/w:<path>`) |\n\nDetects `cipher.exe /w`, which overwrites the free (deallocated) space on a volume — a legitimate anti-forensics-capable tool built into Windows, repurposed by ransomware and data-destruction actors after deleting or exfiltrating files to prevent forensic recovery of the deleted originals. The rule notes `/w` is genuinely rare in normal operation (not part of cipher's everyday EFS workflow), which is what keeps a single flag usable as a signal; the flag match is space-anchored against URL-style `//w...` substring collisions. Rule falsepositives: IT staff deliberately sanitizing free space on a workstation being decommissioned or repurposed — correlate against the change calendar and asset-lifecycle records."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\cipher.exe`) |\n| `OriginalFileName` | rule detection block | Rename-resistant identification of cipher.exe (`cipher.exe`) |\n| `CommandLine` | rule detection block | Confirms `/w` and the target volume/path being wiped |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Interactive admin session vs automated/dropper parent |\n| `User` | event source (Sysmon EID 1) | Account context; wipe requires write access to the volume |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor (evidence is being destroyed from this moment), pivot key |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts**; enrich the parent binary's hash as well — cipher itself is Microsoft-signed.\n- Internal-only: change calendar and asset-lifecycle records (decommission/repurpose job?); case history for the host; check what was deleted on the host shortly before the wipe (prior deletion or exfil alerts).\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- Treat the event as time-critical anti-forensics; document what was verified even if the wipe proves sanctioned."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → **Tier B — auto-isolate on TI-confirm**: auto EDR-isolate the host when a related hash (executing or parent binary) returns VT ≥ 5; account actions on analyst confirm. Without a TI-confirmable artifact → Tier D with 15-minute analyst SLA; Tier B on analyst confirm — bias toward early isolation because a running wipe destroys evidence by the minute.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   (process.executable : *\\\\cipher.exe or process.pe.original_file_name : cipher.exe)\n   and process.args : /w*\n   ```\n2. Anti-forensics-chain pivot: process-tree via `process.parent.name` / `process.parent.args`; sweep the host's prior 24 h for mass deletions, exfil-staging alerts (e.g. certutil -encode), or ransomware-precursor indicators — `/w` after deletion is the destruction of the deleted originals.\n3. False-positive checks: IT staff deliberately sanitizing free space on a workstation being decommissioned or repurposed — correlate against the change calendar and asset-lifecycle records; no matching record → treat as hostile.\n**Escalation:** the wipe follows deletion/exfil indicators, or no sanctioned-sanitization record exists → page the IR lead, isolate immediately if not already done, and kill the cipher process to stop further overwrite."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Act fast: stop the cipher.exe process, then image the volume — every minute of `/w` reduces recoverable deleted data; prioritize NTFS metadata ($MFT, $UsnJrnl, $LogFile) to reconstruct what was deleted before the wipe.\n- Cleanup: eradicate whatever orchestrated the wipe (parent chain); if paired with exfil evidence, follow the data-breach path for the affected files.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Act fast: stop the cipher.exe process, then image the volume — every minute of `/w` reduces recoverable deleted data; prioritize NTFS metadata ($MFT, $UsnJrnl, $LogFile) to reconstruct what was deleted before the wipe.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

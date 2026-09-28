@@ -1,0 +1,90 @@
+{
+  "id": "system_win_suspicious_service_binpath_lolbin",
+  "title": "New Service Installed With a LOLBin as its Binary",
+  "ruleFile": "rules/sigma/system_win_suspicious_service_binpath_lolbin.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows System Log - Service Control Manager & Event Log Service",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows System Log - Service Control Manager & Event Log Service"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence",
+      "Privilege Escalation"
+    ],
+    "techniques": [
+      "T1543.003 — Create or Modify System Process: Windows Service"
+    ]
+  },
+  "aiContext": {
+    "playbook": "system_win_suspicious_service_binpath_lolbin",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence, Privilege Escalation |\n| Technique(s) | T1543.003 — Create or Modify System Process: Windows Service |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows System) |\n| Trigger condition | System 7045 where `ImagePath` contains any of `cmd.exe`, `powershell.exe`, `rundll32.exe`, `mshta.exe`, `regsvr32.exe`, `wscript.exe`, `cscript.exe` |\n\nDetects a service whose `ImagePath` is itself a living-off-the-land binary rather than a dedicated service executable — the service exists purely as a persistence wrapper to auto-run a one-liner (or a VBS/JS payload via wscript/cscript) as SYSTEM at boot. Orthogonal to `system_win_service_installed.yml`'s path-based noise filter: this rule fires regardless of install path, because a service binary that IS a LOLBin is unusual no matter where it is installed from."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Selects System 7045 (new service installed) |\n| `ImagePath` | rule detection block | Carries the LOLBin plus its full argument string — payload path, encoded command, or URL live here |\n| `ServiceName` | event source (System 7045) | Baseline-exclusion key for the sanctioned-wrapper false positive |\n| `StartType` | event source (System 7045) | Auto-start confirms boot persistence intent |\n| `AccountName` | event source (System 7045) | Run-as account — typically LocalSystem for this pattern |\n| `Computer` | event source (System channel) | Host; the record timestamp anchors the install window |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- The LOLBin named in `ImagePath` is Microsoft-signed — its own hash is not the signal. The TI target is the script/payload file referenced in the `ImagePath` argument string: collect it and submit its SHA-256 → VirusTotal; escalate at **≥ 5 malicious verdicts**. The hash comes from the file (or the correlated Sysmon EID 1 event when the service runs), not from the 7045 event itself.\n- Any URL or domain embedded in the argument string → OTX; escalate on any pulse match.\n- Internal-only checks: baseline of sanctioned wrapper services by exact `ServiceName`; change calendar for the install.\n- Cite the payload's TI verdict or an internal case ID before calling the service malicious — the wrapper shape alone is the alert, not the proof."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B: auto EDR-isolate the host when the referenced payload's hash is VT-confirmed ≥ 5 (or its embedded URL/domain returns an OTX pulse); account actions on analyst confirm. No TI-confirmable artifact → Tier D with 15-minute analyst SLA; Tier B on analyst confirm.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 7045 and winlog.event_data.ImagePath : (*cmd.exe* or *powershell.exe* or *rundll32.exe* or *mshta.exe* or *regsvr32.exe* or *wscript.exe* or *cscript.exe*)\n   ```\n2. Parse the full `ImagePath` argument string: extract and collect any referenced script or payload file, decode any base64/encoded command, and note any URL. Confirm whether the service has already run via the LOLBin's Sysmon EID 1 with matching arguments (service-start 7036 is not collected in this environment).\n3. False-positive check: a legitimate scheduled-task-style service wrapper that intentionally launches powershell.exe/cmd.exe to run an internal script — baseline and exclude these specific service names by exact match.\n**Escalation:** encoded command or external URL in the argument string, or evidence the service already executed → page the IR lead; treat as active SYSTEM-level persistence."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Collect the referenced script/payload files and export the service registry key (`HKLM\\SYSTEM\\CurrentControlSet\\Services\\<ServiceName>`) before deletion; capture the decoded command content as evidence.\n- Cleanup: stop and delete the service, remove the payload files, and hunt sibling persistence — the same one-liner frequently also exists as a scheduled task or Run key on the host.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Collect the referenced script/payload files and export the service registry key (`HKLM\\SYSTEM\\CurrentControlSet\\Services\\<ServiceName>`) before deletion; capture the decoded command content as evidence.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

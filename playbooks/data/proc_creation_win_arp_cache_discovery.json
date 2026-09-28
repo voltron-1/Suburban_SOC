@@ -1,0 +1,89 @@
+{
+  "id": "proc_creation_win_arp_cache_discovery",
+  "title": "ARP Cache Enumeration via arp.exe",
+  "ruleFile": "rules/sigma/proc_creation_win_arp_cache_discovery.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Process Creation",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Process Creation"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1016 — System Network Configuration Discovery"
+    ]
+  },
+  "aiContext": {
+    "playbook": "proc_creation_win_arp_cache_discovery",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1016 — System Network Configuration Discovery |\n| Severity (`level`) | medium |\n| Data source | Sysmon/Winlogbeat (process_creation) |\n| Trigger condition | `arp.exe` (by `Image` path or `OriginalFileName`) with `-a` on the command line |\n\nDetects `arp -a`, which dumps the local ARP cache — every IP/MAC pair the host has recently communicated with on its local segment. The rule documents its own limits: this is one of the most heavily used legitimate diagnostic commands on any Windows fleet, so it is intentionally low-confidence — on its own it is closer to noise than signal, and its value comes from correlation with the other discovery-stage rules (SharpHound, net view/share) or a subsequent lateral-movement/scan indicator, not from firing in isolation. Rule falsepositives: routine network troubleshooting by IT staff or an end user diagnosing a connectivity issue."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `Image` | rule detection block | Confirms the executing binary path (`\\arp.exe`) |\n| `OriginalFileName` | rule detection block | Rename-resistant identification of arp.exe (`arp.exe`) |\n| `CommandLine` | rule detection block | Confirms the `-a` cache-dump flag |\n| `ParentImage`, `ParentCommandLine` | event source (Sysmon EID 1) | Interactive shell vs script vs unexpected parent — the main triage discriminator |\n| `User` | event source (Sysmon EID 1) | IT/admin account vs standard user context |\n| `Hashes` | event source (Sysmon EID 1) | SHA-256 of the executing binary for TI lookup |\n| `Computer`, `UtcTime`, `ProcessGuid` | event source (Sysmon EID 1) | Host, timeline anchor, correlation key for the discovery-chain sweep |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- SHA-256 from `Hashes` → VirusTotal; escalate at **≥ 5 malicious verdicts** (a renamed non-Microsoft binary posing as arp.exe would surface here).\n- Internal-only: case history for the host/user; asset-owner check (is this an IT workstation?); correlation sweep for sibling discovery-rule hits from the same host/user.\n- No external IP/domain artifact on this event — AbuseIPDB/OTX not applicable.\n- A lone `arp -a` is not malicious; do not label it so without a correlated chain or a cited TI/internal-case verdict."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium → **Tier C — indicator block on TI-confirm**: if the binary hash returns VT ≥ 5 malicious, auto-add the hash to the EDR blocklist and open an analyst ticket; no host action without an analyst. Without TI confirmation → Tier D triage queue.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`; this channel is ECS-mapped):\n   ```\n   (process.executable : *\\\\arp.exe or process.pe.original_file_name : arp.exe) and process.args : *-a*\n   ```\n2. Discovery-chain pivot: sweep the same host/user ±60 min for other discovery-rule hits (net group, nltest, SharpHound indicators) and for follow-on lateral-movement or scan alerts — the rule's stated value is correlation, not the isolated event.\n3. False-positive checks: routine network troubleshooting by IT staff or an end user diagnosing a connectivity issue — an interactive shell parent under a known IT account with no sibling discovery hits supports benign closure.\n**Escalation:** two or more distinct discovery-family rules from the same host/user inside the window, or any subsequent lateral-movement indicator → promote to a discovery-stage incident and assign an analyst-led investigation."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Export the host's process-creation slice for the correlation window — the discovery-chain sequence is the evidence product; no host artifact cleanup applies to a cache read.\n- If the chain is confirmed, remediation follows the downstream technique's section (lateral movement / credential access); document the reconnaissance scope (which segment's IP/MAC pairs were exposed).\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Export the host's process-creation slice for the correlation window — the discovery-chain sequence is the evidence product; no host artifact cleanup applies to a cache read.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

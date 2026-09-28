@@ -1,0 +1,89 @@
+{
+  "id": "posh_ps_ad_recon_admodule",
+  "title": "Active Directory Query via Official ActiveDirectory Module",
+  "ruleFile": "rules/sigma/posh_ps_ad_recon_admodule.yml",
+  "status": "experimental",
+  "severity": "low",
+  "category": "PowerShell Script Block Logging",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "PowerShell Script Block Logging"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Discovery"
+    ],
+    "techniques": [
+      "T1087.002 — Account Discovery: Domain Account"
+    ]
+  },
+  "aiContext": {
+    "playbook": "posh_ps_ad_recon_admodule",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Discovery |\n| Technique(s) | T1087.002 — Account Discovery: Domain Account |\n| Severity (`level`) | low |\n| Data source | Winlogbeat (PowerShell/Operational) |\n| Trigger condition | A 4104 script block containing any of the official module's query cmdlets: `Get-ADUser`, `Get-ADGroup`, `Get-ADGroupMember`, `Get-ADDomainController` |\n\nDetects the official Microsoft ActiveDirectory module's query cmdlets — legitimate, signed, and routinely used for ordinary IT/helpdesk administration, but also usable by an attacker who prefers built-in tooling over PowerView specifically to blend in with that routine traffic. Split from a single merged rule and kept at low severity: these cmdlets are harder to rename than PowerView's functions (dot-sourced from a signed module), so a hit is worth a look, but it must not compete for triage attention with a PowerView hit (see `posh_ps_ad_recon_powerview`)."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Channel scoping — script-block logging events (4104) only |\n| `ScriptBlockText` | rule detection block | Recovered script content — shows which query cmdlets ran and their scoping (filters, target groups, server parameters) |\n| `ScriptBlockId` | event source (4104) | Reassembly/dedup key for chunked blocks |\n| `MessageNumber`, `MessageTotal` | event source (4104) | Chunk ordering — export every chunk before analysis |\n| `Path` | event source (4104) | On-disk `.ps1` path when run from a file; separates saved admin scripts from ad-hoc console use |\n| `Computer`, `UserID` | event source (4104) | Host and executing-account SID — the sanction check pivots on this pairing |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only (recon cmdlets carry no external-TI artifact — OTX/AbuseIPDB/VT not applicable): which account ran the query, from which host, and is that pairing sanctioned for AD administration (admin-group membership, asset role, change calendar, prior case history)?\n- Internal-only: query breadth — enumeration of privileged groups or domain controllers from a non-admin workstation weighs heavier than a single user lookup from a helpdesk host.\n- The cmdlet names alone prove nothing; assess only the account/host/scope context, and cite an internal case before treating a hit as recon."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity low → Tier D: triage-only — enrich context, queue for analyst review, no automation.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4104 and winlog.event_data.ScriptBlockText : (*Get-ADUser* or *Get-ADGroup* or *Get-ADGroupMember* or *Get-ADDomainController*)\n   ```\n2. Correlate the 4104 event to its launching process via the host's Sysmon process-creation events in the same window (then follow the Windows Process Creation family baseline); check whether the same host/user also fired `posh_ps_ad_recon_powerview` or other discovery detections in the surrounding hour.\n3. False-positive check: legitimate IT/helpdesk administration scripts using the official module for routine account or group management — the rule expects meaningful, recurring volume wherever AD administration is done via PowerShell rather than the GUI.\n**Escalation:** unsanctioned account/host pairing, privileged-scope enumeration from a non-admin asset, or a co-occurring PowerView hit → escalate under the `posh_ps_ad_recon_powerview` flow."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- For a sanctioned hit: record the baseline (script hash/path) and tune the exclusion rather than closing silently.\n- For an unsanctioned hit: document what was enumerated (the query scope is the attacker's shopping list), review the executing account's recent activity, and hunt follow-on targeting of the enumerated objects; no host artifacts to clean for the query itself.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "For a sanctioned hit: record the baseline (script hash/path) and tune the exclusion rather than closing silently.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

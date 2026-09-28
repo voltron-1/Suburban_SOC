@@ -1,0 +1,88 @@
+{
+  "id": "auth_win_user_account_created",
+  "title": "User Account Created (Windows Security 4720)",
+  "ruleFile": "rules/sigma/auth_win_user_account_created.yml",
+  "status": "experimental",
+  "severity": "medium",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Persistence"
+    ],
+    "techniques": [
+      "T1136.001 — Create Account: Local Account"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_user_account_created",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Persistence |\n| Technique(s) | T1136.001 — Create Account: Local Account |\n| Severity (`level`) | medium |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Any Security 4720 (user account created) event |\n\nDetects new-account creation — a common persistence mechanism: an attacker with administrative access creates an account for durable access that survives a compromised credential's reset. Stated scope limit: 4720 alone means \"an account was created\" (local on a workstation, domain if raised on a DC), not \"an admin account was created\" — confirming elevation requires a follow-on 4732/4728 group-membership event for the same `TargetUserName` (covered independently by `auth_win_priv_group_membership_change.yml`); this rule does not perform that correlation."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the account-created event (4720) |\n| `TargetUserName` | event source (standard) | The new account — watch it, don't just log it |\n| `SubjectUserName` | event source (standard) | The creating account |\n| `SamAccountName`, `DisplayName` | event source (standard) | Naming — lookalike or service-style names are a manual-creation tell |\n| `Computer` | event source (standard) | Workstation (local account) vs DC (domain account) — different blast radius |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only: provisioning/HR onboarding record for `TargetUserName`; whether `SubjectUserName` is a sanctioned provisioning identity. An account-creation event carries no external artifact — AbuseIPDB/OTX/VT not applicable.\n- The provisioning-record check is the citation — an unmatched creation is unexplained, and stays that way until the follow-on activity is examined."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity medium, internal-only enrichment → Tier D: enrich, queue for analyst review, no automation.\n**Analyst triage path:**\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4720\n   ```\n2. Elevation correlation — the decisive follow-up: check for 4732/4728/4756 adds of the same `TargetUserName` (the priv-group rule's territory); creation alone is routine in an environment with regular turnover, so the verdict needs the provisioning record plus what the account did next (first logons, group adds, logon sources).\n3. False-positive check: legitimate account provisioning by IT staff or automated onboarding tooling — expect routine volume in any environment with regular staff/student turnover; correlate with change-management records or HR onboarding events before escalating.\n**Escalation:** creation plus a privileged-group add with no provisioning record, or creation by a non-provisioning account → treat as active persistence, apply the Tier B identity actions (disable the new account and the creator pending review), and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- On confirmed unauthorized creation: disable and remove the account, audit every logon and action it performed, and reset the creator account's credentials while investigating how the creator's access was obtained.\n- Sweep for sibling creations by the same `SubjectUserName` — persistence accounts are often made in pairs.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

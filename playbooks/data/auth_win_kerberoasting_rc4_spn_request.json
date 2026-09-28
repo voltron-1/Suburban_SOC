@@ -1,0 +1,88 @@
+{
+  "id": "auth_win_kerberoasting_rc4_spn_request",
+  "title": "Kerberoasting — RC4 Service Ticket Requested for a User SPN",
+  "ruleFile": "rules/sigma/auth_win_kerberoasting_rc4_spn_request.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Windows Security Log - Authentication & Identity",
+  "version": "1.0",
+  "lastUpdated": "2026-09-25",
+  "tags": [
+    "Windows Security Log - Authentication & Identity"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Credential Access"
+    ],
+    "techniques": [
+      "T1558.003 — Steal or Forge Kerberos Tickets: Kerberoasting"
+    ]
+  },
+  "aiContext": {
+    "playbook": "auth_win_kerberoasting_rc4_spn_request",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Credential Access |\n| Technique(s) | T1558.003 — Steal or Forge Kerberos Tickets: Kerberoasting |\n| Severity (`level`) | high |\n| Data source | Winlogbeat (Windows Security) |\n| Trigger condition | Security 4769 with `TicketEncryptionType` 0x17 (RC4-HMAC) and `Status` 0x0 (ticket issued), excluding machine-account SPNs (ending `$`) and krbtgt |\n\nKerberoasting requests a service ticket for a user-account SPN and cracks it offline; RC4 is requested deliberately because it is far cheaper to crack than AES. The two account filters are what keep this from being a per-logon firehose (machine accounts request RC4 tickets constantly; krbtgt appears in every TGT exchange), and success is required explicitly rather than by blacklisting one failure code. Requires the \"Audit Kerberos Service Ticket Operations\" subcategory on domain controllers."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `EventID` | rule detection block | Confirms the service-ticket request event (4769) |\n| `TicketEncryptionType` | rule detection block | `0x17` RC4-HMAC — the downgrade that makes offline cracking cheap |\n| `Status` | rule detection block | `0x0` — the ticket was actually issued |\n| `ServiceName` | rule detection block | The roasted SPN account — its password is the exposure |\n| `TargetUserName` | event source (standard) | Requesting principal (user@REALM) — the roasting actor |\n| `IpAddress` | event source (standard) | Requesting client address (may be IPv6-mapped `::ffff:a.b.c.d`) — TI artifact |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- `IpAddress` → AbuseIPDB for routable external sources; escalate at **≥ 50% confidence**. Internal sources pivot to asset-owner lookup.\n- Internal-only checks: the baseline of legacy RC4-only SPNs (the rule's own FP inventory); the requester's normal service-ticket profile.\n- A verdict needs either the multi-SPN burst shape or a non-baselined requester plus the TI/internal citation — one RC4 ticket to one legacy SPN is not, by itself, an incident."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high → Tier B (identity): on AbuseIPDB ≥ 50% for `IpAddress`, auto-disable the requesting account (`TargetUserName`) and revoke its Kerberos tickets; forced reset of the roasted `ServiceName` account on analyst confirm.\n**Analyst triage path** (no TI confirmation) — 15-minute SLA:\n1. Verify with KQL (index `logstash-*`):\n   ```\n   winlog.event_id : 4769 and winlog.event_data.TicketEncryptionType : \"0x17\" and winlog.event_data.Status : \"0x0\" and not winlog.event_data.ServiceName : (*$ or krbtgt*)\n   ```\n2. Burst-cardinality check: count distinct `ServiceName` values per requester (`TargetUserName` / `IpAddress`) over 10 minutes — a roasting run requests many SPNs at once; a single request is ambiguous and needs the burst shape or an off-baseline requester before any verdict.\n3. False-positive checks: a legacy application or appliance whose service account genuinely still negotiates RC4 because it cannot do AES (baseline these SPNs and exclude them explicitly rather than weakening the rule); a domain still running at a functional level where RC4 is the negotiated default.\n**Escalation:** multi-SPN burst from one requester, or the same principal also flagged by the AS-REP roasting or spray rules → page the IR lead; treat the roasted SPN passwords as exposed."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Reset every roasted service account to a long random password or migrate it to a gMSA; enforce AES on those accounts so RC4 tickets can no longer be minted for them.\n- Hunt for post-roast use of the SPN accounts (new logons from unusual sources) — a cracked ticket's value is the follow-on authentication.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}
