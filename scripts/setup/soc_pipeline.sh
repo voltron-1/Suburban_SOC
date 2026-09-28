@@ -156,6 +156,28 @@ resolve_es_ca() {
     export ES_CA
 }
 
+# Returns the HTTP status code for a request, or 000 when no HTTP response was
+# obtained at all (connect refused, TLS failure, curl exit 77 on a bad CA).
+#
+# Why this exists: every health check below used to be `curl -s ... &>/dev/null`.
+# Without -f, curl exits 0 for ANY completed HTTP exchange, so a 401 (wrong
+# Elasticsearch password), a 403 or a 503 (stack up but not ready) all printed
+# "[PASS] ... is reachable". Verified against this stack: an empty ES_PASS
+# returns HTTP 401 while the old check reported PASS. The callers below test the
+# CODE, not curl's exit status, and distinguish "no answer" from "answered, but
+# rejected you" - the same status-code idiom as es_common.sh's es_code().
+http_code() {
+    local code
+    code=$(curl -s -o /dev/null -w '%{http_code}' \
+        --cacert "$ES_CA" --connect-timeout 3 --max-time 10 "$@" 2>/dev/null)
+    echo "${code:-000}"
+}
+
+# Status code for the Elasticsearch cluster-health API, using the session creds.
+es_health_code() {
+    http_code -u "${ES_USER}:${ES_PASS}" https://localhost:9200/_cluster/health
+}
+
 # Automates the creation and distribution of SSH keys to the remote router
 setup_ssh_keys() {
     echo ""
@@ -304,19 +326,38 @@ run_prereq_checks() {
     # Test Elasticsearch API connection using the provided credentials
     # Connect-timeout prevents hanging if the service is down
     resolve_es_ca
-    if curl -s --cacert "$ES_CA" -u "${ES_USER}:${ES_PASS}" --connect-timeout 3 https://localhost:9200/_cluster/health &>/dev/null; then
-        pass "Elasticsearch is reachable (port 9200)"
-    else
-        warn "Elasticsearch not reachable or auth failed - ensure ELK stack is running and password is correct."
-    fi
+    local es_status
+    es_status=$(es_health_code)
+    case "$es_status" in
+        200)
+            pass "Elasticsearch is reachable and authenticated (port 9200, HTTP 200)" ;;
+        401|403)
+            # Reachable but the credential was rejected. This is a hard failure:
+            # the one ES query below (SOP-005 Step 3, which parses the health
+            # JSON) would silently return nothing.
+            fail "Elasticsearch REJECTED the credentials (HTTP $es_status) - wrong password for user '${ES_USER}'"
+            all_pass=false ;;
+        000)
+            warn "Elasticsearch gave no HTTP response - ELK stack down, or the CA at ${ES_CA} is wrong/unreadable" ;;
+        *)
+            warn "Elasticsearch answered HTTP $es_status (not 200) - the stack is up but the cluster-health API is not serving" ;;
+    esac
 
     # Test Kibana frontend availability. #189: Kibana is TLS-only now (self-signed
     # stack CA); use the CA to securely verify reachability, mirroring es_common.sh.
-    if curl -s --cacert "$ES_CA" --connect-timeout 3 https://localhost:5601 &>/dev/null; then
-        pass "Kibana is reachable (port 5601)"
-    else
-        warn "Kibana not reachable - open https://localhost:5601 after starting ELK stack"
-    fi
+    local kb_code
+    kb_code=$(http_code https://localhost:5601)
+    case "$kb_code" in
+        200|302)
+            # 302 is the normal unauthenticated redirect to /login.
+            pass "Kibana is reachable (port 5601, HTTP $kb_code)" ;;
+        000)
+            warn "Kibana gave no HTTP response - open https://localhost:5601 after starting the ELK stack" ;;
+        503)
+            warn "Kibana answered HTTP 503 - the container is up but Kibana is still initialising or degraded" ;;
+        *)
+            warn "Kibana answered HTTP $kb_code (expected 200/302) - check the kibana container logs" ;;
+    esac
 
     echo ""
     if $all_pass; then
@@ -499,11 +540,19 @@ run_sop_002() {
         warn "Authoritative config not found at $AUTHORITATIVE_CONFIG - apply config manually"
     fi
 
-    # Enable at boot and start the service
+    # Enable at boot and start the service, then VERIFY. `systemctl start` can
+    # exit non-zero and leave the unit dead (a malformed filebeat.yml does exactly
+    # that), and an unconditional pass() reported green regardless - the same
+    # "claim success without checking the result" bug fixed in the ES/Kibana
+    # checks above.
     sudo systemctl enable filebeat
     sudo systemctl start filebeat
     sudo systemctl status filebeat --no-pager
-    pass "Filebeat enabled and started"
+    if systemctl is-active --quiet filebeat 2>/dev/null; then
+        pass "Filebeat enabled and started"
+    else
+        fail "Filebeat did NOT start - inspect: sudo journalctl -u filebeat -n 50"
+    fi
 }
 
 # =============================================================================
@@ -526,8 +575,15 @@ run_sop_004() {
     fi
 
     chmod +x "${SCRIPT_DIR}/clear_logs.sh"
-    sudo "${SCRIPT_DIR}/clear_logs.sh"
-    pass "Logs cleared: $LOG_DIR"
+    # Capture the exit status instead of assuming it: a failed clear leaves stale
+    # logs that the next capture silently appends to.
+    local rc=0
+    sudo "${SCRIPT_DIR}/clear_logs.sh" || rc=$?
+    if [ "$rc" -eq 0 ]; then
+        pass "Logs cleared: $LOG_DIR"
+    else
+        fail "clear_logs.sh exited ${rc} - $LOG_DIR may still hold files"
+    fi
 }
 
 # =============================================================================
@@ -552,10 +608,10 @@ run_sop_005() {
     echo -e "\n${BOLD}Step 2: ELK Stack${NC}"
     # Wait for the user to manually start ELK if it isn't already responsive
     resolve_es_ca
-    if curl -s --cacert "$ES_CA" -u "${ES_USER}:${ES_PASS}" --connect-timeout 3 https://localhost:9200/_cluster/health &>/dev/null; then
+    if [ "$(es_health_code)" = "200" ]; then
         pass "Elasticsearch already up"
     else
-        warn "Elasticsearch not reachable. Start your ELK stack (docker compose up -d)"
+        warn "Elasticsearch not up and authenticated. Start your ELK stack (docker compose up -d)"
         echo -ne "  Press Enter once ELK is running..."
         read -r
         # Re-resolve: a cold start (ELK/its containers not up yet at the first
@@ -569,25 +625,39 @@ run_sop_005() {
 
     echo -e "\n${BOLD}Step 3: Verify Elasticsearch${NC}"
     # Parse the specific 'status' field from the JSON health response
-    ES_STATUS=$(curl -s --cacert "$ES_CA" -u "${ES_USER}:${ES_PASS}" https://localhost:9200/_cluster/health | grep -o '"status":"[^"]*"' | head -1)
-    if [ -n "$ES_STATUS" ]; then
-        pass "Elasticsearch: $ES_STATUS"
+    ES_CODE=$(es_health_code)
+    if [ "$ES_CODE" = "200" ]; then
+        ES_STATUS=$(curl -s --cacert "$ES_CA" -u "${ES_USER}:${ES_PASS}" --max-time 10 \
+            https://localhost:9200/_cluster/health | grep -o '"status":"[^"]*"' | head -1)
+        if [ -n "$ES_STATUS" ]; then
+            pass "Elasticsearch: $ES_STATUS"
+        else
+            warn "Elasticsearch returned HTTP 200 but no status field - unexpected response body"
+        fi
+    elif [ "$ES_CODE" = "401" ] || [ "$ES_CODE" = "403" ]; then
+        fail "Elasticsearch REJECTED the credentials (HTTP $ES_CODE) - wrong password for user '${ES_USER}'"
     else
-        warn "Could not read Elasticsearch status - verify your password is correct."
+        warn "Could not read Elasticsearch status (HTTP $ES_CODE)"
     fi
 
     echo -e "\n${BOLD}Step 4: Verify Kibana${NC}"
     # #189: Kibana is TLS-only now (self-signed stack CA); verify using CA.
-    if curl -s --cacert "$ES_CA" --connect-timeout 5 https://localhost:5601 &>/dev/null; then
-        pass "Kibana reachable at https://localhost:5601"
-    else
-        warn "Kibana not reachable - check Docker containers"
-    fi
+    KB_CODE=$(http_code https://localhost:5601)
+    case "$KB_CODE" in
+        200|302) pass "Kibana reachable at https://localhost:5601 (HTTP $KB_CODE)" ;;
+        000)     warn "Kibana gave no HTTP response - check Docker containers" ;;
+        *)       warn "Kibana answered HTTP $KB_CODE (expected 200/302) - check the kibana container logs" ;;
+    esac
 
     echo -e "\n${BOLD}Step 5: Start Filebeat${NC}"
     if ! systemctl is-active --quiet filebeat 2>/dev/null; then
         sudo systemctl start filebeat
-        pass "Filebeat started"
+        # Re-check rather than trust the start: see the SOP-002 note above.
+        if systemctl is-active --quiet filebeat 2>/dev/null; then
+            pass "Filebeat started"
+        else
+            fail "Filebeat failed to start - inspect: sudo journalctl -u filebeat -n 50"
+        fi
     else
         pass "Filebeat already running"
     fi
