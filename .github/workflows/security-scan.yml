@@ -4,16 +4,11 @@ name: Security Scan
 # Fails on CRITICAL findings (blocks a known-critical CVE from merging). The weekly
 # schedule is the patch-cadence checkpoint (see docs/SOP-008-vuln-management.md).
 on:
+  # Runs on EVERY pull request, no `paths:` filter: all five jobs are required
+  # status checks on `main` (scripts/setup/setup_branch_protection.sh), and a
+  # required check whose workflow is path-filtered never reports on PRs outside
+  # those paths, leaving them blocked at "Expected — waiting" forever.
   pull_request:
-    paths:
-      - "scripts/setup/ai_agent/**"
-      - "scripts/hive-mind-broker/**"
-      - "scripts/setup/docker-compose*.yml"   # audit P2-15: scan the compose IaC too
-      - "configs/elasticsearch/**"
-      - "configs/systemd/**"                  # #355: covers the zeek/zeek pin (#293)
-      - "scripts/setup/*.sh"                  # #355: covers the zeek/zeek pin (#293)
-      - "tests/pipeline/test_zeek_image_pin.py" # #355: the zeek-image job's own pin source
-      - ".github/workflows/security-scan.yml"
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC — weekly patch cadence
   workflow_dispatch:
@@ -91,6 +86,10 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           vuln-type: os,library
+          # #577: time-boxed exception for CVE-2026-48930 (no published
+          # zeek/zeek image carries the fix yet). Scoped to this job only; the
+          # file's exp: date makes the job fail again on its own.
+          trivyignores: .github/trivy/zeek-image.trivyignore
 
   iac:
     name: IaC / compose misconfig scan (Trivy config)

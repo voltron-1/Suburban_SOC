@@ -62,6 +62,7 @@ To remediate dependencies:
 | Advisory | Package | Reason | Review |
 |---|---|---|---|
 | PYSEC-2026-161 | starlette | Fix is 1.0.1; FastAPI caps starlette `< 0.50`. Medium severity. | Re-check weekly; remove `--ignore-vuln` once FastAPI supports starlette ≥ 1.0. |
+| CVE-2026-48930 | libnode115 / nodejs (inside the pinned `zeek/zeek:9.0.0` image) | CRITICAL; fix `20.19.2+dfsg-1+deb13u3` isn't in any published zeek/zeek image as of 2026-09-28. Not reachable as deployed: the vulnerable Node.js TLS/resolver bindings run only from ZeekJS scripts, and every capture path loads `.zeek` scripts only. Ignored via `.github/trivy/zeek-image.trivyignore` (`zeek-image` job only). #577. | Expires 2026-10-28 (Trivy fails again automatically). Bump the pin once upstream ships a patched image; re-justify rather than extend. |
 
 # References and Resources
 - `.github/workflows/security-scan.yml`
