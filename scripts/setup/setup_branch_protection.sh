@@ -54,10 +54,10 @@ allow_downgrade=$(bool_flag ALLOW_REVIEW_DOWNGRADE "${ALLOW_REVIEW_DOWNGRADE:-0}
 skip_changelog=$(bool_flag SKIP_CHANGELOG "${SKIP_CHANGELOG:-0}")
 
 # Required checks, by the job `name:` GitHub reports (see .github/workflows/).
-# Not listed on purpose: "Python dependency audit (pip-audit)" (security-scan.yml
-# does not run on every PR, so requiring it would block merges that never
-# trigger it) and "CodeQL" (the per-language "Analyze (python)" job is the one
-# that carries results).
+# Not listed on purpose: "CodeQL" (the per-language "Analyze (python)" job is
+# the one that carries results). The security-scan.yml jobs ARE listed now that
+# that workflow runs on every PR (it used to be path-filtered, which would have
+# left unrelated PRs blocked on a check that never reports).
 REQUIRED_CHECKS=(
   "detections"                                                        # detections.yml
   "SOAR auth / exclusion / approval / tenant-scoping"                  # soar-tests.yml
@@ -68,6 +68,11 @@ REQUIRED_CHECKS=(
   "pytest-cov >= 70% (slo_metrics / run_hunts / weekly_ciso_report)"  # reporting-coverage.yml
   "gitleaks"                                                          # secret-scan.yml
   "Analyze (python)"                                                  # codeql.yml
+  "Python dependency audit (pip-audit)"                               # security-scan.yml
+  "Container image scan (Trivy) (ai-agent, scripts/setup/ai_agent)"   # security-scan.yml
+  "Container image scan (Trivy) (hive-mind-broker, scripts/hive-mind-broker)" # security-scan.yml
+  "Container image scan (Trivy) (zeek/zeek)"                          # security-scan.yml
+  "IaC / compose misconfig scan (Trivy config)"                       # security-scan.yml
 )
 
 echo "==> Enforcing branch protection on $REPO@$BRANCH (requires admin)"

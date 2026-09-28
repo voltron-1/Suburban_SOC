@@ -45,14 +45,23 @@ jobs:
         # docstring for why the Python version matters here too, not just
         # the package versions.
         #
-        # To deliberately bump these (all three pins live here, in the
+        # To deliberately bump these (all four pins live here, in the
         # live-fire job below, and in deploy_detections.sh — update all
-        # three together): under this same Python version, `pip install
-        # --upgrade sigma-cli pysigma pysigma-backend-elasticsearch`, run
-        # `python scripts/setup/build_kql_docs.py` to regenerate the doc,
-        # review the diff, then commit the new pins + the regenerated doc
-        # together.
-        run: pip install --quiet sigma-cli==3.1.0 pysigma==1.5.0 pysigma-backend-elasticsearch==2.1.1 pytest pyyaml requests
+        # four together): under this same Python version, `pip install
+        # --upgrade sigma-cli pysigma pysigma-backend-elasticsearch
+        # pyparsing`, run `python scripts/setup/build_kql_docs.py` to
+        # regenerate the doc, review the diff, then commit the new pins +
+        # the regenerated doc together.
+        #
+        # #576: pysigma==1.5.0 declares `pyparsing<4.0.0,>=3.2.5` but is
+        # actually broken by pyparsing 3.3.3 within that range — args in
+        # ConditionAND/OR.postprocess (sigma/conditions.py:134) come back
+        # as raw strings instead of parsed ConditionItem objects, raising
+        # `TypeError: 'str' object is not callable` on every rule.
+        # Bisected 3.2.5..3.3.3: 3.2.5/3.3.0/3.3.1/3.3.2 all convert
+        # correctly, only 3.3.3 breaks. Pin pyparsing explicitly until
+        # pysigma either fixes this or tightens its own bound.
+        run: pip install --quiet sigma-cli==3.1.0 pysigma==1.5.0 pysigma-backend-elasticsearch==2.1.1 "pyparsing==3.3.2" pytest pyyaml requests
 
       - name: Install suricata + scapy (#445 — SID registry/pcap-replay promotion gate)
         # Real host package (same choice #443 made for the sensor itself —
@@ -197,8 +206,8 @@ jobs:
       - name: Install the Sigma toolchain
         # #330: pinned to the same versions as the `detections` job above —
         # see that step's comment for why an unpinned install here would
-        # silently drift.
-        run: pip install --quiet sigma-cli==3.1.0 pysigma==1.5.0 pysigma-backend-elasticsearch==2.1.1 pytest "requests==2.33.0" pyyaml
+        # silently drift. #576 adds the pyparsing pin for the same reason.
+        run: pip install --quiet sigma-cli==3.1.0 pysigma==1.5.0 pysigma-backend-elasticsearch==2.1.1 "pyparsing==3.3.2" pytest "requests==2.33.0" pyyaml
 
       - name: Live-fire detection tests against a real Elasticsearch (issue #221)
         # GitHub Actions sets CI=true by default on every runner — test_live_fire.py's

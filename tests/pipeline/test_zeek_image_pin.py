@@ -66,8 +66,16 @@ REAL_CAPTURE_PATHS = [
 # job found on 8.1.1 — 8.2.1 scans clean. Both validation_status-dependent
 # rules re-verified against the new OpenSSL (3.5.6): byte-identical exact
 # strings, no rule change needed.
-EXPECTED_TAG = "8.2.1"
-EXPECTED_DIGEST = "sha256:eca2b3915d3e067cbb4a904f23f4c4f461ea2b60613ab30f7ee77bbc707c87c7"
+# #577: bumped 8.2.1 -> 9.0.0 — 8.2.1 (both the pinned build and upstream's
+# 2026-08-26 rebuild) carries 3 fixed-upstream CRITICAL perl CVEs
+# (CVE-2026-13221/-42496/-8376); 9.0.0 ships libperl5.40 5.40.1-6+deb13u1.
+# Golden-output diff over all 164 tests/detections/fixtures/suricata pcaps
+# with the production @load chain: identical log sets, key sets, row counts
+# and rule-field values; enum spot-check and the live field-cap test match.
+# CVE-2026-48930 (nodejs) remains in both — see
+# .github/trivy/zeek-image.trivyignore.
+EXPECTED_TAG = "9.0.0"
+EXPECTED_DIGEST = "sha256:70733f4e540ba1608e37e00c6a93d009f79734262c9ec2ba09d90aa9abc16de5"
 
 # Anchored on both sides against [\w./-] so a registry/namespace prefix
 # ("evil.example.com/zeek/zeek", "notzeek/zeek") or a suffix

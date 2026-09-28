@@ -79,8 +79,11 @@ if [[ -z "$SIGMA" ]]; then
     # docs/detections/SIEM_KQL_Documentation.md's generating toolchain — an
     # unpinned install here can compile a rule slightly differently
     # (semantically identical, textually different Lucene escaping) than
-    # what CI/the committed docs expect.
-    "$PY" -m pip install -q --disable-pip-version-check sigma-cli==3.1.0 pysigma==1.5.0 pysigma-backend-elasticsearch==2.1.1
+    # what CI/the committed docs expect. #576: pyparsing pinned too — pysigma
+    # 1.5.0 declares compatibility with pyparsing<4.0.0,>=3.2.5 but 3.3.3
+    # within that range breaks rule conversion outright (TypeError in
+    # sigma/conditions.py's postprocess); 3.3.2 is the last known-good.
+    "$PY" -m pip install -q --disable-pip-version-check sigma-cli==3.1.0 pysigma==1.5.0 pysigma-backend-elasticsearch==2.1.1 "pyparsing==3.3.2"
     SIGMA="$VENV/bin/sigma"; [[ -x "$SIGMA" ]] || SIGMA="$VENV/Scripts/sigma.exe"
   fi
 fi

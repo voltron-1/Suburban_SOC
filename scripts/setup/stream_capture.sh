@@ -89,7 +89,7 @@ run_zeek() {
     -v /storage/PCAP/intel:/data/intel \
     -v "${SCRIPT_DIR}/configs/zeek:/data/policy:ro" \
     -w /data/zeek_logs \
-    zeek/zeek:8.2.1@sha256:eca2b3915d3e067cbb4a904f23f4c4f461ea2b60613ab30f7ee77bbc707c87c7 \
+    zeek/zeek:9.0.0@sha256:70733f4e540ba1608e37e00c6a93d009f79734262c9ec2ba09d90aa9abc16de5 \
     zeek -C -r - LogAscii::use_json=T /data/intel/config.zeek /data/policy/scan-detection.zeek \
       policy/protocols/ssh/detect-bruteforcing
 }
