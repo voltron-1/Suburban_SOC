@@ -40,7 +40,7 @@ import argparse
 import json
 import re
 import sys
-from datetime import date, timezone, datetime
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -160,11 +160,12 @@ def parse(source_text: str) -> tuple[list[dict], list[str]]:
             # Next non-blank line should be the metadata line.
             while i < n and lines[i].strip() == "":
                 i += 1
-            if i >= n or not META_RE.match(lines[i]):
+            meta_m = META_RE.match(lines[i]) if i < n else None
+            if meta_m is None:
                 warnings.append(f"Rule {rule_id!r}: missing/malformed metadata line after heading (line {i+1})")
                 meta = {"rule_file": "", "status": "experimental", "severity": "medium"}
             else:
-                meta = META_RE.match(lines[i]).groupdict()
+                meta = meta_m.groupdict()
                 i += 1
 
             # Collect subsections until the next family heading, anchor, or EOF.

@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from flask import Flask
 
-from playbooks_blueprint import playbooks_bp, build_registry, _load_playbook
+from playbooks_blueprint import playbooks_bp, build_registry
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "playbooks" / "data"

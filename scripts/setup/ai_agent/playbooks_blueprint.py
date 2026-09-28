@@ -22,6 +22,7 @@ import json
 from pathlib import Path
 
 from flask import Blueprint, render_template, abort, request, jsonify
+from werkzeug.exceptions import NotFound
 
 # scripts/setup/ai_agent/ -> repo root is 3 levels up.
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -46,7 +47,7 @@ def _load_all_playbooks() -> list[dict]:
     """Reads every playbooks/data/*.json. Cheap enough (120 small files) to
     do per-request rather than caching + risking staleness after a
     migration script re-run; revisit if this becomes a hot path."""
-    records = []
+    records: list[dict] = []
     if not DATA_DIR.exists():
         return records
     for path in sorted(DATA_DIR.glob("*.json")):
@@ -143,7 +144,9 @@ def ai_context(rule_id: str):
     HTML. Read-only, no containment fields, no execution."""
     playbook = _load_playbook(rule_id)
     if playbook is None:
-        abort(404)
+        # Same 404 abort() raises; spelled as a raise so type checkers
+        # narrow `playbook` to dict below.
+        raise NotFound()
     return jsonify({
         "playbook": playbook["id"],
         "title": playbook["title"],
