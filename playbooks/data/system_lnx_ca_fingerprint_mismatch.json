@@ -1,0 +1,89 @@
+{
+  "id": "system_lnx_ca_fingerprint_mismatch",
+  "title": "SOC-Internal ES CA Fingerprint Mismatch",
+  "ruleFile": "rules/sigma/system_lnx_ca_fingerprint_mismatch.yml",
+  "status": "experimental",
+  "severity": "high",
+  "category": "Linux Syslog - SOC Self-Health",
+  "version": "1.0",
+  "lastUpdated": "2026-10-17",
+  "tags": [
+    "Linux Syslog - SOC Self-Health"
+  ],
+  "integrations": [],
+  "mitre": {
+    "tactics": [
+      "Defense Evasion"
+    ],
+    "techniques": [
+      "T1562.001 — Impair Defenses: Disable or Modify Tools"
+    ]
+  },
+  "aiContext": {
+    "playbook": "system_lnx_ca_fingerprint_mismatch",
+    "dataSource": "",
+    "triggerCondition": ""
+  },
+  "sections": [
+    {
+      "id": "rule-summary-mitre-mapping",
+      "title": "Rule Summary Mitre Mapping",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Attribute | Value |\n|---|---|\n| Tactic(s) | Defense Evasion |\n| Technique(s) | T1562.001 — Impair Defenses: Disable or Modify Tools |\n| Severity (`level`) | high |\n| Data source | Capture-host syslog via Filebeat (`capture-host-syslog` input, #556) |\n| Trigger condition | `event.module: system` and `event.dataset: syslog`, with `message` containing `[FATAL] ES CA fingerprint changed` |\n\nDetects `scripts/setup/verify_ca_fingerprint.sh`'s own FATAL line reaching syslog: an Elasticsearch CA certificate extracted from the `elasticsearch` container no longer matches the trust-on-first-use (TOFU) fingerprint pinned on this host's first run (#270). On mismatch the script deletes the extracted `ca.crt` and exits non-zero, so the calling unit (e.g. `slo-metrics.service`) does not trust it. The rule states its own limit: it cannot distinguish a deliberate CA rotation from something else now answering at the `elasticsearch` container name or a compromised Docker socket — it only surfaces that the check fired."
+        }
+      ]
+    },
+    {
+      "id": "automated-extraction-fields",
+      "title": "Automated Extraction Fields",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "| Field | Origin | Use in triage |\n|---|---|---|\n| `message` | rule detection block | The full FATAL line — it carries the pinned (`expected …`) and observed (`got …`) SHA-256 fingerprints verbatim |\n| `event.module`, `event.dataset` | rule detection block | Scopes the match to capture-host syslog (`system` / `syslog`) |\n| `host.name`, `@timestamp` | event source | Which capture host refused the CA, and when — anchors correlation with the change calendar |"
+        }
+      ]
+    },
+    {
+      "id": "enrichment-criteria",
+      "title": "Enrichment Criteria",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Internal-only artifact class: the fingerprints are local certificate identifiers, not external TI artifacts — no VT/AbuseIPDB/OTX lookup applies.\n- Internal-only: was a planned ES CA rotation (re-run of the compose `setup` service, `certs` volume reset) scheduled for this window? Check the change calendar, per the rule's documented false positive.\n- Compare the `got …` fingerprint against the CA currently served by the real Elasticsearch node; a match with the live stack's CA after a known rotation is the benign case."
+        }
+      ]
+    },
+    {
+      "id": "containment-decision-flow",
+      "title": "Containment Decision Flow",
+      "type": "procedure",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "**Auto-containment:** severity high with no external-TI artifact → routes to analyst triage (15-minute SLA). No automated host action: the script has already refused the certificate and deleted it, which is the built-in containment for this event.\n**Analyst triage path — 15-minute SLA:**\n1. Verify with KQL (index `logstash-*`; requires the #556 syslog input live):\n   ```\n   (event.module:system AND event.dataset:syslog) AND message:*\\[FATAL\\]\\ ES\\ CA\\ fingerprint\\ changed*\n   ```\n2. Correlate with sibling `system_lnx_self_health_unit_failed` hits on the same host and window — a refused CA typically fails the calling unit's run.\n3. False-positive check: a deliberate, planned ES CA rotation on this host — `verify_ca_fingerprint.sh`'s own comment header documents the expected re-pin procedure; correlate against the change calendar before escalating.\n**Escalation:** no planned rotation accounts for the change, or the observed fingerprint does not match the live Elasticsearch node's CA → treat the Docker host / `elasticsearch` container path as untrusted and page the IR lead."
+        }
+      ]
+    },
+    {
+      "id": "remediation-evidence-preservation",
+      "title": "Remediation Evidence Preservation",
+      "type": "reference",
+      "blocks": [
+        {
+          "blockType": "markdown",
+          "content": "- Before any re-pin, record the `expected`/`got` fingerprints from the FATAL line and the pin file contents.\n- Benign rotation only: follow the script's own message — delete the pin file to re-pin, and delete the caller's cached CA alongside it if one exists (e.g. `/var/lib/suburban-soc-slo/ca.crt`, see `scripts/setup/es_ca_cache.sh`). Do not re-pin while the cause is unexplained; re-pinning a swapped certificate makes it the trusted value.\n- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    "Before any re-pin, record the `expected`/`got` fingerprints from the FATAL line and the pin file contents.",
+    "Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup."
+  ],
+  "unmappedContent": []
+}

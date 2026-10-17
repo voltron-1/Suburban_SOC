@@ -84,6 +84,7 @@ FAMILY_TO_CATEGORY = {
     "Zeek Network Telemetry": "Zeek Network Telemetry",
     "Linux Authentication (auth.log)": "Linux Authentication",
     "Linux Process Creation (auditd execve, #442)": "Linux Process Creation",
+    "Linux Syslog — SOC Self-Health (capture-host syslog, #556)": "Linux Syslog - SOC Self-Health",
     "Sysmon Specialized Events (EID 8 CreateRemoteThread, EID 11 FileCreate)": "Sysmon Specialized Events",
     "WMI Activity (EID 5861)": "WMI Activity",
 }

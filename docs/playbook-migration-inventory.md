@@ -93,6 +93,11 @@ Sigma rules only):
 - `system_lnx_ca_fingerprint_mismatch`
 - `system_lnx_self_health_unit_failed`
 
+> **2026-10-17:** both now have `IR_Sigma_Playbook.md` entries and migrated
+> `playbooks/data/` records (new "Linux Syslog - SOC Self-Health" category);
+> `tests/detections/test_playbook_coverage.py` now fails CI on any Sigma rule
+> without an entry. The 11 Suricata files above remain uncovered.
+
 **Recommendation:** these 13 rules need playbook content authored (using
 `docs/Playbook-Structure.md`'s structure, extended to match the 5-subsection
 shape used elsewhere for consistency) before they can be migrated. This is a
