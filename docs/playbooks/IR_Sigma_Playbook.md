@@ -13,7 +13,7 @@ This playbook provides a structured, per-rule methodology to respond to alerts t
 IR Sigma Playbook (Endpoint & Network Alerts)
 
 ## Problem Statement
-Suburban-SOC deploys 120 Sigma detection rules across endpoint (Sysmon, Windows event channels, Linux auth/process creation) and network (Zeek) telemetry, spanning 86 MITRE ATT&CK techniques across 12 tactics (see [`docs/detections/attack-coverage.md`](../detections/attack-coverage.md)). Every one of those alerts requires a standardized triage and containment response; a generic playbook cannot tell an analyst which fields to extract, which threat-intelligence lookups apply, or when containment may be automated. This playbook gives each deployed rule its own response procedure.
+Suburban-SOC deploys 122 Sigma detection rules across endpoint (Sysmon, Windows event channels, Linux auth/process creation, capture-host syslog) and network (Zeek) telemetry, spanning 86 MITRE ATT&CK techniques across 12 tactics (see [`docs/detections/attack-coverage.md`](../detections/attack-coverage.md)). Every one of those alerts requires a standardized triage and containment response; a generic playbook cannot tell an analyst which fields to extract, which threat-intelligence lookups apply, or when containment may be automated. This playbook gives each deployed rule its own response procedure.
 
 ## Objectives
 - Rapidly identify and validate suspicious activities flagged by Sigma rules.
@@ -43,7 +43,7 @@ Alerts are generated natively in the Elastic Detection Engine and forwarded to t
 ## Playbook Verification
 - An alert corresponding to a managed Sigma rule fires (e.g. `proc_creation_win_lsass_dump.yml`).
 - Endpoint telemetry indicating suspicious child processes is visible in Kibana.
-- The alert's rule maps to exactly one section in this playbook (verified mechanically: 120 rules, 120 sections).
+- The alert's rule maps to exactly one section in this playbook (verified mechanically: 122 rules, 122 sections — `tests/detections/test_playbook_coverage.py`).
 
 ## Recommended Response Action(s)
 The generic actions below are superseded by the per-rule sections in Rule Response Procedures at the end of this section; they remain as the workflow-phase summary.
@@ -102,13 +102,14 @@ Rule sections inherit their family's baseline and state only deviations.
 | Zeek Network (23) | Zeek conn/dns/files/http/notice/smtp/ssh/ssl | external IPs/ports, domains, URIs, certificate attributes, MIME types, byte volumes | destination IP → AbuseIPDB ≥50%; domain/URI → OTX; downloaded-file hash → VT ≥5 | C, promote to B on confirmed internal-host involvement |
 | Linux Authentication (5) | auth.log | usernames, SSH source IPs, sudo/su context | SSH source IP → AbuseIPDB ≥50%; local-context events → Internal-only | B (identity) / D |
 | Linux Process Creation (5) | auditd execve (SYSCALL+EXECVE, #442) | binary paths (`process.executable`), full argv text (`process.args`), embedded IPs/domains in argv where present, `user.name` | embedded IP/domain in `process.args` → AbuseIPDB ≥50% / OTX where present; otherwise Internal-only. No SHA-256 and no `process.parent.name` — the auditd pipeline does not populate either (documented gap, `configs/logstash.conf`) | spans C/B/A by rule severity — see individual sections |
+| Linux Syslog — SOC Self-Health (2) | capture-host `/var/log/syslog` (#556) | systemd unit names and results, script FATAL lines (CA fingerprints) | Internal-only | D (SOC's own host — no host isolation) |
 | Sysmon Specialized (2) | Sysmon EID 8 / EID 11 | source/target process images, dropped-file path and hash | Hash → VT ≥5 | B |
 | WMI Activity (1) | WMI-Activity 5861 | filter/consumer names, consumer command line | Internal-first; VT for any extracted payload hash | B |
 
 <a id="master-detection--response-matrix"></a>
 ### Master Detection & Response Matrix
 
-One row per deployed Sigma rule (120 rows), grouped by log-source family in the same
+One row per deployed Sigma rule (122 rows), grouped by log-source family in the same
 order as the Rule Response Procedures sections below, alphabetical by rule file within
 each family. **Extracted Fields** lists the rule's own detection-block field names
 verbatim; the fuller extraction set (standard event-source fields) is in each rule's
@@ -234,6 +235,8 @@ vocabularies defined in [Standard 4-Phase IR Workflow](#standard-4-phase-ir-work
 | [Linux Reverse Shell via Interpreter Redirect or Exec Flag](#proc_creation_lnx_reverse_shell_interpreter) | T1059.004 | `Image`, `CommandLine` | IP → AbuseIPDB ≥50% | Tier A — auto-isolate + identity kill |
 | [Linux Shell History Tampering](#proc_creation_lnx_shell_history_tamper) | T1070.003 | `CommandLine` | Internal-only | Tier B — auto-isolate on TI-confirm |
 | [Linux systemd Service Persistence](#proc_creation_lnx_systemd_service_persistence) | T1543.002 | `CommandLine`, `Image` | Internal-only | Tier B — auto-isolate on TI-confirm |
+| [SOC-Internal ES CA Fingerprint Mismatch](#system_lnx_ca_fingerprint_mismatch) | T1562.001 | `event.module`, `event.dataset`, `message` | Internal-only | Tier D — triage-only |
+| [Suburban-SOC Self-Health systemd Unit Failed](#system_lnx_self_health_unit_failed) | T1562.001 | `event.module`, `event.dataset`, `message` | Internal-only | Tier D — triage-only |
 | [Suspicious CreateRemoteThread Target or Source (Sysmon EventID 8)](#create_remote_thread_win_susp_target) | T1055 | `EventID`, `TargetImage`, `SourceUser` | Hash → VT ≥5 | Tier B — auto-isolate on TI-confirm |
 | [File Dropped into the Startup Folder](#proc_creation_win_startup_folder_file_drop) | T1547.001 | `TargetFilename` | Hash → VT ≥5 | Tier B — auto-isolate on TI-confirm |
 | [Suspicious WMI Event Filter-to-Consumer Binding (WMI-Activity 5861)](#wmi_win_event_subscription_binding) | T1546.003 | `EventID`, `Operation` | Internal-only; Hash → VT ≥5 | Tier B — auto-isolate on TI-confirm |
@@ -6504,6 +6507,109 @@ Detects two independent shapes of systemd-based persistence: dropping a unit fil
 - Disable and remove the unit (`systemctl disable --now <unit>`, delete the unit file), then `systemctl daemon-reload` to drop it from the manager's view; hunt other hosts for the same unit name or `ExecStart=` content.
 - Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup.
 
+#### Linux Syslog — SOC Self-Health (capture-host syslog, #556) — 2 rules
+
+*Telemetry source: the capture host's own `/var/log/syslog`, shipped by the `capture-host-syslog` filestream input in `configs/network/filebeat.yml` (#556). Both rules select on `event.module: system` + `event.dataset: syslog` and match substrings of the raw `message` line. These rules watch the SOC's own capture and self-monitoring lanes, not a monitored endpoint: the host in `host.name` is the SOC capture host itself, so host-isolation actions from the containment tiers do not apply as written — an isolated capture host stops all detection. Failure alerts for the same units are also pushed independently of Elasticsearch by `soc-alert-on-failure@.service` (`OnFailure=`, see `docs/SOP-005-reliability.md`).*
+
+<a id="system_lnx_ca_fingerprint_mismatch"></a>
+##### SOC-Internal ES CA Fingerprint Mismatch
+
+**Rule file:** `rules/sigma/system_lnx_ca_fingerprint_mismatch.yml` · **Status:** experimental · **Severity:** high
+
+###### 1. Rule Summary & MITRE Mapping
+
+| Attribute | Value |
+|---|---|
+| Tactic(s) | Defense Evasion |
+| Technique(s) | T1562.001 — Impair Defenses: Disable or Modify Tools |
+| Severity (`level`) | high |
+| Data source | Capture-host syslog via Filebeat (`capture-host-syslog` input, #556) |
+| Trigger condition | `event.module: system` and `event.dataset: syslog`, with `message` containing `[FATAL] ES CA fingerprint changed` |
+
+Detects `scripts/setup/verify_ca_fingerprint.sh`'s own FATAL line reaching syslog: an Elasticsearch CA certificate extracted from the `elasticsearch` container no longer matches the trust-on-first-use (TOFU) fingerprint pinned on this host's first run (#270). On mismatch the script deletes the extracted `ca.crt` and exits non-zero, so the calling unit (e.g. `slo-metrics.service`) does not trust it. The rule states its own limit: it cannot distinguish a deliberate CA rotation from something else now answering at the `elasticsearch` container name or a compromised Docker socket — it only surfaces that the check fired.
+
+###### 2. Automated Extraction Fields
+
+| Field | Origin | Use in triage |
+|---|---|---|
+| `message` | rule detection block | The full FATAL line — it carries the pinned (`expected …`) and observed (`got …`) SHA-256 fingerprints verbatim |
+| `event.module`, `event.dataset` | rule detection block | Scopes the match to capture-host syslog (`system` / `syslog`) |
+| `host.name`, `@timestamp` | event source | Which capture host refused the CA, and when — anchors correlation with the change calendar |
+
+###### 3. Enrichment Criteria
+
+- Internal-only artifact class: the fingerprints are local certificate identifiers, not external TI artifacts — no VT/AbuseIPDB/OTX lookup applies.
+- Internal-only: was a planned ES CA rotation (re-run of the compose `setup` service, `certs` volume reset) scheduled for this window? Check the change calendar, per the rule's documented false positive.
+- Compare the `got …` fingerprint against the CA currently served by the real Elasticsearch node; a match with the live stack's CA after a known rotation is the benign case.
+
+###### 4. Containment Decision Flow
+
+**Auto-containment:** severity high with no external-TI artifact → routes to analyst triage (15-minute SLA). No automated host action: the script has already refused the certificate and deleted it, which is the built-in containment for this event.
+**Analyst triage path — 15-minute SLA:**
+1. Verify with KQL (index `logstash-*`; requires the #556 syslog input live):
+   ```
+   (event.module:system AND event.dataset:syslog) AND message:*\[FATAL\]\ ES\ CA\ fingerprint\ changed*
+   ```
+2. Correlate with sibling `system_lnx_self_health_unit_failed` hits on the same host and window — a refused CA typically fails the calling unit's run.
+3. False-positive check: a deliberate, planned ES CA rotation on this host — `verify_ca_fingerprint.sh`'s own comment header documents the expected re-pin procedure; correlate against the change calendar before escalating.
+**Escalation:** no planned rotation accounts for the change, or the observed fingerprint does not match the live Elasticsearch node's CA → treat the Docker host / `elasticsearch` container path as untrusted and page the IR lead.
+
+###### 5. Remediation & Evidence Preservation
+
+- Before any re-pin, record the `expected`/`got` fingerprints from the FATAL line and the pin file contents.
+- Benign rotation only: follow the script's own message — delete the pin file to re-pin, and delete the caller's cached CA alongside it if one exists (e.g. `/var/lib/suburban-soc-slo/ca.crt`, see `scripts/setup/es_ca_cache.sh`). Do not re-pin while the cause is unexplained; re-pinning a swapped certificate makes it the trusted value.
+- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup.
+
+<a id="system_lnx_self_health_unit_failed"></a>
+##### Suburban-SOC Self-Health systemd Unit Failed
+
+**Rule file:** `rules/sigma/system_lnx_self_health_unit_failed.yml` · **Status:** experimental · **Severity:** medium
+
+###### 1. Rule Summary & MITRE Mapping
+
+| Attribute | Value |
+|---|---|
+| Tactic(s) | Defense Evasion |
+| Technique(s) | T1562.001 — Impair Defenses: Disable or Modify Tools |
+| Severity (`level`) | medium |
+| Data source | Capture-host syslog via Filebeat (`capture-host-syslog` input, #556) |
+| Trigger condition | `event.module: system` and `event.dataset: syslog`, with `message` containing `Failed with result` AND one of the SOC's own units: `slo-metrics.service`, `stack-health.service`, `zeek-host-capture.service`, `suricata-host-capture.service`, `intel-refresh.service`, `checkpoints-compact.service`, `threat-intel-compact.service`, `soc-alert-on-failure@` |
+
+Detects systemd's "Failed with result" lifecycle line for one of the units that make up the SOC's own capture and self-monitoring lanes (#554/#549/#555). It is the Linux counterpart to the Windows-only T1562.001 rules: before #556 shipped this syslog, failures of this class (the five-day Zeek capture blackout, #549, and the SLO metrics gap, #550) went unalerted. Scoped to a fixed allow-list of this repo's units — a unit added to `configs/systemd/` later needs its own entry in the rule. Fires once per line, not on a persistence threshold.
+
+###### 2. Automated Extraction Fields
+
+| Field | Origin | Use in triage |
+|---|---|---|
+| `message` | rule detection block | Which unit failed and systemd's stated result (e.g. `'exit-code'`) |
+| `event.module`, `event.dataset` | rule detection block | Scopes the match to capture-host syslog (`system` / `syslog`) |
+| `host.name`, `@timestamp` | event source | Which capture host, and when — anchors the gap in that unit's output |
+
+###### 3. Enrichment Criteria
+
+- Internal-only artifact class: a unit name and exit result carry no external TI artifact.
+- Internal-only: was the host booting, or Docker Desktop starting, in this window? The rule's documented false positive is a one-off failure from a transient, self-correcting condition (e.g. a slow Docker Desktop start racing `slo-metrics.service`'s `TimeoutStartSec=`), expected around host boot.
+- Repeated hits for the same unit are the higher-confidence signal; check this rule's history for that unit.
+
+###### 4. Containment Decision Flow
+
+**Auto-containment:** severity medium with no external-TI artifact → Tier D — triage-only.
+**Analyst triage path:**
+1. Verify with KQL (index `logstash-*`; requires the #556 syslog input live):
+   ```
+   (event.module:system AND event.dataset:syslog) AND message:*Failed\ with\ result* AND (message:(*slo\-metrics.service* OR *stack\-health.service* OR *zeek\-host\-capture.service* OR *suricata\-host\-capture.service* OR *intel\-refresh.service* OR *checkpoints\-compact.service* OR *threat\-intel\-compact.service* OR *soc\-alert\-on\-failure@*))
+   ```
+2. On the capture host, read the unit's state and recent journal (`systemctl status <unit>`, `journalctl -u <unit>`) for the exit cause; for `zeek-host-capture.service` and `slo-metrics.service`, use the matching rows of `docs/master_pipeline_guide.md`'s Troubleshooting Quick Reference.
+3. Correlate with a sibling `system_lnx_ca_fingerprint_mismatch` hit on the same host and window.
+4. False-positive check: a one-off hit around host boot or Docker Desktop start that the unit recovered from on its own.
+**Escalation:** repeated failures of the same unit, a failure with no operational explanation, or a correlated CA-fingerprint mismatch → page the SOC owner; the affected lane (capture, SLO metrics, health checks, intel refresh) is blind until the unit recovers.
+
+###### 5. Remediation & Evidence Preservation
+
+- Record the unit's journal for the failure window before restarting it — a restart rotates the evidence of why it failed.
+- Fix the cause per the matching troubleshooting entry, then confirm the lane's output resumes (e.g. a fresh `conn.log` for Zeek capture, new `soc-slo-metrics` documents for `slo-metrics.service`).
+- Preserve evidence per SOP-147 (`docs/SOP-147-evidence-validation-runbook.md`): SHA-256 hash all collected files/screenshots, record the UTC window and source host before cleanup.
+
 #### Sysmon Specialized Events (EID 8 CreateRemoteThread, EID 11 FileCreate) — 2 rules
 
 *`proc_creation_win_startup_folder_file_drop.yml` lives in this family despite its filename prefix: its logsource is `file_event` (Sysmon EID 11) and its detection field is `TargetFilename`, not process-creation fields.*
@@ -6675,7 +6781,7 @@ Detects the PutInstance operation that binds an `__EventFilter` to a consumer (`
 
 # References and Resources
 - [`docs/detections/attack-coverage.md`](../detections/attack-coverage.md) — authoritative ATT&CK coverage matrix (auto-generated from `rules/sigma/`)
-- `rules/sigma/` — the 120 deployed Sigma rules (single source of truth for endpoint/network detection logic)
+- `rules/sigma/` — the 122 deployed Sigma rules (single source of truth for endpoint/network detection logic)
 - `rules/elastic/threshold/` — Elastic threshold companion rules carrying count-over-time logic for the 8 paired detections
 - [`docs/SOP-147-evidence-validation-runbook.md`](../SOP-147-evidence-validation-runbook.md) — evidence validation runbook (SHA-256 hashing, UTC windows, tamper-evident capture)
 - Threat intelligence sources: VirusTotal, AbuseIPDB, AlienVault OTX (thresholds defined in [Standard 4-Phase IR Workflow](#standard-4-phase-ir-workflow))

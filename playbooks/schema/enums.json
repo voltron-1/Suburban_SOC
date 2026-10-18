@@ -13,6 +13,7 @@
     "Zeek Network Telemetry",
     "Linux Authentication",
     "Linux Process Creation",
+    "Linux Syslog - SOC Self-Health",
     "Sysmon Specialized Events",
     "WMI Activity",
     "Suricata Network Signature"

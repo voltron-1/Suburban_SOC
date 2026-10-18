@@ -387,7 +387,7 @@ SOP covering:
 - How to deploy/update dashboards using the deploy script
 - How to verify each dashboard has data
 - How to add new panels
-- Troubleshooting blank panels (missing fields, wrong time range)
+- Troubleshooting blank panels (missing fields, wrong time range) — *the wrong-time-range and wrong-capture-interface causes are now in `docs/master_pipeline_guide.md`'s Troubleshooting Quick Reference (the canonical troubleshooting doc)*
 
 #### [MODIFY] [README.md](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/README.md)
 

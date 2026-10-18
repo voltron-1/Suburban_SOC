@@ -92,6 +92,9 @@ jobs:
       - name: Detection fixture tests (WS2.1 — TP fires, TN regression, promotion gate)
         run: python -m pytest tests/detections/test_sigma_detections.py -q
 
+      - name: Every Sigma rule has an IR_Sigma_Playbook.md entry (#517 follow-up)
+        run: python -m pytest tests/detections/test_playbook_coverage.py -q
+
       - name: Threshold-rule companions are well-formed and paired (issue #192)
         run: python tests/detections/test_threshold_rules.py
 

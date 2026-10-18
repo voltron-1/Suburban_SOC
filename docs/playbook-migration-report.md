@@ -184,6 +184,8 @@ generated files exactly match what re-parsing the current
 
 1. 13 rules (11 Suricata + 2 recently-added Sigma) have no playbook content
    to migrate — see inventory doc. Not a tooling gap; a content gap.
+   *(2026-10-17: the 2 Sigma rules now have entries — 122 records; the 11
+   Suricata files remain.)*
 2. Subsection content is preserved as single Markdown-text blocks rather
    than decomposed into typed sub-blocks (table/list/codeBlock split
    apart) — see "Content preservation" above for the reasoning. The
