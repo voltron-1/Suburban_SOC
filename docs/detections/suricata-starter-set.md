@@ -346,6 +346,8 @@ segment loss, since that only reproduces here as measured against
 
 ## What is still NOT done
 
+> Plan and tooling for finishing these 20: [`suricata-446-tuning-plan.md`](suricata-446-tuning-plan.md). Nothing in it has been run on live traffic yet.
+
 20 rules remain disabled — every one for a specific, disclosed reason
 below, no leftover "not attempted" category:
 
