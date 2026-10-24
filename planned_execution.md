@@ -21,7 +21,7 @@ on the grounds that M26's own theme (monitoring that does not defeat itself) is
 not met while its alert path can mute its own topic. M25 stays closed. Other
 milestones (M16, M18, M23) hold only environment-/human-blocked issues. **M17
 is 32/36:** #576 done 2026-09-28 (PR #578); #577 stays open only to track a
-time-boxed Trivy exception for CVE-2026-48930 (expires 2026-10-28 — bump the
+time-boxed Trivy exception for CVE-2026-48930 (expires 2026-11-25, extended from 2026-10-28 on 2026-10-24 — bump the
 `zeek/zeek` pin once upstream ships a patched image). See LAST SESSION below.
 
 **Capture host as of 2026-09-28 — Zeek blind again since 2026-09-14 15:38**
@@ -107,7 +107,7 @@ Local capture-host session. Merged (by owner): **PR #578**, **PR #574**, **PR #5
   through both images: identical; CI `live-fire` MIME + field-cap tests
   green on the real image. CVE-2026-48930 is in every published image and
   isn't reachable as deployed (ZeekJS-only path; capture loads `.zeek`
-  only) → ignored for the zeek-image Trivy job only, **expires 2026-10-28**,
+  only) → ignored for the zeek-image Trivy job only, **expires 2026-11-25** (extended 2026-10-24; was 2026-10-28),
   SOP-008 Tracked Exceptions. Stays open to track that.
   [PR #578](https://github.com/voltron-1/Suburban_SOC/pull/578)
 - [x] `asyncssh` 2.23.1 → 2.24.0 (CVE-2026-62949) — in #578; #574 merged after.
