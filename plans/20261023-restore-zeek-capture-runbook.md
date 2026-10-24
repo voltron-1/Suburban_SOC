@@ -187,6 +187,12 @@ Run only after Part 4 is green. Order matters.
 3. Deploy the 2 new Sigma rules from #556. `ES_CA` defaults to a path inside the container, so copy the CA out and
    check it against the pinned fingerprint first (a failed pin check means stop). Needs the fix for the Kibana
    `Invalid file extension` error (HTTP 400, seen 2026-10-24); a success line reads `success=True`, not `success=None`.
+   **`deploy_detections.sh` skips `status: experimental` rules** (`--include-experimental` deploys all 96 of them,
+   including ones a threshold rule already covers, so do not use it). The 2 #556 syslog rules
+   (`system_lnx_ca_fingerprint_mismatch.yml`, `system_lnx_self_health_unit_failed.yml`) were `experimental`, so the
+   2026-10-24 deploy (38 rules imported, `success=True`) did **not** include them. They are `status: test` with fixtures
+   once the promotion is merged; rerun this step afterwards and look for `SIGMA - SOC-Internal ES CA Fingerprint Mismatch`
+   and `SIGMA - Suburban-SOC Self-Health systemd Unit Failed` under Security → Rules.
    ```bash
    mkdir -p ~/.config/suburban-soc
    docker cp elasticsearch:/usr/share/elasticsearch/config/certs/ca/ca.crt ~/.config/suburban-soc/ca.crt
@@ -208,10 +214,15 @@ Run only after Part 4 is green. Order matters.
      ```
      Good: every component `UP` (Elasticsearch `yellow` is expected on a single node). The next `slo-metrics` run (every
      15 minutes) should show `soc_health_stale_seconds` small instead of about 104 days.
-5. Verify. None of these may report `not-found`.
+5. Verify. Neither timer may report `not-found`.
    ```bash
-   systemctl status zeek-capture-liveness.timer stack-health.timer 'soc-alert-on-failure@.service' --no-pager | head -30
+   systemctl status zeek-capture-liveness.timer stack-health.timer --no-pager | head -30
+   ls -l /etc/systemd/system/soc-alert-on-failure@.service
    ```
+   `soc-alert-on-failure@.service` is a **template**: `systemctl status` on the bare template name fails with
+   `Unit name ... is neither a valid invocation ID nor unit name`, which says nothing about whether it is installed.
+   Check the file with `ls` (it is installed by `redeploy_systemd_units.sh`). Its `StateDirectory=` line (the #567
+   rate limiter) is present only after that change is merged and the unit is reinstalled.
 
 **Do not set `NTFY_TOPIC` yet.**
 - `soc_alert_on_failure.sh` now rate-limits itself (#567: one push per failed unit per hour, a suppressed count in the next push). That code is not live until `redeploy_systemd_units.sh` installs the updated `soc-alert-on-failure@.service` (it adds `StateDirectory=`) and #567's change is merged.

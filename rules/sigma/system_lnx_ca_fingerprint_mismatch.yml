@@ -1,6 +1,6 @@
 title: SOC-Internal ES CA Fingerprint Mismatch
 id: 12969ce6-7250-47c3-bd9a-aabec533eef7
-status: experimental
+status: test
 description: |
     Detects scripts/setup/verify_ca_fingerprint.sh's own `[FATAL] ES CA
     fingerprint changed` line (verify_ca_fingerprint.sh:76) reaching the

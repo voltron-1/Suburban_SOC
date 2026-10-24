@@ -123,6 +123,15 @@ Cloud session (PRs #581–#588) plus a live walk-through of the capture-restore 
   per `SOC_ALERT_COOLDOWN_SECONDS` (default 3600), suppressed count in the next push, fail-open on any state-dir
   problem, cooldown starts only after a push succeeds. 13 new tests with a fake `curl`; `curl -f` so an HTTP error does not start the cooldown; never run against real
   systemd or ntfy. Issue #567 stays open until merged and installed. `NTFY_TOPIC` stays unset until then.
+- [x] **Detection deploy (host, 2026-10-24 ~12:40 CDT):** needed two fixes found live, both on the unmerged branch
+  `claude/upbeat-gauss-xrotrp`: Kibana 9.3.2 rejected the rules upload (`Invalid file extension`, HTTP 400; fixed with
+  `filename=rules.ndjson`) and then rejected all 12 threshold rules (`id: Invalid uuid`; `id` stripped at deploy).
+  Result `success=True imported=38 errors=0`, Kibana total 41 rules. `ES_CA` must point at a host copy of the CA.
+- [~] **The 2 #556 syslog rules were NOT in that deploy** (both were `status: experimental`, which the script skips).
+  Promoted to `status: test` on the same branch: 5 TN fixtures each plus 4 extra TP variants each in
+  `test_sigma_detections.py`; CI gate green locally, 122/122 rules convert. Deploy them after merge.
+  Unrelated, found while converting: the converted NDJSON for all 4 `attack.t1562.001` rules has an empty `threat` block
+  (97 of 122 corpus rules have one); cause not investigated.
 - **Merged this session:** #581 plans, #582 curl-exit-code test fix (CI was red on every PR), #583 CVE-2026-48930
   exception to 2026-11-25, #584 endpoint client-cert minting (never run live), #585 Suricata baseline tooling,
   #586/#588 handoff. Issue #587 filed in M23 for the 20 remaining Suricata rules (#446 was already closed).
