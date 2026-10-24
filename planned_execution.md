@@ -10,7 +10,7 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 ## NEXT UP
 
 > **2026-10-24 handoff:** a newer cloud-session summary, open items in priority order, owner decisions and lessons are in
-> [`plans/20261024-session-handoff.md`](plans/20261024-session-handoff.md). The 2026-09-28 status below was not re-observed on the host since.
+> [`plans/20261024-session-handoff.md`](plans/20261024-session-handoff.md). The capture-host status below (dated 2026-09-28) is superseded by `LAST SESSION — 2026-10-24`.
 
 **Status as of 2026-09-28 (capture host).**
 
@@ -93,6 +93,39 @@ Filebeat/Logstash for #556's syslog input and run
 `bash scripts/setup/deploy_detections.sh` for its 2 new Sigma rules, then
 enable `stack-health.timer` and `zeek-capture-liveness.timer`. `NTFY_TOPIC`
 provisioning (#554) stays last and stays gated on item 1.
+
+## LAST SESSION — 2026-10-24
+
+Cloud session (PRs #581–#588) plus a live walk-through of the capture-restore runbook on the capture host
+(times CDT, from output the owner pasted).
+
+- [x] **Zeek capture restored.** `conn.log` last advanced **2026-10-19 19:33** (the 2026-09-28 note said
+  2026-09-14; capture had worked in between). Cause: `CAPTURE_IFACE=eth3` in `/etc/default/zeek-host-capture`
+  was `DOWN`; the #551 preflight parked the unit in `failed` (`status=78/CONFIG`) as designed. Set to `eth1`
+  (default-route interface); unit `active`, `NRestarts=0`, `conn.log` writing, and Elasticsearch held 13
+  `zeek.conn` documents from the last 15 minutes. The Part 2 unit reinstall was not needed.
+- [x] **`slo_metrics` credential authenticates** (`_security/_authenticate` returned 200). When it was fixed is
+  unknown. `slo-metrics` runs every 15 min; exit status 2 = breaches found, not an error.
+- [x] **`stack-health.timer` enabled** (with `SOC_HEALTH_PASSWORD` set and the CA pin seeded per SOP-005); first
+  run all components UP. `soc_health_stale_seconds` fell from 8,996,416 (about 104 days) to 70.3.
+- [x] **`intel-refresh.service` fixed.** The installed unit was stale (1 `ExecStartPre`, literal
+  `Environment=ES_PASS=${INTEL_WRITER_PASSWORD}`, #271) so indexing returned `HTTP 401`.
+  `scripts/setup/install_intel_refresh_timer.sh` replaced it; the next run indexed 489 indicators and recorded the
+  heartbeat. Its first-use CA pin equals the running CA's SHA-256 fingerprint.
+- [x] **`zeek-capture-liveness.timer` enabled.**
+- [~] **SLO after the above:** one breach expected, `suricata_ingest_lag_seconds` (no data; #443/#444).
+  Confirm on the next `slo-metrics` run.
+- [ ] **Not done:** `deploy_detections.sh` for the 2 syslog rules and the Filebeat/Logstash restart for the syslog
+  input (runbook Part 5 steps 2–3); `NTFY_TOPIC` (leave unset until #567, so **no alert reaches anyone yet**);
+  runbook Part 6 end-to-end test (needs a second LAN machine with `nmap`); live check of #265.
+- **Merged this session:** #581 plans, #582 curl-exit-code test fix (CI was red on every PR), #583 CVE-2026-48930
+  exception to 2026-11-25, #584 endpoint client-cert minting (never run live), #585 Suricata baseline tooling,
+  #586/#588 handoff. Issue #587 filed in M23 for the 20 remaining Suricata rules (#446 was already closed).
+- **Found, not yet fixed:** `${err}` in the Zeek unit's `ExecStartPre` is expanded by systemd, so the copy error
+  prints as `()`; `redeploy_systemd_units.sh` never installs `intel-refresh.service` or enables the two timers;
+  issue #577's title still names the perl CVE.
+- Owner's local repo sat on a stale `chore/audit-remediation` branch (squash-merged as #580); `git pull` started a
+  conflicting rebase. Resolved by saving `backup-chore-audit-remediation` and moving to `main`.
 
 ## LAST SESSION — 2026-09-28
 
