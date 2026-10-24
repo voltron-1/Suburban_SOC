@@ -22,6 +22,7 @@
 | 5 | Elasticsearch multi-node | Single node has no fault tolerance | none filed | 2–3 days *(proposal)* | 3 hosts or VMs |
 | 6 | Real Windows telemetry | PowerShell rules never saw real data | #326 | Weeks of collection | Windows endpoints |
 | 7 | SOC 2 Type II evidence | Change ledger has no real deploys | M10 scope note | Months | Process, auditor |
+| 8 | Sensor placement: `eth1` sees only this PC's traffic (and not its DNS) | The deployment does not monitor the network it describes | #593, #592 | Decision first, then hours to days | Owner decision, router or mirror port |
 
 **Do now (this week):** items 1 and 2. **Later:** items 3–7.
 
@@ -131,6 +132,12 @@ A Type II report needs controls operating over a defined period.
 4. Engage an external auditor. This cannot be done by the repo alone.
 
 **Done when:** an external auditor issues a report. Until then, do not describe the project as SOC 2 compliant.
+
+## 8. Sensor placement (#593, #592) — added 2026-10-24
+
+**Why:** on the capture host, `conn.log` held only this PC's own traffic and IPv6 housekeeping; no other IPv4 host appeared in about 30 minutes, and DNS lookups never cross `eth1` (WSL2's resolver stays on `lo`). The README describes boundary monitoring of the mesh.
+
+**Steps:** (1) the owner chooses: capture from the OpenWrt router (`stream_capture.sh`), a switch mirror port or tap, or document a single-host scope. (2) Implement the choice and verify `conn.log` over a normal hour shows several LAN sources. (3) Decide the DNS option in #592. **Done when:** the README's coverage statement matches what `conn.log` shows.
 
 ---
 
