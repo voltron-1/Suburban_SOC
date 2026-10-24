@@ -7,8 +7,8 @@ Facts below come from the repo, GitHub and this session's tool output. Anything 
 
 | | State |
 |---|---|
-| Branch / base | `main` at `c5fe4b9` (includes #581–#584). Work branch `claude/exciting-meitner-g5nn42` was reset to `main` for this file. |
-| Open PR | [#585](https://github.com/voltron-1/Suburban_SOC/pull/585) Suricata baseline tooling + plan. CI was green (19 of 19) on head `532ddf2`. **Waiting for the owner to merge.** |
+| Branch / base | `main` at `0123506` (includes #581–#586). Work branch `claude/exciting-meitner-g5nn42` is reset to `main` for each refresh of this file. |
+| Open PRs | None from this session except the PR carrying this refresh. |
 | Capture host | Last recorded state (2026-09-28): Zeek blind since 2026-09-14, `slo-metrics` failed, M26 units not installed. **Not re-observed this session.** |
 | Session limits | Cloud session: no Docker, Elasticsearch, Kibana or Suricata; no DNS for general sites; Docker Hub reachable; Debian tracker and NVD blocked. Cannot merge PRs (`enforce_admins` on `main`). |
 
@@ -20,6 +20,8 @@ Facts below come from the repo, GitHub and this session's tool output. Anything 
 | [#582](https://github.com/voltron-1/Suburban_SOC/pull/582) | `test_stack_health_unit.py` accepts curl exit 2 or 77 for a missing `--cacert`; `detections.yml` logs `curl --version` | CI green. Cause (runner curl build changed) is a **hypothesis**; the logged version line was never read |
 | [#583](https://github.com/voltron-1/Suburban_SOC/pull/583) | CVE-2026-48930 Trivy exception extended 2026-10-28 → **2026-11-25** | Docker Hub: newest `zeek/zeek` tag is still `9.0.0` (pushed 2026-09-14, same digest we pin). Debian/NVD **UNVERIFIED** |
 | [#584](https://github.com/voltron-1/Suburban_SOC/pull/584) | `scripts/setup/mint_endpoint_cert.sh`, `ssl.certificate`/`ssl.key` in both endpoint configs, 18 tests | Tests use a fake `docker`. **Never run against a real stack** |
+| [#585](https://github.com/voltron-1/Suburban_SOC/pull/585) | `scripts/setup/suricata_threshold_baseline.py`, 23 tests, `docs/detections/suricata-446-tuning-plan.md`. Enables no rule | CI green (19 of 19). **Never run on live traffic**; no Suricata binary locally, so the `suricata -T` test was only exercised in CI |
+| [#586](https://github.com/voltron-1/Suburban_SOC/pull/586) | This handoff and a pointer in `planned_execution.md` | Docs only; CI green |
 
 ## 3. Open work, in the order to do it
 
@@ -31,14 +33,16 @@ Items 1–3 need the **capture host** (a local session with `sudo`). Do them fir
 2. **Fix the `slo_metrics` credential.** The ES user exists but `SLO_METRICS_PASSWORD` in `scripts/setup/.env` no longer authenticates; `soc-slo-metrics` has no document newer than 2026-08-17T01:31:42Z. Runbook Part 5 step 1. Do this **before** `NTFY_TOPIC`.
 3. **Deploy M26 and fix #567.** Runbook Part 5. #567 (`soc_alert_on_failure.sh` has no rate limit) must be fixed before `NTFY_TOPIC` is set, or a crash loop sends ~17,280 pushes/day.
 4. **Live-check #265.** On the capture host: `bash scripts/setup/mint_endpoint_cert.sh test-endpoint`, copy `test-endpoint.crt/.key` and `ca.crt` to a test endpoint, ship one event, confirm it lands in `logstash-security-*` with no `certificate required` in the Logstash log. Close #265 **only** if it does. Known gap, not fixed: Logstash trusts the shipper's own `[tenant][id]`, so any valid cert can claim any tenant.
-5. **Merge #585, then run the Suricata baseline** (#446 was closed 2026-10-17 at 80/100 rules enabled, so these 20 rules have **no open issue**: file one in milestone M23, milestone/28, if you want them tracked) per `docs/detections/suricata-446-tuning-plan.md` steps 1–6. First confirm which Suricata unit actually runs (`CLAUDE.md` says `suricata.service`; the repo's `suricata-host-capture.service` was recorded as not installed). CI blocks enabling any of the 14 threshold rules until each has a passing TP pcap fixture; none has one. Write fixtures **after** thresholds are chosen.
+5. **Run the Suricata baseline** (tracked by issue [#587](https://github.com/voltron-1/Suburban_SOC/issues/587) in M23; #446 itself was closed 2026-10-17 at 80/100 rules enabled) per `docs/detections/suricata-446-tuning-plan.md` steps 1–6. First confirm which Suricata unit actually runs (`CLAUDE.md` says `suricata.service`; the repo's `suricata-host-capture.service` was recorded as not installed). CI blocks enabling any of the 14 threshold rules until each has a passing TP pcap fixture; none has one. Write fixtures **after** thresholds are chosen.
 6. **Production-plan items 4–7** (`plans/20261023-production-readiness-plan.md`): load test (#405), multi-node Elasticsearch (proposal, no issue yet), real Windows telemetry (#326), SOC 2 Type II evidence.
 
 **Dated:** CVE exception expires **2026-11-25** (#577 stays open). By then check Docker Hub for a `zeek/zeek` tag newer than `9.0.0` and Debian's tracker for a fix to CVE-2026-48930; bump the pin or re-justify. The ignore file says re-justify rather than extend.
 
 ## Milestones
 
-#585 and #586 have **no milestone set** (checked 2026-10-24). #585's natural home is M23 (Suricata Signature Lane, milestone/28, open: #443, #444). #586 is documentation and fits none.
+#585 is set to M23 (Suricata Signature Lane, milestone/28; open: #443, #444, #587). #586 is documentation and has no milestone. Issue #587 (the 20 remaining rules) was filed this session in M23.
+
+**Stale tracker text to fix:** issue #577 is still titled "zeek/zeek image: CVE-2026-13221 (CRITICAL, libperl5.40) fails Trivy image scan" and its body describes the perl CVE. Those were cleared by the 9.0.0 pin bump (PR #578); the issue now only tracks the CVE-2026-48930 nodejs exception (expires 2026-11-25). Retitle it when convenient.
 
 ## 4. Decisions only the owner can make
 
