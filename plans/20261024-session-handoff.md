@@ -1,76 +1,69 @@
-# Session handoff — 2026-10-24 (cloud session)
+# Session handoff — 2026-10-24 (cloud session + live capture-host walk-through)
 
-**Read this first, then `planned_execution.md` (NEXT UP).** Written for a session that has none of this conversation.
-Facts below come from the repo, GitHub and this session's tool output. Anything marked **UNVERIFIED** was not run or checked.
+**Read this first, then `planned_execution.md` (LAST SESSION — 2026-10-24).** Written for a session with none of this conversation.
+Facts come from the repo, GitHub, and output the owner pasted from the capture host. Anything marked **UNVERIFIED** was not run or checked.
 
 ## 1. Where things stand
 
 | | State |
 |---|---|
-| Branch / base | `main` at `0123506` (includes #581–#586). Work branch `claude/exciting-meitner-g5nn42` is reset to `main` for each refresh of this file. |
-| Open PRs | None from this session except the PR carrying this refresh. |
-| Capture host | Last recorded state (2026-09-28): Zeek blind since 2026-09-14, `slo-metrics` failed, M26 units not installed. **Not re-observed this session.** |
-| Session limits | Cloud session: no Docker, Elasticsearch, Kibana or Suricata; no DNS for general sites; Docker Hub reachable; Debian tracker and NVD blocked. Cannot merge PRs (`enforce_admins` on `main`). |
+| `main` | Includes #581–#588. PR A (this refresh) may still be open: check `gh pr list` / GitHub before assuming. |
+| Capture host (observed 2026-10-24 ~10:40 CDT) | **Zeek capturing on `eth1`**, indexed to Elasticsearch. `stack-health`, `slo-metrics`, `intel-refresh`, `zeek-capture-liveness` timers scheduled. Docker stack up (started by the owner that morning). |
+| SLO (10:39:53) | One breach expected: `suricata_ingest_lag_seconds` (no data). Verify on the next run. |
+| Alerts | **No alert reaches anyone.** `NTFY_TOPIC` is unset and #567 (no rate limit) is open. The end-to-end alert test has never run. |
+| Session limits | Cloud: no Docker/ES/Suricata, no general DNS, Docker Hub reachable, Debian tracker/NVD blocked, cannot merge PRs. Local capture host: sudo, `gh`, Docker. |
 
 ## 2. Merged this session
 
 | PR | What | Verified how |
 |---|---|---|
-| [#581](https://github.com/voltron-1/Suburban_SOC/pull/581) | `plans/20261023-restore-zeek-capture-runbook.md`, `plans/20261023-production-readiness-plan.md` | Docs only; CI green |
-| [#582](https://github.com/voltron-1/Suburban_SOC/pull/582) | `test_stack_health_unit.py` accepts curl exit 2 or 77 for a missing `--cacert`; `detections.yml` logs `curl --version` | CI green. Cause (runner curl build changed) is a **hypothesis**; the logged version line was never read |
-| [#583](https://github.com/voltron-1/Suburban_SOC/pull/583) | CVE-2026-48930 Trivy exception extended 2026-10-28 → **2026-11-25** | Docker Hub: newest `zeek/zeek` tag is still `9.0.0` (pushed 2026-09-14, same digest we pin). Debian/NVD **UNVERIFIED** |
-| [#584](https://github.com/voltron-1/Suburban_SOC/pull/584) | `scripts/setup/mint_endpoint_cert.sh`, `ssl.certificate`/`ssl.key` in both endpoint configs, 18 tests | Tests use a fake `docker`. **Never run against a real stack** |
-| [#585](https://github.com/voltron-1/Suburban_SOC/pull/585) | `scripts/setup/suricata_threshold_baseline.py`, 23 tests, `docs/detections/suricata-446-tuning-plan.md`. Enables no rule | CI green (19 of 19). **Never run on live traffic**; no Suricata binary locally, so the `suricata -T` test was only exercised in CI |
-| [#586](https://github.com/voltron-1/Suburban_SOC/pull/586) | This handoff and a pointer in `planned_execution.md` | Docs only; CI green |
+| #581 | Restore-capture runbook, production-readiness plan | Docs |
+| #582 | Curl test accepts exit 2 or 77 | CI green; runner curl version never read |
+| #583 | CVE-2026-48930 exception to **2026-11-25** | Docker Hub: newest `zeek/zeek` tag still `9.0.0`; Debian/NVD UNVERIFIED |
+| #584 | `mint_endpoint_cert.sh`, endpoint `ssl.certificate`/`ssl.key`, 18 tests | Fake `docker` only. **Never run live** |
+| #585 | `suricata_threshold_baseline.py`, 23 tests, tuning plan | CI green. **Never run on live traffic** |
+| #586, #588 | Handoff | Docs |
 
-## 3. Open work, in the order to do it
+## 3. Open work, in order
 
-Items 1–3 need the **capture host** (a local session with `sudo`). Do them first; later items depend on them.
+1. **Finish runbook Part 5.** `bash scripts/setup/deploy_detections.sh` (2 syslog rules, #556); `sudo systemctl restart filebeat.service` and restart Logstash for the syslog input. Then confirm the SLO shows only the Suricata breach.
+2. **Work issue #567** (alert rate limit), then set `NTFY_TOPIC`. Until both, nothing pushes an alert. Today's outage (parked `failed` unit) would still have been silent.
+3. **Live-check #265:** `bash scripts/setup/mint_endpoint_cert.sh test-endpoint`, ship one event from a test endpoint, confirm it lands in `logstash-security-*` with no `certificate required`. Only if it does, close issue #265 by hand. Gap not fixed: Logstash trusts the shipper's own `[tenant][id]`.
+4. **Runbook Part 6** (end-to-end alert test): needs a second LAN machine with `nmap`, a `tests/anomaly_simulation/.env`, and the preflight prerequisites (OpenWrt/SSH key). `sim_portscan.sh` defaults to `127.0.0.1`, which never touches `eth1`.
+5. **Small fixes found today:** `${err}` → `$${err}` in `configs/systemd/zeek-host-capture.service` `ExecStartPre` (PR B, with a test); make `redeploy_systemd_units.sh` install `intel-refresh.service` and report the two disabled timers; retitle issue #577 (it names the perl CVE, now cleared).
+6. **Suricata (#587):** run the baseline per `docs/detections/suricata-446-tuning-plan.md`. `suricata.service` (distro package) is `enabled`; the repo's `suricata-host-capture.service` is `disabled`. CI blocks enabling any of the 14 threshold rules until each has a TP pcap fixture (none has one).
+7. **Production plan items 4–7** (`plans/20261023-production-readiness-plan.md`): load test (#405, needs a peak-traffic figure), multi-node Elasticsearch, real Windows telemetry (#326), SOC 2 Type II evidence.
 
-1. **Restore Zeek capture.** Follow `plans/20261023-restore-zeek-capture-runbook.md` Parts 0–4 (~30 min).
-   First check: `grep -n SupplementaryGroups configs/systemd/zeek-host-capture.service` must show a non-comment line. **UNVERIFIED** — my grep matched only comments.
-   Done when: `conn.log` mtime advances and a fresh `zeek.conn` document is in Elasticsearch.
-2. **Fix the `slo_metrics` credential.** The ES user exists but `SLO_METRICS_PASSWORD` in `scripts/setup/.env` no longer authenticates; `soc-slo-metrics` has no document newer than 2026-08-17T01:31:42Z. Runbook Part 5 step 1. Do this **before** `NTFY_TOPIC`.
-3. **Deploy M26 and fix #567.** Runbook Part 5. #567 (`soc_alert_on_failure.sh` has no rate limit) must be fixed before `NTFY_TOPIC` is set, or a crash loop sends ~17,280 pushes/day.
-4. **Live-check #265.** On the capture host: `bash scripts/setup/mint_endpoint_cert.sh test-endpoint`, copy `test-endpoint.crt/.key` and `ca.crt` to a test endpoint, ship one event, confirm it lands in `logstash-security-*` with no `certificate required` in the Logstash log. Close #265 **only** if it does. Known gap, not fixed: Logstash trusts the shipper's own `[tenant][id]`, so any valid cert can claim any tenant.
-5. **Run the Suricata baseline** (tracked by issue [#587](https://github.com/voltron-1/Suburban_SOC/issues/587) in M23; #446 itself was closed 2026-10-17 at 80/100 rules enabled) per `docs/detections/suricata-446-tuning-plan.md` steps 1–6. First confirm which Suricata unit actually runs (`CLAUDE.md` says `suricata.service`; the repo's `suricata-host-capture.service` was recorded as not installed). CI blocks enabling any of the 14 threshold rules until each has a passing TP pcap fixture; none has one. Write fixtures **after** thresholds are chosen.
-6. **Production-plan items 4–7** (`plans/20261023-production-readiness-plan.md`): load test (#405), multi-node Elasticsearch (proposal, no issue yet), real Windows telemetry (#326), SOC 2 Type II evidence.
-
-**Dated:** CVE exception expires **2026-11-25** (#577 stays open). By then check Docker Hub for a `zeek/zeek` tag newer than `9.0.0` and Debian's tracker for a fix to CVE-2026-48930; bump the pin or re-justify. The ignore file says re-justify rather than extend.
-
-## Milestones
-
-#585 is set to M23 (Suricata Signature Lane, milestone/28; open: #443, #444, #587). #586 is documentation and has no milestone. Issue #587 (the 20 remaining rules) was filed this session in M23.
-
-**Stale tracker text to fix:** issue #577 is still titled "zeek/zeek image: CVE-2026-13221 (CRITICAL, libperl5.40) fails Trivy image scan" and its body describes the perl CVE. Those were cleared by the 9.0.0 pin bump (PR #578); the issue now only tracks the CVE-2026-48930 nodejs exception (expires 2026-11-25). Retitle it when convenient.
+**Dated:** CVE exception expires **2026-11-25** (#577 stays open). Check Docker Hub for a `zeek/zeek` tag newer than `9.0.0` and Debian's tracker; bump the pin or re-justify.
 
 ## 4. Decisions only the owner can make
 
 | Decision | Options | Needed for |
 |---|---|---|
-| Peak traffic figure (Mbit/s, connections/s) | A number | Load test (item 6) |
-| Placeholders 9000013, 9000099 | Supply real values, or delete the rules | the 20 remaining Suricata rules (no open issue) |
-| DLP rules 9000065, 9000066 | Approve scanning, or delete | the 20 remaining Suricata rules |
-| Upload-size rules 9000063, 9000064 (`request-body-limit: 100kb` vs `>1MB`) | Raise limit, rewrite on flow bytes, or remove | the 20 remaining Suricata rules |
-| Are the university-themed rules (CAS SSO, MFA push, FERPA IDs, LDAP) in scope for a residential mesh? | Keep/tune, or delete | the 20 remaining Suricata rules |
+| Peak traffic figure (Mbit/s, connections/s) | A number | Load test |
+| Placeholders 9000013, 9000099 | Real values, or delete | #587 |
+| DLP rules 9000065, 9000066 | Approve scanning, or delete | #587 |
+| Upload-size rules 9000063, 9000064 | Raise `request-body-limit`, rewrite on flow bytes, or remove | #587 |
+| Are the university-themed rules in scope for a residential mesh? | Keep/tune, or delete | #587 |
 | CVE exception length (I chose 4 weeks) | Shorter or longer | #577 |
 
-## 5. Things that did not work, and what was learned
+## 5. What did not work, and lessons
 
-- **The first `detections` failure on #581 was real, not a flake.** It reproduced on the one allowed re-run. Fix went in its own PR (#582) so #581 stayed docs-only.
-- **This sandbox cannot reproduce CI's curl result** (no DNS, so curl exits 6). Do not try to validate network-dependent tests here.
-- **Local `ruff` differs from CI.** CI pins `ruff==0.15.15`; an unpinned install reported false findings. Install the pin before trusting a local result. `mypy` and `shellcheck -S warning` (CI scope: every tracked `.sh`/`.py`) matched CI.
-- **A test I wrote failed on a real bug in the script it tested** (`chmod` before the file-exists check in `mint_endpoint_cert.sh`). Run new tests before pushing; it paid off.
-- **My own test expectations were wrong twice** (30 events one second apart do not fit a 10 s window; empty `ENDPOINT_CERT_DAYS` correctly falls back to default). Check the tool before changing the tool.
+- **My runbook guesses were wrong in places.** Part 2 was unnecessary; Part 5 omitted the intel installer and the `stack-health` prerequisites. Corrections are now in the runbook's "Field notes" section. Trust observed output over the runbook.
+- **I guessed the SLO breach was Zeek lag (it was fine).** Read the output before naming a cause.
+- **A search tool returned 0 open Suricata issues** while #443/#444 were open. List, don't trust one search.
+- **I wrote "leaves #446 open"** after reading that it was closed. Check issue state before writing it into a PR.
+- **Cloud sandbox cannot reproduce CI's curl or any network test** (no DNS). **Local `ruff` differs from CI:** install `ruff==0.15.15`.
+- **Stale installed units are a real failure class** (intel-refresh sat on the pre-#271 unit for weeks). Compare installed vs repo (`diff <(sed 's/[[:space:]]*$//' /etc/systemd/system/X) <(sed ... configs/systemd/X)`) before debugging a unit.
+- **Sourcing `.env` exports passwords into that terminal.** Use `exec bash` afterwards; pass secrets to `docker exec` by name (`-e NAME`), never by value.
 
 ## 6. Repo rules that bit or nearly bit
 
-- **Never write a closing keyword before an issue number** in a PR title, body or commit, even negated (`CLAUDE.md`). Say "leaves #N open".
-- `main` needs 14 checks, `strict`, `enforce_admins`. Only the owner merges. Merge conflicts and "branch behind" go through `update_pull_request_branch`.
-- No PR template exists; PR bodies end with the `🤖 Generated with [Claude Code]` line and session URL; commits end with the `Co-Authored-By` and `Claude-Session` lines.
-- Status lives in `planned_execution.md` and `README.md`. Update both after merges; the README milestone rows for M16/M17/M23 were **not** updated for #582–#585 (only the #577 expiry date was).
+- **Never write a closing keyword before an issue number** in a PR title, body or commit, even negated (`CLAUDE.md`). Say "leaves #N open"; close issues by hand after merge.
+- `main` needs 14 checks, `strict`, `enforce_admins`; only the owner merges. A merged PR's branch is deleted by workflow; a stale local tracking ref makes `--force-with-lease` say "stale info".
+- Status lives in `planned_execution.md` and `README.md`; update both after merges. Cloud sessions cannot sync the Projects v2 board or push the wiki (local session with `gh` can; or paste).
 - Never assert an IOC malicious, invent a CVE/hash/timestamp, or guess attribution (`CLAUDE.md`).
 
 ## 7. Paste this to start the next session
 
-> Read `plans/20261024-session-handoff.md` and the NEXT UP section of `planned_execution.md`. State which of the open items in section 3 you can do from this environment (cloud: no Docker/ES/Suricata; local capture host: sudo available) and start with the first one you can complete. Do not open a PR unless I ask.
+> Read `plans/20261024-session-handoff.md` and the LAST SESSION — 2026-10-24 section of `planned_execution.md`. State which open items in section 3 you can do from this environment (cloud: no Docker/ES/Suricata; local capture host: sudo available) and start with the first one you can complete. Do not open a PR unless I ask.
