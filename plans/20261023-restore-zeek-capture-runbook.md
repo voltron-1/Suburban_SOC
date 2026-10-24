@@ -184,9 +184,14 @@ Run only after Part 4 is green. Order matters.
    sudo systemctl restart filebeat.service
    docker compose -f scripts/setup/docker-compose.yml restart logstash
    ```
-3. Deploy the 2 new Sigma rules from #556.
+3. Deploy the 2 new Sigma rules from #556. `ES_CA` defaults to a path inside the container, so copy the CA out and
+   check it against the pinned fingerprint first (a failed pin check means stop). Needs the fix for the Kibana
+   `Invalid file extension` error (HTTP 400, seen 2026-10-24); a success line reads `success=True`, not `success=None`.
    ```bash
-   bash scripts/setup/deploy_detections.sh
+   mkdir -p ~/.config/suburban-soc
+   docker cp elasticsearch:/usr/share/elasticsearch/config/certs/ca/ca.crt ~/.config/suburban-soc/ca.crt
+   bash scripts/setup/verify_ca_fingerprint.sh ~/.config/suburban-soc/ca.crt /var/lib/suburban-soc-slo/ca_fingerprint.sha256 && echo PIN-OK
+   ES_CA=$HOME/.config/suburban-soc/ca.crt bash scripts/setup/deploy_detections.sh
    ```
 4. Enable the monitoring timers. They are **not** enabled by the redeploy script.
    - `zeek-capture-liveness.timer` has no prerequisite:
