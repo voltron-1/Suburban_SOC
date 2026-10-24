@@ -31,20 +31,24 @@ Items 1–3 need the **capture host** (a local session with `sudo`). Do them fir
 2. **Fix the `slo_metrics` credential.** The ES user exists but `SLO_METRICS_PASSWORD` in `scripts/setup/.env` no longer authenticates; `soc-slo-metrics` has no document newer than 2026-08-17T01:31:42Z. Runbook Part 5 step 1. Do this **before** `NTFY_TOPIC`.
 3. **Deploy M26 and fix #567.** Runbook Part 5. #567 (`soc_alert_on_failure.sh` has no rate limit) must be fixed before `NTFY_TOPIC` is set, or a crash loop sends ~17,280 pushes/day.
 4. **Live-check #265.** On the capture host: `bash scripts/setup/mint_endpoint_cert.sh test-endpoint`, copy `test-endpoint.crt/.key` and `ca.crt` to a test endpoint, ship one event, confirm it lands in `logstash-security-*` with no `certificate required` in the Logstash log. Close #265 **only** if it does. Known gap, not fixed: Logstash trusts the shipper's own `[tenant][id]`, so any valid cert can claim any tenant.
-5. **Merge #585, then run the Suricata baseline** per `docs/detections/suricata-446-tuning-plan.md` steps 1–6. First confirm which Suricata unit actually runs (`CLAUDE.md` says `suricata.service`; the repo's `suricata-host-capture.service` was recorded as not installed). CI blocks enabling any of the 14 threshold rules until each has a passing TP pcap fixture; none has one. Write fixtures **after** thresholds are chosen.
+5. **Merge #585, then run the Suricata baseline** (#446 was closed 2026-10-17 at 80/100 rules enabled, so these 20 rules have **no open issue**: file one in milestone M23, milestone/28, if you want them tracked) per `docs/detections/suricata-446-tuning-plan.md` steps 1–6. First confirm which Suricata unit actually runs (`CLAUDE.md` says `suricata.service`; the repo's `suricata-host-capture.service` was recorded as not installed). CI blocks enabling any of the 14 threshold rules until each has a passing TP pcap fixture; none has one. Write fixtures **after** thresholds are chosen.
 6. **Production-plan items 4–7** (`plans/20261023-production-readiness-plan.md`): load test (#405), multi-node Elasticsearch (proposal, no issue yet), real Windows telemetry (#326), SOC 2 Type II evidence.
 
 **Dated:** CVE exception expires **2026-11-25** (#577 stays open). By then check Docker Hub for a `zeek/zeek` tag newer than `9.0.0` and Debian's tracker for a fix to CVE-2026-48930; bump the pin or re-justify. The ignore file says re-justify rather than extend.
+
+## Milestones
+
+#585 and #586 have **no milestone set** (checked 2026-10-24). #585's natural home is M23 (Suricata Signature Lane, milestone/28, open: #443, #444). #586 is documentation and fits none.
 
 ## 4. Decisions only the owner can make
 
 | Decision | Options | Needed for |
 |---|---|---|
 | Peak traffic figure (Mbit/s, connections/s) | A number | Load test (item 6) |
-| Placeholders 9000013, 9000099 | Supply real values, or delete the rules | #446 |
-| DLP rules 9000065, 9000066 | Approve scanning, or delete | #446 |
-| Upload-size rules 9000063, 9000064 (`request-body-limit: 100kb` vs `>1MB`) | Raise limit, rewrite on flow bytes, or remove | #446 |
-| Are the university-themed rules (CAS SSO, MFA push, FERPA IDs, LDAP) in scope for a residential mesh? | Keep/tune, or delete | #446 |
+| Placeholders 9000013, 9000099 | Supply real values, or delete the rules | the 20 remaining Suricata rules (no open issue) |
+| DLP rules 9000065, 9000066 | Approve scanning, or delete | the 20 remaining Suricata rules |
+| Upload-size rules 9000063, 9000064 (`request-body-limit: 100kb` vs `>1MB`) | Raise limit, rewrite on flow bytes, or remove | the 20 remaining Suricata rules |
+| Are the university-themed rules (CAS SSO, MFA push, FERPA IDs, LDAP) in scope for a residential mesh? | Keep/tune, or delete | the 20 remaining Suricata rules |
 | CVE exception length (I chose 4 weeks) | Shorter or longer | #577 |
 
 ## 5. Things that did not work, and what was learned

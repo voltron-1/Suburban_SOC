@@ -62,7 +62,7 @@ The repo records that the path is not reachable as deployed (ZeekJS-only; captur
 
 **Done when:** a test endpoint ships one event and it appears in `logstash-security-<tenant>-*`, with no `certificate required` error in the Logstash log.
 
-## 3. Suricata rule tuning (#446)
+## 3. Suricata rule tuning (#446, closed 2026-10-17; no open issue covers the remaining 20 rules)
 
 **Why:** 80 of 100 rules are enabled. The other 20, from `planned_execution.md`: 14 need `detection_filter` tuning against real traffic,
 2 are unresolved placeholders, 2 are DLP rules needing owner sign-off, 2 are dead as configured (`request-body-limit` decision).
