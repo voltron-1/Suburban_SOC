@@ -113,6 +113,12 @@ output.logstash:
   ssl.enabled: true
   ssl.certificate_authorities: ["${WINLOGBEAT_CA:C:/ProgramData/winlogbeat/certs/ca.crt}"]
   ssl.verification_mode: "${WINLOGBEAT_SSL_VERIFY:full}"
+  # #265 / mTLS: Logstash's Beats input requires client authentication (#219).
+  # Present a CA-signed client cert as this endpoint's identity, or the server
+  # rejects the batch with "tls: certificate required". Mint one per endpoint
+  # with scripts/setup/mint_endpoint_cert.sh and point these at the result.
+  ssl.certificate: "${WINLOGBEAT_CERT:C:/ProgramData/winlogbeat/certs/endpoint.crt}"
+  ssl.key: "${WINLOGBEAT_KEY:C:/ProgramData/winlogbeat/certs/endpoint.key}"
 
 # Keep Winlogbeat's own logs local for troubleshooting.
 logging.level: info
