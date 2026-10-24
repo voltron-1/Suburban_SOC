@@ -483,7 +483,7 @@ class EsCommonSoftCaFunctionalTests(unittest.TestCase):
         self.assertIn(self.missing_ca, tls)
 
     def test_soft_mode_call_fails_before_anything_leaves_the_host(self):
-        """curl aborts with exit 77 during SSL setup — no connection, no
+        """curl aborts (exit 77 or 2) during SSL setup — no connection, no
         credential, no unverified handshake.
 
         This asserts curl's behaviour rather than this repo's, which is
@@ -498,8 +498,16 @@ class EsCommonSoftCaFunctionalTests(unittest.TestCase):
             ["curl", "-s", "--max-time", "5", "--cacert", self.missing_ca,
              "https://example.com/"],
             capture_output=True, text=True, timeout=30)
-        self.assertEqual(77, r.returncode,
-                         "expected CURLE_SSL_CACERT_BADFILE before any connection")
+        # 77 = CURLE_SSL_CACERT_BADFILE; 2 = CURLE_FAILED_INIT. Both are raised
+        # while curl sets up the TLS context, before it opens a socket. Older
+        # curl builds report the missing --cacert file as 77, a newer GitHub
+        # runner build reports 2 (seen in CI 2026-10-24; green on 2026-10-18).
+        # A connect-then-fail build would exit 60/35/56/28 instead, which this
+        # still rejects.
+        self.assertIn(r.returncode, (77, 2),
+                      "expected curl to abort during SSL setup (exit 77 or 2) "
+                      f"before any connection, got {r.returncode}: {r.stderr!r}")
+        self.assertEqual("", r.stdout, "no response body may have been received")
 
     def test_explicit_insecure_opt_out_still_wins(self):
         r = self._source({"ES_INSECURE": "true"})
