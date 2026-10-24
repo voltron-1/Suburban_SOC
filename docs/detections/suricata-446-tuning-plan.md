@@ -66,4 +66,6 @@ Each step has a "done when". Steps 1–3 need the capture host; the tooling is
 
 ## What this PR does not do
 
-It enables no rule, changes no threshold, and adds no fixture. It does not close #446, #443 or #444.
+It enables no rule, changes no threshold, and adds no fixture. It does not touch #443 or #444, which stay open.
+
+**Issue status:** #446 itself was closed on 2026-10-17 by owner decision, with 80 of 100 rules enabled (see the M23 row in `README.md`). These 20 rules therefore have **no open tracking issue**. File one in milestone M23 (milestone/28) if this work should be tracked.
