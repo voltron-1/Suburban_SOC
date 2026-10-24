@@ -309,6 +309,17 @@ class DispatcherRateLimitTests(unittest.TestCase):
             1, self._pushes(), "a push that never left the host must be retried"
         )
 
+    def test_curl_is_called_with_fail_so_http_errors_do_not_start_the_cooldown(self):
+        self._run()
+        self.assertIn("-sf", self.log.read_text().split())
+
+    def test_http_error_response_does_not_start_the_cooldown(self):
+        # Fake curl honours -f: exit 22 is what real curl returns for an HTTP 4xx/5xx.
+        self._write_curl(f'printf "%s\\n" "$@" >> {self.log}\nexit 22')
+        self._run()
+        self._run()
+        self.assertEqual(2, self._pushes(), "a rejected push must be retried")
+
     def test_corrupt_stamp_is_treated_as_no_history(self):
         self.state.mkdir()
         (self.state / "slo-metrics.service.state").write_text("garbage\n")

@@ -85,11 +85,11 @@ fi
 # Same call shape as stack_health.sh's own ntfy push: -s/-m bound the call, the
 # push itself is best-effort (a dead network path here must not turn one failed
 # unit into two).
-if curl -s -m 10 -o /dev/null "https://ntfy.sh/${NTFY_TOPIC}" \
+if curl -sf -m 10 -o /dev/null "https://ntfy.sh/${NTFY_TOPIC}" \
      -H "Title: Suburban-SOC unit failure" -H "Priority: high" -H "Tags: rotating_light" \
      -d "$BODY" 2>/dev/null; then
-  # Start the cooldown only after a push actually left the host; a failed push is
-  # retried by the next failure instead of being silenced for an hour.
+  # Start the cooldown only after ntfy accepted the push (-f makes an HTTP 4xx/5xx a
+  # failure too); a rejected push is retried by the next failure, not silenced for an hour.
   [[ -n "$STATE_FILE" ]] && { printf '%s 0\n' "$(date +%s)" > "$STATE_FILE" 2>/dev/null || true; }
 fi
 exit 0

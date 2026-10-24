@@ -121,7 +121,7 @@ Cloud session (PRs #581–#588) plus a live walk-through of the capture-restore 
 - [~] **#567 alert rate limit (code written 2026-10-24, later cloud session; not merged, not live):**
   `soc_alert_on_failure.sh` keeps a per-unit stamp under `StateDirectory=suburban-soc-alerts`; one push per unit
   per `SOC_ALERT_COOLDOWN_SECONDS` (default 3600), suppressed count in the next push, fail-open on any state-dir
-  problem, cooldown starts only after a push succeeds. 11 new tests with a fake `curl`; never run against real
+  problem, cooldown starts only after a push succeeds. 13 new tests with a fake `curl`; `curl -f` so an HTTP error does not start the cooldown; never run against real
   systemd or ntfy. Issue #567 stays open until merged and installed. `NTFY_TOPIC` stays unset until then.
 - **Merged this session:** #581 plans, #582 curl-exit-code test fix (CI was red on every PR), #583 CVE-2026-48930
   exception to 2026-11-25, #584 endpoint client-cert minting (never run live), #585 Suricata baseline tooling,
