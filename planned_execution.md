@@ -9,6 +9,9 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 ## NEXT UP
 
+> **2026-10-24 handoff:** a newer cloud-session summary, open items in priority order, owner decisions and lessons are in
+> [`plans/20261024-session-handoff.md`](plans/20261024-session-handoff.md). The 2026-09-28 status below was not re-observed on the host since.
+
 **Status as of 2026-09-28 (capture host).**
 
 **Current phase:** M26 (Sensor Liveness & Monitoring Independence) — **8/9
