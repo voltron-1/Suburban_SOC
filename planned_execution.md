@@ -143,6 +143,14 @@ Cloud session (PRs #581–#588) plus a live walk-through of the capture-restore 
 - **Found, not yet fixed:** `${err}` in the Zeek unit's `ExecStartPre` is expanded by systemd, so the copy error
   prints as `()`; `redeploy_systemd_units.sh` never installs `intel-refresh.service` or enables the two timers;
   issue #577's title still names the perl CVE.
+- **Later the same day (all from output pasted from the capture host):** the `$${err}` fix and `intel-refresh` install
+  from the redeploy script landed (PR #590) and were redeployed at 11:09 (journal now shows the real copy error).
+  Filebeat's host config was a June 2026 copy; replaced at 11:38 with the repo's (config test OK, backup kept), which added
+  the syslog input (32,370 documents in 30 min), the Suricata `eve.json` input and the `http.log` host rename.
+  **New findings, filed:** #591 (Filebeat's 64-byte fingerprint skips `ntp.log` as a copy of `conn.log`), #592 (DNS stays
+  on `lo`; Zeek never sees this host's lookups; `dns.log` last written 2026-08-30), #593 (`eth1` is this PC's own NIC: no
+  other IPv4 host in `conn.log`, so the sensor does not see the network). The two M26 syslog rules are `status:
+  experimental` and are not deployed by `deploy_detections.sh` (they need fixtures). Filebeat on the host is 8.19.23.
 - Owner's local repo sat on a stale `chore/audit-remediation` branch (squash-merged as #580); `git pull` started a
   conflicting rebase. Resolved by saving `backup-chore-audit-remediation` and moving to `main`.
 

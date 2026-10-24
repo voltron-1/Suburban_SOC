@@ -175,24 +175,44 @@ Run only after Part 4 is green. Order matters.
    (credential or Elasticsearch failure). If it returns `401`, reset the user's password in Elasticsearch, write the
    same value into `.env`, and restart `slo-metrics.service`. Run `exec bash` afterwards: sourcing `.env` exports
    your passwords into that terminal.
-2. Install units and load the syslog input. `redeploy_systemd_units.sh` copies the capture, `slo-metrics`,
-   `stack-health` and liveness units but **not** `intel-refresh.service`, so run the intel installer too (it is idempotent
-   and runs the refresh once; expect `indexed N indicators` and `recorded freshness heartbeat`, no `HTTP 401`).
+2. Install units. `redeploy_systemd_units.sh` copies the capture, `slo-metrics`, `stack-health`, liveness and (since PR #590)
+   `intel-refresh` units. Run the intel installer once as well to verify (it is idempotent; expect
+   `indexed N indicators` and `recorded freshness heartbeat`, no `HTTP 401`).
    ```bash
    sudo bash scripts/setup/redeploy_systemd_units.sh
    bash scripts/setup/install_intel_refresh_timer.sh
-   sudo systemctl restart filebeat.service
-   docker compose -f scripts/setup/docker-compose.yml restart logstash
    ```
-3. Deploy the 2 new Sigma rules from #556. `ES_CA` defaults to a path inside the container, so copy the CA out and
-   check it against the pinned fingerprint first (a failed pin check means stop). Needs the fix for the Kibana
-   `Invalid file extension` error (HTTP 400, seen 2026-10-24); a success line reads `success=True`, not `success=None`.
+3. **Filebeat: the host's config may be an old copy of the repo's.** `install_filebeat.sh` installs only the package;
+   `/etc/filebeat/filebeat.yml` is separate. On 2026-10-24 the host ran a June 2026 file with no Suricata input, no
+   syslog input (#556) and no `http.log` host rename (#228). Check, then replace only if the repo file is a superset:
+   ```bash
+   sudo diff /etc/filebeat/filebeat.yml configs/network/filebeat.yml | grep '^<'     # lines only in the live file: expect none
+   ```
+   Filebeat refuses a config file not owned by root, so test a root-owned copy, then move it into place. Each step runs
+   only if the previous one succeeded; the old file is backed up first:
+   ```bash
+   sudo cp -a /etc/filebeat/filebeat.yml /etc/filebeat/filebeat.yml.bak-$(date +%Y%m%d)
+   sudo install -m 0600 -o root -g root configs/network/filebeat.yml /etc/filebeat/filebeat.yml.new \
+   && sudo env TENANT_ID=<tenant> filebeat test config -c /etc/filebeat/filebeat.yml.new --path.home /usr/share/filebeat --path.config /etc/filebeat --path.data /var/lib/filebeat --path.logs /var/log/filebeat \
+   && sudo mv /etc/filebeat/filebeat.yml.new /etc/filebeat/filebeat.yml && sudo systemctl restart filebeat.service \
+   || sudo rm -f /etc/filebeat/filebeat.yml.new
+   ```
+   `<tenant>` is the `TENANT_ID` in `/etc/systemd/system/filebeat.service.d/10-tenant.conf` (`home-smith` on this host).
+   Rollback: copy the backup over `/etc/filebeat/filebeat.yml` and restart. Expect a one-time burst from the new syslog
+   input (32,370 documents in 30 minutes on 2026-10-24). Known after the swap: a "points to an already known ingest
+   target ... Skipping" warning for `ntp.log` (issue #591), and `suricata_ingest_lag_seconds` stays in breach because
+   the repo's Filebeat looks for `/storage/PCAP/suricata/eve.json` (#443/#444).
+   Then `docker compose -f scripts/setup/docker-compose.yml restart logstash` if you changed the Logstash config.
+3b. Deploy the Sigma rules (including the 2 #556 syslog rules once the promotion to `status: test` is merged).
+   `ES_CA` defaults to a path inside the container, so copy the CA out and check it against the pinned fingerprint
+   first (a failed pin check means stop). Needs the fix for the Kibana `Invalid file extension` error (HTTP 400, seen
+   2026-10-24); a success line reads `success=True`, not `success=None`.
    **`deploy_detections.sh` skips `status: experimental` rules** (`--include-experimental` deploys all 96 of them,
-   including ones a threshold rule already covers, so do not use it). The 2 #556 syslog rules
-   (`system_lnx_ca_fingerprint_mismatch.yml`, `system_lnx_self_health_unit_failed.yml`) were `experimental`, so the
-   2026-10-24 deploy (38 rules imported, `success=True`) did **not** include them. They are `status: test` with fixtures
-   once the promotion is merged; rerun this step afterwards and look for `SIGMA - SOC-Internal ES CA Fingerprint Mismatch`
-   and `SIGMA - Suburban-SOC Self-Health systemd Unit Failed` under Security → Rules.
+   including ones a threshold rule already covers, so do not use it). The 2026-10-24 deploy (38 rules imported,
+   `success=True`) did **not** include `system_lnx_ca_fingerprint_mismatch.yml` or `system_lnx_self_health_unit_failed.yml`,
+   which were `experimental` then. They are `status: test` with fixtures after the promotion merges; rerun this step
+   and look for `SIGMA - SOC-Internal ES CA Fingerprint Mismatch` and `SIGMA - Suburban-SOC Self-Health systemd Unit Failed`
+   under Security → Rules.
    ```bash
    mkdir -p ~/.config/suburban-soc
    docker cp elasticsearch:/usr/share/elasticsearch/config/certs/ca/ca.crt ~/.config/suburban-soc/ca.crt
@@ -239,12 +259,15 @@ breaches seen on 2026-10-24 (`soc_health_stale_seconds`, `intel_feed_stale_heart
 
 ## Part 6 — Prove the loop works end to end (15 minutes)
 
-Run from a client on the monitored network.
+Run from a **second machine on the LAN**, aimed at the capture host's LAN address. `eth1` is this PC's own network
+card: on 2026-10-24 the host's `conn.log` held only this PC's traffic and IPv6 housekeeping, no other IPv4 host (#593), and
+`sim_portscan.sh`'s default target `127.0.0.1` never touches `eth1`.
 
 ```bash
 cd tests/anomaly_simulation
-bash preflight.sh
-bash sim_portscan.sh
+cp .env.example .env        # then set TARGET_HOST and the ES/agent URLs for your setup
+TARGET_HOST=192.168.1.103 bash sim_portscan.sh     # from the second machine; use the capture host's LAN IP
+bash preflight.sh           # also needs OpenWrt and an SSH key for the quarantine checks
 python3 verify_detections.py
 ```
 
