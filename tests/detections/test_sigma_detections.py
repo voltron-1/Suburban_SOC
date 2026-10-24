@@ -927,6 +927,41 @@ class SigmaDetectionTests(unittest.TestCase):
                         f"false-positive flood #384's review found")
 
 
+class SocSyslogRulesExtraTruePositiveTests(unittest.TestCase):
+    """#556 syslog rules promoted experimental -> test (2026-10-24). The fixture format
+    carries one true_positive per rule, so the other four variants per rule live here
+    (same pattern as the targeted branch tests above)."""
+
+    SYSLOG = {"event.module": "system", "event.dataset": "syslog"}
+
+    def _fires(self, rule_file, message):
+        det = load_rule(SIGMA_DIR / rule_file)["detection"]
+        return detection_matches(det, {**self.SYSLOG, "message": message})
+
+    def test_self_health_fires_for_each_listed_soc_unit(self):
+        rule = "system_lnx_self_health_unit_failed.yml"
+        for unit in ("stack-health.service", "zeek-host-capture.service",
+                     "intel-refresh.service", "soc-alert-on-failure@slo-metrics.service"):
+            with self.subTest(unit=unit):
+                self.assertTrue(
+                    self._fires(rule, f"Oct 24 12:25:01 Dragon-Zord systemd[1]: {unit}: "
+                                      "Failed with result 'exit-code'."),
+                    f"{unit} failure line did not fire")
+
+    def test_ca_fingerprint_mismatch_fires_for_each_caller_and_line_prefix(self):
+        rule = "system_lnx_ca_fingerprint_mismatch.yml"
+        line = ("[FATAL] ES CA fingerprint changed: expected {a}, got {b} -- refusing to trust it. "
+                "If this is a deliberate cert rotation, delete /var/lib/suburban-soc-slo/ca_fingerprint.sha256 to re-pin")
+        for msg in (
+            "Oct 24 12:25:01 Dragon-Zord verify_ca_fingerprint.sh[4242]: " + line.format(a="aa11", b="bb22"),
+            "bash[777]: " + line.format(a="0" * 64, b="f" * 64),
+            "stack-health.sh[31337]: " + line.format(a="x", b="y"),
+            line.format(a="no-prefix", b="no-prefix-2"),
+        ):
+            with self.subTest(message=msg[:60]):
+                self.assertTrue(self._fires(rule, msg), "CA mismatch line did not fire")
+
+
 def coverage_report():
     rows = []
     for path in sorted(SIGMA_DIR.glob("*.yml")):

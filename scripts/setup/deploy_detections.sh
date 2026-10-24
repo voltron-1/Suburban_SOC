@@ -193,6 +193,10 @@ for f in sorted(glob.glob(os.path.join(os.environ["THRESHOLD_DIR"], "*.ndjson"))
                 print(f"REFUSING {f}: type={r.get('type')!r} rule_id={r.get('rule_id')!r} "
                       f"(expected type=threshold, rule_id ending in -threshold)", file=sys.stderr)
                 sys.exit(1)
+            # Kibana 9.x validates `id` as a strict UUID ("id: Invalid uuid"); these files carry
+            # "<uuid>-threshold" there. Drop it: Kibana assigns its own, and overwrite=true on
+            # the import matches on rule_id, so reruns replace rather than duplicate.
+            r.pop("id", None)
             r["index"] = idx
             r["enabled"] = enable
             print(json.dumps(r))
@@ -211,15 +215,19 @@ blue "==> Importing detection rules into the Kibana Detection Engine"
 # Ensure the signals/alerts index exists first (no-op if already created).
 es -o /dev/null -X POST \
   "${KIBANA_URL}/api/detection_engine/index" -H 'kbn-xsrf: true' || true
+# filename=: Kibana 9.x validates the UPLOADED filename's extension (HTTP 400 "Invalid file
+# extension .XXXXXXXX"), and $NDJSON is a mktemp path with a random suffix.
 resp=$(es -X POST \
   "${KIBANA_URL}/api/detection_engine/rules/_import?overwrite=true" \
-  -H 'kbn-xsrf: true' --form "file=@${NDJSON};type=application/ndjson" || true)
+  -H 'kbn-xsrf: true' --form "file=@${NDJSON};filename=rules.ndjson;type=application/ndjson" || true)
 
 echo "$resp" | python3 -c "
 import sys, json
 try: d = json.load(sys.stdin)
 except Exception: print('    RAW:', sys.stdin.read()[:300]); sys.exit(1)
 ok = d.get('success')
+if ok is None and d.get('message'):
+    print('    kibana:', d.get('status_code', d.get('statusCode')), str(d.get('message'))[:200])
 print(f\"    success={ok}  imported={d.get('success_count')}  errors={len(d.get('errors',[]))}\")
 for e in d.get('errors', [])[:5]:
     print('      error:', e.get('rule_id'), '-', str(e.get('error',{}).get('message'))[:160])

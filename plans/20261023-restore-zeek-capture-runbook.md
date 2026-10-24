@@ -203,9 +203,22 @@ Run only after Part 4 is green. Order matters.
    target ... Skipping" warning for `ntp.log` (issue #591), and `suricata_ingest_lag_seconds` stays in breach because
    the repo's Filebeat looks for `/storage/PCAP/suricata/eve.json` (#443/#444).
    Then `docker compose -f scripts/setup/docker-compose.yml restart logstash` if you changed the Logstash config.
-   **Skip `deploy_detections.sh` for the two M26 syslog rules.** Both (`system_lnx_self_health_unit_failed.yml`,
-   `system_lnx_ca_fingerprint_mismatch.yml`) are `status: experimental`, and that script deploys only `stable`/`test`
-   rules unless `--include-experimental`, which would deploy every experimental rule. They need passing fixtures first.
+3b. Deploy the Sigma rules (including the 2 #556 syslog rules once the promotion to `status: test` is merged).
+   `ES_CA` defaults to a path inside the container, so copy the CA out and check it against the pinned fingerprint
+   first (a failed pin check means stop). Needs the fix for the Kibana `Invalid file extension` error (HTTP 400, seen
+   2026-10-24); a success line reads `success=True`, not `success=None`.
+   **`deploy_detections.sh` skips `status: experimental` rules** (`--include-experimental` deploys all 96 of them,
+   including ones a threshold rule already covers, so do not use it). The 2026-10-24 deploy (38 rules imported,
+   `success=True`) did **not** include `system_lnx_ca_fingerprint_mismatch.yml` or `system_lnx_self_health_unit_failed.yml`,
+   which were `experimental` then. They are `status: test` with fixtures after the promotion merges; rerun this step
+   and look for `SIGMA - SOC-Internal ES CA Fingerprint Mismatch` and `SIGMA - Suburban-SOC Self-Health systemd Unit Failed`
+   under Security → Rules.
+   ```bash
+   mkdir -p ~/.config/suburban-soc
+   docker cp elasticsearch:/usr/share/elasticsearch/config/certs/ca/ca.crt ~/.config/suburban-soc/ca.crt
+   bash scripts/setup/verify_ca_fingerprint.sh ~/.config/suburban-soc/ca.crt /var/lib/suburban-soc-slo/ca_fingerprint.sha256 && echo PIN-OK
+   ES_CA=$HOME/.config/suburban-soc/ca.crt bash scripts/setup/deploy_detections.sh
+   ```
 4. Enable the monitoring timers. They are **not** enabled by the redeploy script.
    - `zeek-capture-liveness.timer` has no prerequisite:
      `sudo systemctl enable --now zeek-capture-liveness.timer`
@@ -221,14 +234,19 @@ Run only after Part 4 is green. Order matters.
      ```
      Good: every component `UP` (Elasticsearch `yellow` is expected on a single node). The next `slo-metrics` run (every
      15 minutes) should show `soc_health_stale_seconds` small instead of about 104 days.
-5. Verify. None of these may report `not-found`.
+5. Verify. Neither timer may report `not-found`.
    ```bash
-   systemctl status zeek-capture-liveness.timer stack-health.timer 'soc-alert-on-failure@.service' --no-pager | head -30
+   systemctl status zeek-capture-liveness.timer stack-health.timer --no-pager | head -30
+   ls -l /etc/systemd/system/soc-alert-on-failure@.service
    ```
+   `soc-alert-on-failure@.service` is a **template**: `systemctl status` on the bare template name fails with
+   `Unit name ... is neither a valid invocation ID nor unit name`, which says nothing about whether it is installed.
+   Check the file with `ls` (it is installed by `redeploy_systemd_units.sh`). Its `StateDirectory=` line (the #567
+   rate limiter) is present only after that change is merged and the unit is reinstalled.
 
 **Do not set `NTFY_TOPIC` yet.**
-- Issue #567 is open: `soc_alert_on_failure.sh` has no rate limit and can send one push per restart cycle.
-- Fix #567 and complete step 1 above, then provision `NTFY_TOPIC`.
+- `soc_alert_on_failure.sh` now rate-limits itself (#567: one push per failed unit per hour, a suppressed count in the next push). That code is not live until `redeploy_systemd_units.sh` installs the updated `soc-alert-on-failure@.service` (it adds `StateDirectory=`) and #567's change is merged.
+- Install it and complete step 1 above, then provision `NTFY_TOPIC`.
 - Otherwise about 15 unmeasurable metrics produce about 96 high-priority pushes a day, and the topic gets muted.
 
 **Limit of the liveness supervisor (#549):** it restarts the capture unit only when it is `active` and `conn.log` is

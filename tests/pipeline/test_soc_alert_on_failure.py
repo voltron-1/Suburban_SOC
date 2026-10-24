@@ -186,5 +186,171 @@ class DispatcherFunctionalTests(unittest.TestCase):
         self.assertEqual(0, r.returncode, r.stdout + r.stderr)
 
 
+
+class DispatcherRateLimitTests(unittest.TestCase):
+    """#567: OnFailure= fires on every restart cycle, so the dispatcher must bound
+    its own output instead of relying on a consuming unit's StartLimitBurst."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.bin = Path(self.tmp) / "bin"
+        self.bin.mkdir()
+        self.state = Path(self.tmp) / "state"
+        self.log = Path(self.tmp) / "curl.log"
+        self._write_curl(f'printf "%s\\n" "$@" >> {self.log}\nexit 0')
+
+    def _write_curl(self, body):
+        curl = self.bin / "curl"
+        curl.write_text(f"#!/bin/sh\n{body}\n")
+        curl.chmod(curl.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    def _run(self, unit="slo-metrics.service", cooldown="3600", state=True):
+        env = dict(os.environ)
+        env["PATH"] = f"{self.bin}:{env.get('PATH', '')}"
+        env["NTFY_TOPIC"] = "test-topic-abc"
+        env["SOC_ALERT_COOLDOWN_SECONDS"] = cooldown
+        env.pop("STATE_DIRECTORY", None)
+        env.pop("SOC_ALERT_STATE_DIR", None)
+        if state:
+            env["STATE_DIRECTORY"] = str(self.state)
+        return subprocess.run(
+            ["bash", str(DISPATCHER_SCRIPT), unit],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+
+    def _pushes(self):
+        return (
+            self.log.read_text().count("https://ntfy.sh/") if self.log.exists() else 0
+        )
+
+    def test_first_failure_delivers(self):
+        r = self._run()
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertEqual(1, self._pushes())
+
+    def test_second_failure_inside_cooldown_is_suppressed(self):
+        self._run()
+        r = self._run()
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertEqual(1, self._pushes())
+        self.assertIn("suppressed", r.stderr)
+
+    def test_a_flapping_unit_is_bounded(self):
+        for _ in range(50):
+            self._run()
+        self.assertEqual(1, self._pushes())
+
+    def test_suppressed_count_is_reported_on_the_next_push(self):
+        self._run()
+        self._run()
+        self._run()
+        self._run()
+        # Expire the cooldown by back-dating the stamp, keeping the suppressed count.
+        stamp = self.state / "slo-metrics.service.state"
+        last, suppressed = stamp.read_text().split()
+        self.assertEqual("3", suppressed)
+        stamp.write_text(f"{int(last) - 7200} {suppressed}\n")
+        self._run()
+        self.assertEqual(2, self._pushes())
+        self.assertIn("3 further failure(s) suppressed", self.log.read_text())
+        self.assertEqual(
+            "0", stamp.read_text().split()[1], "count must reset after delivery"
+        )
+
+    def test_two_units_are_throttled_independently(self):
+        self._run(unit="slo-metrics.service")
+        self._run(unit="zeek-host-capture.service")
+        self.assertEqual(2, self._pushes())
+        self._run(unit="slo-metrics.service")
+        self._run(unit="zeek-host-capture.service")
+        self.assertEqual(2, self._pushes())
+
+    def test_zero_cooldown_disables_throttling(self):
+        self._run(cooldown="0")
+        self._run(cooldown="0")
+        self.assertEqual(2, self._pushes())
+
+    def test_unset_topic_still_exits_zero_with_state_dir(self):
+        env = dict(
+            os.environ,
+            PATH=f"{self.bin}:{os.environ.get('PATH', '')}",
+            STATE_DIRECTORY=str(self.state),
+        )
+        env.pop("NTFY_TOPIC", None)
+        r = subprocess.run(
+            ["bash", str(DISPATCHER_SCRIPT), "slo-metrics.service"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
+        )
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertIn("NTFY_TOPIC is unset", r.stderr)
+        self.assertEqual(0, self._pushes())
+
+    def test_unusable_state_dir_fails_open(self):
+        blocker = Path(self.tmp) / "not-a-dir"
+        blocker.write_text("x")
+        self.state = blocker / "sub"  # mkdir -p cannot succeed under a regular file
+        r = self._run()
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertEqual(1, self._pushes())
+        self.assertIn("without rate limiting", r.stderr)
+
+    def test_failed_push_does_not_start_the_cooldown(self):
+        self._write_curl("exit 7")
+        self._run()
+        self._write_curl(f'printf "%s\\n" "$@" >> {self.log}\nexit 0')
+        self._run()
+        self.assertEqual(
+            1, self._pushes(), "a push that never left the host must be retried"
+        )
+
+    def test_curl_is_called_with_fail_so_http_errors_do_not_start_the_cooldown(self):
+        self._run()
+        self.assertIn("-sf", self.log.read_text().split())
+
+    def test_http_error_response_does_not_start_the_cooldown(self):
+        # Fake curl honours -f: exit 22 is what real curl returns for an HTTP 4xx/5xx.
+        self._write_curl(f'printf "%s\\n" "$@" >> {self.log}\nexit 22')
+        self._run()
+        self._run()
+        self.assertEqual(2, self._pushes(), "a rejected push must be retried")
+
+    def test_corrupt_stamp_is_treated_as_no_history(self):
+        self.state.mkdir()
+        (self.state / "slo-metrics.service.state").write_text("garbage\n")
+        r = self._run()
+        self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+        self.assertEqual(1, self._pushes())
+
+    def test_unit_name_cannot_escape_the_state_dir(self):
+        self._run(unit="../../etc/evil.service")
+        self.assertEqual(
+            [],
+            [
+                p
+                for p in Path(self.tmp).rglob("evil.service*")
+                if self.state not in p.parents
+            ],
+        )
+
+
+class DispatcherUnitStateDirectoryTests(unittest.TestCase):
+    def test_template_unit_declares_a_state_directory(self):
+        text = DISPATCHER_UNIT.read_text(encoding="utf-8")
+        self.assertEqual(
+            ["StateDirectory=suburban-soc-alerts"], _directives(text, "StateDirectory")
+        )
+        self.assertIn(
+            "ProtectSystem=strict",
+            text,
+            "StateDirectory= must stay writable under the strict sandbox",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -913,7 +913,7 @@ process.executable:*\\wmic.exe AND (process.args:*process* AND process.args:*cal
 
 ## SOC-Internal ES CA Fingerprint Mismatch
 
-- **Rule:** `system_lnx_ca_fingerprint_mismatch.yml` · **level:** high · **status:** experimental · **ATT&CK:** T1562.001
+- **Rule:** `system_lnx_ca_fingerprint_mismatch.yml` · **level:** high · **status:** test · **ATT&CK:** T1562.001
 
 ```
 (event.module:system AND event.dataset:syslog) AND message:*\[FATAL\]\ ES\ CA\ fingerprint\ changed*
@@ -921,7 +921,7 @@ process.executable:*\\wmic.exe AND (process.args:*process* AND process.args:*cal
 
 ## Suburban-SOC Self-Health systemd Unit Failed
 
-- **Rule:** `system_lnx_self_health_unit_failed.yml` · **level:** medium · **status:** experimental · **ATT&CK:** T1562.001
+- **Rule:** `system_lnx_self_health_unit_failed.yml` · **level:** medium · **status:** test · **ATT&CK:** T1562.001
 
 ```
 (event.module:system AND event.dataset:syslog) AND message:*Failed\ with\ result* AND (message:(*slo\-metrics.service* OR *stack\-health.service* OR *zeek\-host\-capture.service* OR *suricata\-host\-capture.service* OR *intel\-refresh.service* OR *checkpoints\-compact.service* OR *threat\-intel\-compact.service* OR *soc\-alert\-on\-failure@*))

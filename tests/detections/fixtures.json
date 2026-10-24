@@ -2145,6 +2145,16 @@
       {
         "event.module": "system",
         "message": "sshd[1234]: Failed password for alice from 203.0.113.5 port 22 ssh2"
+      },
+      {
+        "event.module": "system",
+        "event.dataset": "syslog",
+        "message": "systemd[1]: Failed to start slo-metrics.service - Suburban-SOC SLO metrics."
+      },
+      {
+        "event.module": "system",
+        "event.dataset": "syslog",
+        "message": "systemd[1]: Started stack-health.service - Suburban-SOC stack health check."
       }
     ]
   },
@@ -2164,6 +2174,21 @@
         "event.module": "system",
         "event.dataset": "syslog",
         "message": "systemd[1]: slo-metrics.service: Failed with result 'exit-code'."
+      },
+      {
+        "event.module": "system",
+        "event.dataset": "syslog",
+        "message": "verify_ca_fingerprint.sh[9876]: [FATAL] could not compute a SHA-256 fingerprint of /run/suburban-soc-slo/ca.crt"
+      },
+      {
+        "event.module": "system",
+        "event.dataset": "syslog",
+        "message": "verify_ca_fingerprint.sh[9876]: [INFO] pinned ES CA fingerprint on first use: abc123"
+      },
+      {
+        "event.module": "auditd",
+        "event.dataset": "auditd.log",
+        "message": "verify_ca_fingerprint.sh[9876]: [FATAL] ES CA fingerprint changed: expected abc123, got def456 -- refusing to trust it."
       }
     ]
   }
