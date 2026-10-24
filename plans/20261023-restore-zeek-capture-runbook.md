@@ -209,8 +209,8 @@ Run only after Part 4 is green. Order matters.
    ```
 
 **Do not set `NTFY_TOPIC` yet.**
-- Issue #567 is open: `soc_alert_on_failure.sh` has no rate limit and can send one push per restart cycle.
-- Fix #567 and complete step 1 above, then provision `NTFY_TOPIC`.
+- `soc_alert_on_failure.sh` now rate-limits itself (#567: one push per failed unit per hour, a suppressed count in the next push). That code is not live until `redeploy_systemd_units.sh` installs the updated `soc-alert-on-failure@.service` (it adds `StateDirectory=`) and #567's change is merged.
+- Install it and complete step 1 above, then provision `NTFY_TOPIC`.
 - Otherwise about 15 unmeasurable metrics produce about 96 high-priority pushes a day, and the topic gets muted.
 
 **Limit of the liveness supervisor (#549):** it restarts the capture unit only when it is `active` and `conn.log` is

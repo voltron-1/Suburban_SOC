@@ -34,6 +34,11 @@ Documentation=https://github.com/voltron-1/Suburban_SOC
 Type=oneshot
 User=tjlam
 TimeoutStartSec=30
+# #567: per-unit cooldown stamps (/var/lib/suburban-soc-alerts/<unit>.state). Writable
+# despite ProtectSystem=strict; created and chowned to User= by systemd. Survives reboots,
+# so a boot-looping unit does not get a fresh alert per boot.
+StateDirectory=suburban-soc-alerts
+StateDirectoryMode=0700
 ExecStart=/usr/bin/bash /home/tjlam/projects/Suburban-SOC/scripts/setup/soc_alert_on_failure.sh %i
 
 # --- Sandboxing (audit #167 / NIST CM-7) ---------------------------------------

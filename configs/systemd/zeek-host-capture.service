@@ -180,10 +180,10 @@ Wants=network-online.target
 #     produced 4 activations). With StartLimitIntervalSec=0 that is one
 #     soc-alert-on-failure@ dispatch per RestartSec, forever -- at 5s, ~17,280
 #     ntfy pushes a day, which mutes the topic and buries the signal it exists
-#     to carry. scripts/setup/soc_alert_on_failure.sh has no throttle of its
-#     own (45 lines, no cooldown/stamp/lock), so bounding here is currently the
-#     only backstop. Bounded, the same failure produces StartLimitBurst+1
-#     dispatches and then rests in `failed`.
+#     to carry. scripts/setup/soc_alert_on_failure.sh now throttles itself (#567:
+#     one push per unit per hour, suppressed count carried forward), so this
+#     limiter is a second layer, not the only backstop. Bounded, the same
+#     failure produces StartLimitBurst+1 dispatches and then rests in `failed`.
 StartLimitIntervalSec=3600
 StartLimitBurst=200
 # #554: this is the SOC's only network sensor. RestartPreventExitStatus=78 below
