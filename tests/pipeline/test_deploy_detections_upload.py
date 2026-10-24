@@ -33,6 +33,25 @@ class DeployDetectionsUploadTests(unittest.TestCase):
     def test_error_body_message_is_printed_instead_of_success_none(self):
         self.assertIn("d.get('message')", self.text)
 
+    def test_threshold_step_strips_the_non_uuid_id_field(self):
+        """2026-10-24: all 12 threshold rules failed Kibana 9.3.2's import with
+        'id: Invalid uuid' (their id is '<uuid>-threshold'). Deploy must not send it."""
+        self.assertIn('r.pop("id", None)', self.text)
+
+    def test_threshold_files_would_fail_kibana_if_id_were_sent(self):
+        """Documents why the strip exists: if a threshold file's id ever becomes a plain
+        UUID the strip is harmless, but a non-UUID id must never reach the import."""
+        import json
+        uuid_re = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        thresh = SCRIPT.parents[2] / "rules" / "elastic" / "threshold"
+        non_uuid = [
+            f.name for f in thresh.glob("*.ndjson")
+            for ln in f.read_text(encoding="utf-8").splitlines()
+            if ln.strip() and "id" in json.loads(ln) and not uuid_re.match(json.loads(ln)["id"])
+        ]
+        if non_uuid:
+            self.assertIn('r.pop("id", None)', self.text, f"non-UUID ids in {non_uuid} but no strip")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

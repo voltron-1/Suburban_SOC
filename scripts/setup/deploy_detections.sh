@@ -193,6 +193,10 @@ for f in sorted(glob.glob(os.path.join(os.environ["THRESHOLD_DIR"], "*.ndjson"))
                 print(f"REFUSING {f}: type={r.get('type')!r} rule_id={r.get('rule_id')!r} "
                       f"(expected type=threshold, rule_id ending in -threshold)", file=sys.stderr)
                 sys.exit(1)
+            # Kibana 9.x validates `id` as a strict UUID ("id: Invalid uuid"); these files carry
+            # "<uuid>-threshold" there. Drop it: Kibana assigns its own, and overwrite=true on
+            # the import matches on rule_id, so reruns replace rather than duplicate.
+            r.pop("id", None)
             r["index"] = idx
             r["enabled"] = enable
             print(json.dumps(r))
