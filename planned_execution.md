@@ -132,6 +132,11 @@ Cloud session (PRs #581–#588) plus a live walk-through of the capture-restore 
   `test_sigma_detections.py`; CI gate green locally, 122/122 rules convert. Deploy them after merge.
   Unrelated, found while converting: the converted NDJSON for all 4 `attack.t1562.001` rules has an empty `threat` block
   (97 of 122 corpus rules have one); cause not investigated.
+- [x] **#265 live check (host, 2026-10-24):** `mint_endpoint_cert.sh test-endpoint` ran live (cert verified against the CA).
+  Host Filebeat (`/usr/share/filebeat/bin/filebeat`, throwaway config, tenant `cert-test`) completed the mTLS handshake
+  (TLSv1.3) and shipped one event; Elasticsearch `_count` for the unique marker returned 1 in `logstash-security-*`, and
+  Logstash logged no certificate/handshake errors. **Not exercised:** Winlogbeat/Windows. Gap not fixed: Logstash trusts the
+  shipper's own `[tenant][id]`. Test leftovers: `endpoint-certs/test-endpoint/` on the host and a `cert-test` tenant index.
 - **Merged this session:** #581 plans, #582 curl-exit-code test fix (CI was red on every PR), #583 CVE-2026-48930
   exception to 2026-11-25, #584 endpoint client-cert minting (never run live), #585 Suricata baseline tooling,
   #586/#588 handoff. Issue #587 filed in M23 for the 20 remaining Suricata rules (#446 was already closed).

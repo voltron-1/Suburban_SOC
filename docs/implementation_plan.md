@@ -228,7 +228,7 @@ output.logstash:
 > **Update (issue #192):** The deployed [winlogbeat.yml](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/endpoint/winlogbeat.yml) collection scope has since been extended beyond this original proposal — Security now also collects 1102/4728/4756, System also collects 104/7040/7045, and two new channels were added (`Microsoft-Windows-WMI-Activity/Operational` 5861, `Microsoft-Windows-PowerShell/Operational` 4103/4104). See that file for the current, authoritative event ID list rather than this snippet.
 
 > [!WARNING]
-> **Status (issue #265):** the snippet above predates mTLS. The deployed `winlogbeat.yml` now sets `ssl.certificate`/`ssl.key` (`WINLOGBEAT_CERT`/`WINLOGBEAT_KEY`), and `scripts/setup/mint_endpoint_cert.sh` mints the per-endpoint client cert. **Not yet verified against a live Logstash** — until an endpoint has shipped an event end to end, treat #265 as open. Without a client cert the handshake fails with `remote error: tls: certificate required` (see the Troubleshooting table in `docs/master_pipeline_guide.md`).
+> **Status (issue #265):** the snippet above predates mTLS. The deployed `winlogbeat.yml` now sets `ssl.certificate`/`ssl.key` (`WINLOGBEAT_CERT`/`WINLOGBEAT_KEY`), and `scripts/setup/mint_endpoint_cert.sh` mints the per-endpoint client cert. Live-verified 2026-10-24 for the Linux Filebeat path only (cert minted with `mint_endpoint_cert.sh`, one event shipped to the Beats input on :5044 and found in `logstash-security-*`); the Winlogbeat/Windows path has not been exercised. Without a client cert the handshake fails with `remote error: tls: certificate required` (see the Troubleshooting table in `docs/master_pipeline_guide.md`).
 
 #### [NEW] [filebeat_endpoint.yml](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/endpoint/filebeat_endpoint.yml)
 
@@ -255,7 +255,7 @@ output.logstash:
 ```
 
 > [!WARNING]
-> **Status (issue #265):** the deployed `filebeat_endpoint.yml` now sets `ssl.certificate`/`ssl.key` (`FILEBEAT_CERT`/`FILEBEAT_KEY`); mint the cert with `scripts/setup/mint_endpoint_cert.sh`. Not yet verified against a live Logstash — see the note above.
+> **Status (issue #265):** the deployed `filebeat_endpoint.yml` now sets `ssl.certificate`/`ssl.key` (`FILEBEAT_CERT`/`FILEBEAT_KEY`); mint the cert with `scripts/setup/mint_endpoint_cert.sh`. Live-verified 2026-10-24 (Linux Filebeat path) — see the note above.
 
 #### [MODIFY] [logstash.conf](file:///wsl$/Ubuntu/home/tjlam/projects/Suburban-SOC/configs/logstash.conf) — Enhanced endpoint parsing
 
