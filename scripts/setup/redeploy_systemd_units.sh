@@ -53,6 +53,12 @@ sudo cp configs/systemd/soc-alert-on-failure@.service /etc/systemd/system/soc-al
 # #549: output-derived liveness supervisor for zeek-host-capture.service.
 sudo cp configs/systemd/zeek-capture-liveness.service /etc/systemd/system/zeek-capture-liveness.service
 sudo cp configs/systemd/zeek-capture-liveness.timer /etc/systemd/system/zeek-capture-liveness.timer
+# #222/#271: intel-refresh. This script did not install it, so an installed copy could stay on a
+# pre-#271 unit indefinitely (seen live 2026-10-24: the literal-password bug sent every run's
+# index and heartbeat writes to HTTP 401). The timer keeps its enabled/disabled state; this only
+# refreshes the unit definitions, picked up on the next run after daemon-reload.
+sudo cp configs/systemd/intel-refresh.service /etc/systemd/system/intel-refresh.service
+sudo cp configs/systemd/intel-refresh.timer /etc/systemd/system/intel-refresh.timer
 sudo systemctl daemon-reload
 
 echo
