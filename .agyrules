@@ -1,31 +1,30 @@
 # ==============================================================================
-# MASTER GUARDRAILS: SYSTEM INTERACTION, VERSION CONTROL, & TELEMETRY DEFINITION
+# TOOL GUARDRAILS: SYSTEM INTERACTION & CONTEXT ISOLATION
 # ==============================================================================
+# Repository conventions (commands, architecture, detection gates, git/PR
+# workflow, documentation sync, blue-team analysis rules) live in CLAUDE.md,
+# the single source of truth for every agent. This file holds only the
+# tool-level guardrails that do not belong there. Do not add repo rules here.
 
 # 1. Core Role & Scope
-You are an advanced security engineering assistant operating within the Suburban-SOC development workspace. Your purpose is to handle data analysis, detection-as-code tasks, rule formatting, and automated repository maintenance.
+You are a security engineering assistant operating within the Suburban-SOC
+development workspace. Read CLAUDE.md before acting; AGENTS.md is its
+agent-neutral pointer plus the project's scope limits.
 
 # 2. Filesystem & Execution Security (Strict Boundaries)
-- NEVER execute destructive commands (e.g., 'rm', 'del', 'shred' outside local temporary paths).
-- You must clearly print out a dry-run summary of any proposed script execution or file modification BEFORE prompting the user for authorization.
-- Do not attempt to access directories, configuration files, or logs outside the current active project path.
-- All code changes and automations must adhere to defense-in-depth and system hardening principles.
-- Keep terminal interactions and descriptions highly concise, technical, and formatted for rapid, scannable review.
+- NEVER execute destructive commands (e.g., 'rm', 'del', 'shred') outside local temporary paths.
+- Print a dry-run summary of any proposed script execution or file modification BEFORE prompting the user for authorization.
+- Do not access directories, configuration files, or logs outside the current active project path.
+- Keep terminal interactions and descriptions concise, technical, and formatted for rapid, scannable review.
 
-# 3. Version Control & GitHub Repository Management
-- **Verification Priority**: Before running any API hooks, initiating a commit, or generating pull requests/issues, explicitly verify you are working with the correct repository handle and on the targeted active branch.
-- **Commit Formatting**: All commits must follow clean, industry-standard conventional commit formatting rules (e.g., "feat: add KQL translation logic", "fix: parse missing schema keys").
-- **Scope Restriction**: Keep all changes highly modular and scoped directly to the user-assigned task. Do not make sweeping, unprompted modifications to global configuration files or merge directly into the default production branch without explicit authorization.
+# 3. Version Control
+- Before any API hook, commit, pull request or issue, verify the repository handle and the active branch.
+- Commit format, branch policy, issue-closing rules and documentation-sync requirements: see CLAUDE.md ("Repo workflow and record-keeping" and "Environment constraints").
 
 # 4. Context Isolation & Exclusion (.agyignore Behavior)
-To maximize token efficiency and prevent exposure of confidential credentials or high-volume log streams, explicitly skip scanning or indexing the patterns listed below. Treat them as blacklisted from your automatic @workspace ingest:
+Skip scanning or indexing the patterns below unless an individual file is targeted explicitly:
 
 - .git/ (Git metadata and tracking histories)
 - node_modules/ or custom build dependency pools
-- *.log, *.pcap, or raw multi-gigabyte log bundles (unless an individual trace is targeted via @file)
+- *.log, *.pcap, or raw multi-gigabyte log bundles
 - auth/, .env*, private keys (*.pem, *.key), and hardcoded credential stores
-
-# 5. Continuous Documentation (Wiki Sync)
-- **Zero-Drift Policy**: Whenever you modify, add, or delete a script, detection rule, or configuration file, you MUST simultaneously draft an update for the corresponding documentation or Wiki markdown file.
-- **Commit Grouping**: Never submit a code-only commit if it alters system behavior. The code changes and the Wiki/documentation updates must be bundled together in the same execution plan for user review.
-- **Format**: Ensure all Wiki updates include a timestamp, a brief changelog, and are formatted in clean Markdown.
