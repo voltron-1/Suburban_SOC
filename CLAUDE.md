@@ -2,7 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-`AGENTS.md` (project overview, setup, security-sensitive areas) and `docs/CONVENTIONS.md` (shebangs, docstrings, date-stamped filenames) also apply. `.claude/commands/` holds the `sigma-rule`, `sigma-validate` and `triage` skills; use them for that work instead of improvising.
+This is the single source of truth for agent guidance. `AGENTS.md` is a pointer here plus the project's scope limits; `.agyrules` holds only tool guardrails. `docs/CONVENTIONS.md` (shebangs, docstrings, date-stamped filenames) also applies. `.claude/commands/` holds the `sigma-rule`, `sigma-validate` and `triage` skills; use them for that work instead of improvising.
+
+Suburban-SOC is a mesh-network security monitoring pipeline: an OpenWrt router captures boundary traffic, Zeek and Suricata parse it, Filebeat and Logstash enrich and route it into Elasticsearch, Kibana visualizes it. A Flask SOC AI agent triages HMAC-signed alerts from Logstash's ingest-time trigger (the Kibana Watcher design was retired in #267), maps them to ATT&CK and drafts containment to a human-approval queue; a FastAPI hive-mind broker dispatches approved, HMAC-signed block requests to the OpenWrt routers.
 
 ## Start of session
 
@@ -49,7 +51,9 @@ python scripts/setup/build_kql_docs.py                   # docs/detections/SIEM_
 
 Live stack (local only): `cp scripts/setup/.env.example scripts/setup/.env`, fill the passwords, then `docker compose up -d` from `scripts/setup/`. `scripts/setup/soc_pipeline.sh` is the interactive SOP menu; `deploy_detections.sh` imports Sigma rules with `status: test|stable` only (`--include-experimental` overrides) plus `rules/elastic/threshold/*.ndjson`.
 
-CI gates on every PR: `Detections CI`, `Lint`, `SOAR Tests`, `Reporting Plane Coverage` (70% line coverage on `slo_metrics`, `run_hunts`, `weekly_ciso_report`, `env_loader`, `es_client`), `Secret Scan` (gitleaks), `Security Scan` (pip-audit, Trivy), CodeQL. `main` requires 14 checks and only the owner merges. The `live-fire` job in `Detections CI` is the only one with a real Elasticsearch and Docker; it is deliberately not a required check.
+CI gates on every PR: `Detections CI`, `Lint`, `SOAR Tests`, `Reporting Plane Coverage` (70% line coverage on `slo_metrics`, `run_hunts`, `weekly_ciso_report`, `env_loader`, `es_client`), `Secret Scan` (gitleaks; escaped Compose variables like `$$VAR` are intentional and allow-listed), `Security Scan` (pip-audit, Trivy), CodeQL. `main` requires 14 checks and only the owner merges. The `live-fire` job in `Detections CI` is the only one with a real Elasticsearch and Docker; it is deliberately not a required check.
+
+Known local-only failure: `tests/ai_agent/test_slo_metrics.py::MainExitCodeTests` fails if `scripts/setup/.env` carries a real `SLO_COVERAGE_MIN` override, because that suite is not isolated from the real env file.
 
 ## Architecture
 
@@ -72,6 +76,14 @@ A Sigma rule in `rules/sigma/` is bound to four other files, and CI fails if any
 
 Suricata rules have their own lane: every file in `rules/suricata/` must be listed in `configs/suricata/suricata.yaml` and vice versa, every SID is registered, and a threshold rule may only be enabled once it has a TP pcap fixture under `tests/detections/fixtures/suricata/` (`test_suricata_rules.py`, `suricata_rules_eval.py`).
 
+### Security-sensitive invariants (do not weaken)
+
+- The response flow is human-in-the-loop by default. The exclusion list is checked before anything else; autonomous isolation runs only when an operator sets `AUTONOMOUS_ISOLATION=true`.
+- The atomic create-if-absent claim in `checkpoints.py` is what guarantees `/approve` executes an isolation at most once. A past direct merge to `main` bypassed the PR-only security gate and silently reintroduced a double-execution race here; `main` is PR-only for that reason.
+- `/approve` and `/pending` are HMAC-authenticated with credentials separate from `/alert`. Keep them separate and fail closed with 401 on unsigned or invalid requests.
+- Every response action (isolation, notification) stays scoped to the alerting tenant. Never broadcast across tenants.
+- Secrets live only in `scripts/setup/.env`; the Elastic stack runs with TLS and RBAC. `configs/intel/data/intel.dat` ships placeholder indicators until `refresh_intel.sh` runs.
+
 ### Tests mirror deployment, not just code
 
 `tests/pipeline/` asserts on config and script text: systemd units match between repo and sandbox expectations, `$$` escaping in `ExecStart`, `.gitattributes` LF rules, gitleaks allowlist shape, Zeek image pin, ES CA fingerprint pinning. When you change anything under `configs/` or `scripts/setup/*.sh`, expect a test there to name the invariant you just touched, and update the test only when the invariant really changed. `tests/anomaly_simulation/` runs real techniques against the live stack and is manual; dashboard and detection evidence must come from real telemetry, never mock data.
@@ -79,7 +91,7 @@ Suricata rules have their own lane: every file in `rules/suricata/` must be list
 ## Repo workflow and record-keeping
 
 - Branch + PR always; conventional commit prefixes (`feat:`, `fix:`, `docs:`, `chore:`, ...). A PR touching `rules/`, `configs/`, `hunts/`, the agent, the broker or `.github/` needs a code-owner review (`.github/CODEOWNERS`).
-- Every merge gets a row in `README.md` (Project Status / Recent Enhancements) and a `LAST SESSION` entry in `planned_execution.md`. Bundle doc updates with the code change in the same PR; a behavior change without its doc or wiki update is incomplete.
+- Every merge gets a row in `README.md` (Project Status / Recent Enhancements) and a `LAST SESSION` entry in `planned_execution.md`. Bundle doc updates with the code change in the same PR; a behavior change without its doc or wiki update is incomplete. Wiki updates carry a date and a short changelog line.
 - Review write-ups go in `findings/`, plans and handoffs in `plans/`, both named `YYYY-MM-DD-<topic>.md`. Refresh `plans/<date>-session-handoff.md` before ending a session that changed state.
 - After a PR merges: close each linked issue by hand, verify it closed, update the Projects board (local session only), and only then report done.
 - Trust observed output over runbooks and over a single search result. A grep that returns nothing is not evidence; confirm the pattern against a line you know exists. Mark anything you did not run as UNVERIFIED in handoffs and reports.
