@@ -103,7 +103,8 @@ Cloud session, read-only repository audit (no code, config or tests changed).
   (`remediation/issue-<n>-nist`) and one PR.
 - [x] **Baseline tests run (Python 3.11.18):** `tests/ai_agent` 585 passed / 1 skipped; broker `test_app`, `test_inventory`,
   `test_dispatcher` 92 passed. About 207 existing tests are not invoked by any workflow (AUD-27).
-- [ ] **Recommended order:** H1 (run all tests in CI) before C1, so C1's new tests actually run in CI; then C1, C2, H2–H6.
+- [x] **Issues opened 2026-11-02:** C1 #599, C2 #600, H1 #601, H2 #602, H3 #603, H4 #604, H5 #605, H6 #606 (audit PR #598).
+- [ ] **Recommended order:** H1 #601 (run all tests in CI) before C1 #599, so C1's new tests actually run in CI; then C2 #600, H2–H6 (#602–#606).
 - **Disclosure:** the repo is public, so AUD-01/AUD-02 are written at control level; reproduction details are held privately
   by the owner until the fixes merge.
 - **UNVERIFIED:** live Elasticsearch role semantics (AUD-05), container file access (AUD-11), the Logstash end-to-end path

@@ -349,7 +349,18 @@ Severity: **C** Critical · **H** High · **M** Medium · **L** Low. CSF = NIST 
 
 ## Phase 4 — Prioritised remediation roadmap
 
-Each item is sized to one branch and one PR. Per the brief's follow-up protocol, each should get its own GitHub issue first; the branch name then follows `remediation/issue-<n>-nist`. **No issue numbers exist yet** — the owner creates them.
+Each item is sized to one branch and one PR. Per the brief's follow-up protocol, each has its own GitHub issue, and the branch name follows `remediation/issue-<n>-nist`.
+
+| Item | Issue | Branch |
+|---|---|---|
+| C1 | #599 | `remediation/issue-599-nist` |
+| C2 | #600 | `remediation/issue-600-nist` |
+| H1 | #601 | `remediation/issue-601-nist` |
+| H2 | #602 | `remediation/issue-602-nist` |
+| H3 | #603 | `remediation/issue-603-nist` |
+| H4 | #604 | `remediation/issue-604-nist` |
+| H5 | #605 | `remediation/issue-605-nist` |
+| H6 | #606 | `remediation/issue-606-nist` |
 
 ### Critical — fix immediately
 
