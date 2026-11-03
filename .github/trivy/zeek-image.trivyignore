@@ -1,20 +1,22 @@
 # Scoped to the `zeek-image` Trivy job only (security-scan.yml passes this file
 # via `trivyignores:`); the other Trivy jobs never read it.
 #
-# CVE-2026-48930 (CRITICAL, libnode115/nodejs 20.19.2+dfsg-1+deb13u2, fixed in
-# +deb13u3): Node.js TLS hostname handling. Present in every published zeek/zeek
-# image as of 2026-09-28 (8.2.1 and 9.0.0), so no pin clears it. `zeek` links
-# libnode.so.115 via the built-in Zeek::JavaScript plugin, but the vulnerable
-# TLS/resolver bindings are reachable only from JavaScript scripts, and every
-# capture path loads .zeek scripts only. Tracked in #577 and in SOP-008's
-# Tracked Exceptions table. The exp: date makes Trivy fail again on it
-# automatically — bump the image or re-justify before then, don't just extend it.
+# CVE-2026-110858, CVE-2026-42284, CVE-2026-78676 (all CRITICAL, python3-git
+# 3.1.44-1, fixed in 3.1.44-1+deb13u1): GitPython command injection / code
+# execution through attacker-controlled refspecs, clone options or git config.
+# zeek/zeek:9.0.1 (sha256:524cb0ce...249dd0, pushed 2026-10-26, the newest tag on
+# Docker Hub as of 2026-11-03) still ships python3-git 3.1.44-1, so no published
+# pin clears them. python3-git is a dependency of zkg, the Zeek package manager.
+# Not reachable as deployed: every capture path (host_capture.sh,
+# stream_capture.sh, zeek_connect_host.sh, zeek_run_pcap.sh) runs the `zeek`
+# binary only, never zkg or any Python, and no file in the repo calls zkg or
+# GitPython (git grep, 2026-11-03). Tracked in #577 and in SOP-008's Tracked
+# Exceptions table. The exp: date makes Trivy fail again on its own — bump the
+# image or re-justify before then; do not just extend it.
 #
-# Re-justified 2026-10-24 (extended 2026-10-28 -> 2026-11-25), checked from Docker
-# Hub: the newest zeek/zeek tag is still 9.0.0, last pushed 2026-09-14, and its
-# digest is the one this repo pins (sha256:70733f4e...c16de5), so no image with
-# the fix has been published. Re-checked in the repo: no capture path or
-# configs/zeek, configs/intel file loads a .js or ZeekJS script. Not checked:
-# Debian's or NVD's current status for this CVE (blocked from the session that
-# made this change) — confirm before the next extension.
-CVE-2026-48930 exp:2026-11-25
+# Retired 2026-11-03: CVE-2026-48930 (libnode115/nodejs). 9.0.1 ships the fixed
+# 20.19.2+dfsg-1+deb13u3 (read from the image's dpkg status), so its exception
+# is removed rather than extended.
+CVE-2026-110858 exp:2026-11-30
+CVE-2026-42284 exp:2026-11-30
+CVE-2026-78676 exp:2026-11-30

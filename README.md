@@ -130,6 +130,13 @@ IP-block dispatched to the broker, tenant-scoped, instead of a direct `isolate.s
 Individual improvements merged across the milestones above — these are work items
 within a milestone, not milestone completions in their own right:
 
+- **zeek/zeek pin bumped 9.0.0 -> 9.0.1 (#577, 2026-11-03).** Trivy's database flagged
+  4 new fixed-upstream CRITICAL CVEs on the 9.0.0 pin, which blocked every PR on the
+  required zeek image scan. 9.0.1 fixes `libbrotli1` (CVE-2026-111497) and nodejs
+  (CVE-2026-48930, so that exception is retired). The 3 python3-git (GitPython) CVEs
+  are unfixed in every published image and unreachable from the capture paths (zkg is
+  never run); they carry a time-boxed Trivy exception to 2026-11-30.
+
 - **zeek/zeek image pinned, then patched for 7 CRITICAL CVEs (M16, #293/#355/#364).**
   The network sensor's Docker image (parses fully attacker-controlled traffic) was
   running unpinned (`:latest`), a supply-chain drift risk that had already silently
