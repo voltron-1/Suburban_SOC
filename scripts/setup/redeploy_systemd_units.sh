@@ -53,6 +53,9 @@ sudo cp configs/systemd/soc-alert-on-failure@.service /etc/systemd/system/soc-al
 # #549: output-derived liveness supervisor for zeek-host-capture.service.
 sudo cp configs/systemd/zeek-capture-liveness.service /etc/systemd/system/zeek-capture-liveness.service
 sudo cp configs/systemd/zeek-capture-liveness.timer /etc/systemd/system/zeek-capture-liveness.timer
+# Docker-engine split (findings/20261104-docker-engine-split.md): starts the compose stack
+# at boot once Docker Desktop answers. Installed here; `enable` is a separate owner step.
+sudo cp configs/systemd/suburban-soc-stack.service /etc/systemd/system/suburban-soc-stack.service
 # #222/#271: intel-refresh. This script did not install it, so an installed copy could stay on a
 # pre-#271 unit indefinitely (seen live 2026-10-24: the literal-password bug sent every run's
 # index and heartbeat writes to HTTP 401). The timer keeps its enabled/disabled state; this only

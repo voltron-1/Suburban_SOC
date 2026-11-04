@@ -1,0 +1,48 @@
+# Suburban-SOC -- start the compose stack at boot, once Docker Desktop's engine is up.
+#
+# Option B of findings/20261104-docker-engine-split.md: Docker Desktop is the one engine;
+# the native docker.service/docker.socket are disabled so /var/run/docker.sock can only
+# ever mean Desktop. Nothing started this stack after a WSL restart before (stack-health
+# reported every component DOWN at boot). Desktop itself must also start at sign-in
+# (Docker Desktop > Settings > General > "Start Docker Desktop when you sign in"); WSL
+# alone does not launch it, so a reboot with no Windows sign-in still has no stack.
+#
+# start_stack.sh waits (default 4 h) for `docker info` to report docker-desktop, then runs
+# `docker compose up -d --no-recreate`. Waiting for a sign-in is NOT a failure, so this unit
+# sits in `activating` meanwhile; stack-health reports the stack DOWN in that window.
+# Exit 75 (gave up) or 78 (no .env) goes to the failure dispatcher.
+#
+# UNVERIFIED on a live host when written. Option A (native dockerd, headless) is the
+# long-term target; this unit would then wait on docker.service instead.
+#
+# Install (needs sudo):
+#   sudo cp configs/systemd/suburban-soc-stack.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable suburban-soc-stack.service
+#   sudo systemctl disable --now docker.service docker.socket   # AFTER checking the native engine holds nothing you need
+# Run once / check:  sudo systemctl start suburban-soc-stack.service ; journalctl -u suburban-soc-stack -n 40
+[Unit]
+Description=Suburban-SOC compose stack start (waits for the Docker Desktop engine)
+Documentation=https://github.com/voltron-1/Suburban_SOC
+After=network-online.target
+Wants=network-online.target
+OnFailure=soc-alert-on-failure@%n.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# The repo owner: owns scripts/setup/.env and is in the docker group. Same reasoning as
+# stack-health.service.
+User=tjlam
+WorkingDirectory=/home/tjlam/projects/Suburban-SOC/scripts/setup
+ExecStart=/usr/bin/bash /home/tjlam/projects/Suburban-SOC/scripts/setup/start_stack.sh
+# Must exceed start_stack.sh's wait (14400 s) plus compose's own health waiting.
+TimeoutStartSec=15600
+# Deliberately light sandboxing: the docker client needs the socket (root-equivalent) and
+# ~/.docker, so ProtectHome/ProtectSystem=strict would only break it.
+NoNewPrivileges=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
