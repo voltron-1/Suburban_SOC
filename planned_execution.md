@@ -9,6 +9,8 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 ## NEXT UP
 
+> **2026-11-04 handoff (newest):** [`plans/20261104-session-handoff.md`](plans/20261104-session-handoff.md). It corrects parts of the 2026-10-24 handoff below; read it first.
+>
 > **2026-10-24 handoff:** a newer cloud-session summary, open items in priority order, owner decisions and lessons are in
 > [`plans/20261024-session-handoff.md`](plans/20261024-session-handoff.md). The capture-host status below (dated 2026-09-28) is superseded by `LAST SESSION — 2026-10-24`.
 
@@ -93,6 +95,32 @@ Filebeat/Logstash for #556's syslog input and run
 `bash scripts/setup/deploy_detections.sh` for its 2 new Sigma rules, then
 enable `stack-health.timer` and `zeek-capture-liveness.timer`. `NTFY_TOPIC`
 provisioning (#554) stays last and stays gated on item 1.
+
+## LAST SESSION — 2026-11-04
+
+Local session on the capture host (times CST). Re-verified the 2026-10-24 state read-only first; several "DONE" items had regressed.
+Handoff: [`plans/20261104-session-handoff.md`](plans/20261104-session-handoff.md). Evidence: `findings/20261104-plan-claim-verification.md`,
+`findings/20261104-root-unit-capability-audit.md`, `findings/20261104-docker-engine-split.md`.
+
+- [x] **Re-verified (read-only):** `zeek-host-capture` was `failed` (pinned `CAPTURE_IFACE=eth1` does not exist after a WSL restart), `conn.log` last written 2026-10-30,
+  `NTFY_TOPIC` empty, `zeek-capture-liveness` failing, stack not up after a restart. See the claim-verification findings.
+- [x] **`zeek-capture-liveness.service` fixed in the repo and live-verified in its first form.** Root cause: empty `CapabilityBoundingSet=` removes `CAP_DAC_OVERRIDE`, so root
+  could not traverse `/home/tjlam` (mode 750): 336 `Permission denied` (status 126). A first fix with `CAP_DAC_READ_SEARCH` ran live (no more `Permission denied`; the script then
+  reported `STALE` and restarted capture). It was replaced by `SupplementaryGroups=tjlam` (the repo's own policy, `test_capture_unit_repo_access.py`) plus a test that discovers every
+  root unit reading the home checkout (fails on the old unit, passes on the new). **The group-based unit is not deployed or run on the host: UNVERIFIED.**
+- [x] **Audit of all 9 service units:** only the liveness unit had the bug; `zeek-host-capture` and `suricata-host-capture` already use the group; the six `User=tjlam` units are
+  unaffected. `checkpoints-compact` and `threat-intel-compact` are not installed on this host. `findings/20261104-root-unit-capability-audit.md`.
+- [x] **Zeek capture running again (stopgap).** Owner set `CAPTURE_IFACE=eth0` (WSL NAT, this PC's traffic only) and restarted; `ssl.log`/`weird.log` written 17:07:13 and `conn.log`
+  has fresh records. The pin is still a manual edit and will break again after a WSL restart. Sensor placement (#593) is open: the router `10.18.81.1` is not reachable from this host
+  (`No route to host`; WSL NAT via `172.21.112.1`).
+- [x] **Docker engine split diagnosed.** Native `dockerd` and Docker Desktop both claim `/var/run/docker.sock`; Desktop replaced it at 11:08:44 on 2026-11-03 (identical mtime to its pid
+  file). The stack lives in Desktop's engine; Desktop `AutoStart = False`; nothing started the stack after a restart.
+- [x] **Option B built (repo only): `suburban-soc-stack.service` + `scripts/setup/start_stack.sh` + `tests/pipeline/test_stack_start.py` + SOP-005 section.** The script waits for
+  `docker info` to report `docker-desktop`, refuses any other engine, then runs `docker compose up -d --no-recreate`. Engine guard mutation-tested. **Not run under real systemd or
+  Docker Desktop: UNVERIFIED.** Option A (native dockerd, headless) is kept as the long-term target.
+- [ ] **Not done:** deploy of the two units (needs the owner's sudo); `NTFY_TOPIC` still empty (claim C2 unproven); `zeek-host-capture` has no ordering against the engine; durable
+  `CAPTURE_IFACE` selection; `.env` is mode 644 (use 640); 14 `tests/pipeline` tests fail only when a real `scripts/setup/.env` exists (13 in `test_soc_alert_on_failure.py`, 1 in
+  `test_zeek_capture_liveness.py`; clean checkout 530 passed; cause inside the scripts' `.env` handling not isolated); `intel.dat` (mode 600) cannot be refreshed by the Zeek unit.
 
 ## LAST SESSION — 2026-10-24
 
