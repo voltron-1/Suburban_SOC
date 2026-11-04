@@ -84,7 +84,11 @@ LockPersonality=true
 # so there is nothing to gain by setting it either. Left off rather than
 # added speculatively.
 UMask=0077
-CapabilityBoundingSet=
+# CAP_DAC_READ_SEARCH only: with an empty set, root loses CAP_DAC_OVERRIDE
+# and cannot traverse /home/<user> (mode 750, owned by the SOC user) to reach
+# the script and scripts/setup/.env -> `Permission denied`, status 126,
+# observed 2026-11-04. Read/search only; no write override, no other caps.
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
 SystemCallArchitectures=native
 # AF_UNIX is load-bearing here, not just precautionary like the sibling
 # units' note on AF_NETLINK: systemctl talks to PID 1 over the D-Bus system
