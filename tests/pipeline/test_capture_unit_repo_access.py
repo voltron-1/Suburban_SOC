@@ -247,5 +247,66 @@ class PreflightPlacementTests(unittest.TestCase):
                 )
 
 
+class EveryRootUnitReadingTheHomeCheckoutTests(unittest.TestCase):
+    """Defect 1 again, for ALL units -- not just the two capture units.
+
+    zeek-capture-liveness.service ran as root with an empty
+    CapabilityBoundingSet= and invoked a script by literal /home/tjlam path, so it
+    was invisible to CAPTURE_UNITS above (hard-coded, and keyed on ${SOC_REPO}).
+    It failed with `Permission denied` (status 126) on every timer firing until
+    2026-11-04 (336 journal lines). Units with User=<soc user> own the home
+    directory and are unaffected; this test covers the root ones.
+    """
+
+    SYSTEMD_DIR = ROOT / "configs" / "systemd"
+
+    @staticmethod
+    def _active_lines(text: str) -> str:
+        return "\n".join(
+            line for line in text.splitlines() if not line.lstrip().startswith("#")
+        )
+
+    def _root_units_reading_home(self):
+        for path in sorted(self.SYSTEMD_DIR.glob("*.service")):
+            text = path.read_text(encoding="utf-8")
+            users = _directive(text, "User")
+            if users and users != ["root"]:
+                continue  # runs as a non-root user: DAC applies to that user
+            active = self._active_lines(text)
+            if "${SOC_REPO}" in active or "/home/" in active:
+                yield path.name, text
+
+    def test_at_least_the_known_root_units_are_discovered(self):
+        found = {name for name, _ in self._root_units_reading_home()}
+        self.assertTrue(
+            {
+                "zeek-host-capture.service",
+                "suricata-host-capture.service",
+                "zeek-capture-liveness.service",
+            }
+            <= found,
+            f"discovery drifted, found only {sorted(found)}",
+        )
+
+    def test_each_declares_supplementary_group_not_a_dac_capability(self):
+        for name, text in self._root_units_reading_home():
+            with self.subTest(unit=name):
+                self.assertEqual(
+                    _directive(text, "SupplementaryGroups"),
+                    ["tjlam"],
+                    f"{name} runs as root and reads under /home/tjlam (mode 750) but does "
+                    "not declare SupplementaryGroups=tjlam; with no CAP_DAC_OVERRIDE it "
+                    "cannot traverse the checkout (EACCES / status 126).",
+                )
+                for value in _directive(text, "CapabilityBoundingSet"):
+                    for cap in ("CAP_DAC_OVERRIDE", "CAP_DAC_READ_SEARCH"):
+                        self.assertNotIn(
+                            cap,
+                            value,
+                            f"{name}: {cap} bypasses file permissions filesystem-wide; "
+                            "use SupplementaryGroups=tjlam instead.",
+                        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
