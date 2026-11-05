@@ -94,6 +94,19 @@ Filebeat/Logstash for #556's syslog input and run
 enable `stack-health.timer` and `zeek-capture-liveness.timer`. `NTFY_TOPIC`
 provisioning (#554) stays last and stays gated on item 1.
 
+## LAST SESSION — 2026-11-03
+
+Cloud session: `zeek/zeek` pin bump for #577.
+
+- [x] **Pin 9.0.0 -> 9.0.1** (`sha256:524cb0ce...249dd0`) in the 4 capture paths, the 3 test constants, the unit header,
+  `docs/Zeek_ELK_Pipeline.md` and the restore runbook. Cause: Trivy's DB added 4 CRITICAL CVEs on 9.0.0 (required check red on all PRs).
+- [x] **Package versions read from each image's dpkg status (amd64, no code run):** 9.0.1 has `libbrotli1 1.1.0-2+deb13u1`,
+  `libnode115 20.19.2+dfsg-1+deb13u3` (CVE-2026-48930 exception retired), `python3-git 3.1.44-1` (still vulnerable).
+- [x] **New time-boxed exception** for CVE-2026-110858/-42284/-78676 (python3-git), expires **2026-11-30**; SOP-008 table updated.
+- [ ] **UNVERIFIED:** the step-2 golden-output diff (164 pcaps through both images) was not run: no Docker in a cloud session.
+  Run it from the capture host before or right after merge. CI's `live-fire` job runs the two live Zeek tests on the new pin.
+- [ ] **Capture host:** after merge, `git pull` the checkout, pre-pull with the `docker pull` line in the `zeek-host-capture.service` header, then restart the unit (and `redeploy_systemd_units.sh` so the installed unit's header matches the repo).
+
 ## LAST SESSION — 2026-10-24
 
 Cloud session (PRs #581–#588) plus a live walk-through of the capture-restore runbook on the capture host

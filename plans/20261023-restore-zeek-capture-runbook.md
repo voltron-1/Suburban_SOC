@@ -128,7 +128,7 @@ This fixes problem B. WSL2 renumbers NICs across reboots, so the pin goes stale.
    ```
 3. Pre-pull the pinned image so the start does not wait on a download, then restart the unit.
    ```bash
-   docker pull zeek/zeek:9.0.0@sha256:70733f4e540ba1608e37e00c6a93d009f79734262c9ec2ba09d90aa9abc16de5
+   docker pull zeek/zeek:9.0.1@sha256:524cb0ce29f26a6a954fb9c357a8f92b95812476d8240f0ece26617ace249dd0
    sudo systemctl reset-failed zeek-host-capture.service
    sudo systemctl restart zeek-host-capture.service
    ```
@@ -140,7 +140,7 @@ Part 3 fixes the interface and is always needed when the preflight reports `is n
 ```bash
 systemctl is-active zeek-host-capture.service                    # expect: active
 docker ps --filter name=zeek-host-capture                        # expect: one running container
-docker ps --filter name=zeek-host-capture --format '{{.Image}}'  # expect: zeek/zeek:9.0.0 (docker ps shows the tag, not the digest)
+docker ps --filter name=zeek-host-capture --format '{{.Image}}'  # expect: zeek/zeek:9.0.1 (docker ps shows the tag, not the digest)
 stat -c '%y %s' /storage/PCAP/intel/config.zeek                  # expect: today's date
 sleep 60
 ls -l --time-style=long-iso /storage/PCAP/zeek_logs/conn.log     # mtime must advance between two runs
