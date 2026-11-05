@@ -1,6 +1,7 @@
-# Agent handoff: what Suburban-SOC has built — 2026-11-03
+# Agent handoff to UIW-SOC: what Suburban-SOC has built — 2026-11-03
 
-**Purpose:** gives an agent the list of what exists in Suburban-SOC, so a task in another project that depends on "Sigma pipeline", "hive-mind-broker prompts", "Enrichment API" or "RT-3 investigation output" can see what is real.
+**Receiver:** the agent working in UIW-SOC.
+**Purpose:** the UIW-SOC agent marked tasks as blocked because it found no Sigma pipeline ("Track T1"), no hive-mind-broker prompts, no Phase 1 Enrichment API and no RT-3 investigation output in the UIW-SOC codebase. Suburban-SOC, a sibling project by the same owner, already has some of these. This handoff tells the UIW-SOC agent which ones exist, where they are, and which ones are still missing everywhere, so it can unblock the tasks that have a real source.
 **Source:** repo files on branch `claude/wonderful-allen-d4qlzz` (same content as `main` at `07c151c`), `README.md` Project Status, `plans/20261024-session-handoff.md`.
 **Not re-checked live in this session:** the live capture-host state below is copied from the 2026-10-24 handoff. Treat it as **UNVERIFIED** for today.
 
@@ -31,7 +32,7 @@
 | Playbooks | `playbooks/data/` (122 JSON), `playbooks_blueprint.py` | Built, read-only HTML |
 | Reporting | `slo_metrics.py`, `weekly_ciso_report.py` | Built |
 
-## 2. Items another project's agent reported as missing
+## 2. The 4 items the UIW-SOC agent reported as missing
 
 | Item | Built in Suburban-SOC? | Detail |
 |---|---|---|
@@ -40,8 +41,9 @@
 | Phase 1 Enrichment API | **No** | Enrichment exists only inside `configs/logstash.conf` (GeoIP, ECS, ATT&CK tags). No HTTP enrichment service exists |
 | RT-3 investigation output | **No** | "RT-3" does not appear anywhere in the repo |
 
-## 3. Next action for the receiving agent
+## 3. Next action for the UIW-SOC agent
 
-1. Point the Sigma-dependent task at `rules/sigma/` and `configs/detections/suburban-soc-ecs.yml`.
-2. Point the "prompts" task at `scripts/setup/ai_agent/agent.py:974`, not at the broker.
-3. Treat the Enrichment API and RT-3 output as not built: they need a design before any code.
+1. Re-check each blocked UIW-SOC task. Any task that needs a Sigma pipeline is no longer blocked: use `rules/sigma/` and `configs/detections/suburban-soc-ecs.yml`.
+2. Any task that needs "real prompts": use `scripts/setup/ai_agent/agent.py:974` from Suburban-SOC. The broker has none.
+3. Tasks that need the Enrichment API or RT-3 output stay blocked: neither exists in UIW-SOC or Suburban-SOC. They need a design before any code.
+4. Before copying any Suburban-SOC file into UIW-SOC, ask the owner. Copying needs renames (tenant IDs, branding) and rewiring (Elasticsearch indices, router inventory, HMAC secrets).
