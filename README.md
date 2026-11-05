@@ -137,6 +137,13 @@ within a milestone, not milestone completions in their own right:
   are unfixed in every published image and unreachable from the capture paths (zkg is
   never run); they carry a time-boxed Trivy exception to 2026-11-30.
 
+- **Repository audit, 2026-11-01 (docs only).** Read-only code-quality and dual-NIST
+  (CSF 2.0 + SP 800-53 Rev. 5) gap analysis: 43 evidence-cited findings (2 critical,
+  9 high, 20 medium, 12 low), technical-debt themes, a roadmap with acceptance
+  criteria (C1–C2, H1–H6) and CI guardrail placement, in
+  [`findings/2026-11-01-repo-audit.md`](findings/2026-11-01-repo-audit.md). The two
+  critical items are described at control level only until their fixes merge.
+
 - **zeek/zeek image pinned, then patched for 7 CRITICAL CVEs (M16, #293/#355/#364).**
   The network sensor's Docker image (parses fully attacker-controlled traffic) was
   running unpinned (`:latest`), a supply-chain drift risk that had already silently
