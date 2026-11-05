@@ -12,7 +12,7 @@
 #
 # Env overrides:
 #   ES_URL       (default https://localhost:9200 — security is always on)
-#   KIBANA_URL   (default https://localhost:5601 — #177: Kibana is TLS-only now)
+#   KIBANA_URL   (default https://localhost:$KIBANA_PORT, else 5601 — #177: Kibana is TLS-only now)
 #   ES_USER      (default elastic)
 #   ES_PASS      (default $ELASTIC_PASSWORD from scripts/setup/.env)
 #   ES_CA        (path to ca.crt; fails closed without it unless ES_INSECURE=true)
@@ -38,7 +38,7 @@ fi
 
 # Security is always on (WS0.1): ES is HTTPS + authenticated. #177: Kibana is now
 # TLS-only too (same stack CA), so KIBANA_URL defaults to https.
-KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:${KIBANA_PORT:-5601}}"
 # Shared ES creds + TLS + helpers (issue #156).
 source "$SCRIPT_DIR/lib/es_common.sh"
 # Basic-auth + TLS (ES + Kibana share both — same creds, same CA). Used for every

@@ -9,8 +9,8 @@ The script does not source .env (that would export every secret in it); it
 reads the one KIBANA_PORT line. These tests pin that, and run the script's own
 resolution lines against a temp .env so no real .env is involved.
 
-stack_health.sh, provision_tenant.sh and deploy_soc_presentation.sh DO source
-.env, so they only need `${KIBANA_PORT:-5601}` in their default, and that
+stack_health.sh, provision_tenant.sh, deploy_soc_presentation.sh,
+deploy_detections.sh, deploy_dashboards.sh and erase_tenant.sh DO source .env, so they only need `${KIBANA_PORT:-5601}` in their default, and that
 default must come AFTER the .env source line (deploy_soc_presentation.sh set it
 before, so a .env KIBANA_PORT was never seen).
 """
@@ -77,7 +77,8 @@ class KibanaPortResolutionTests(unittest.TestCase):
                          self._resolve("KIBANA_PORT=5700\n", {"KIBANA_URL": "https://kb.example:8443"}))
 
 
-SOURCING_SCRIPTS = ["stack_health.sh", "provision_tenant.sh", "deploy_soc_presentation.sh"]
+SOURCING_SCRIPTS = ["stack_health.sh", "provision_tenant.sh", "deploy_soc_presentation.sh",
+                    "deploy_detections.sh", "deploy_dashboards.sh", "erase_tenant.sh"]
 
 
 class SourcingScriptsKibanaPortTests(unittest.TestCase):
