@@ -86,8 +86,8 @@ from typing import Optional
 # duplicating this exact pin per invocation site (each one documents the
 # cross-check in its own comment; test_zeek_image_pin.py is what actually
 # catches drift between them). Bump both together.
-EXPECTED_TAG = "9.0.0"
-EXPECTED_DIGEST = "sha256:70733f4e540ba1608e37e00c6a93d009f79734262c9ec2ba09d90aa9abc16de5"
+EXPECTED_TAG = "9.0.1"
+EXPECTED_DIGEST = "sha256:524cb0ce29f26a6a954fb9c357a8f92b95812476d8240f0ece26617ace249dd0"
 ZEEK_IMAGE = f"zeek/zeek:{EXPECTED_TAG}@{EXPECTED_DIGEST}"
 
 # A real shell-script payload — the exact content-shape #365 was filed over
