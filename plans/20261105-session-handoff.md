@@ -1,0 +1,45 @@
+# Session handoff — 2026-11-05 (local session on the capture host)
+
+**Read this first.** It updates `plans/20261104-session-handoff.md` (still the source for the claims register, rules and lessons); then read `planned_execution.md` (LAST SESSION — 2026-11-04, which carries this session's entries).
+**UNVERIFIED** = not run or not checked. Times CST. No secret values were read or printed; `.env` was inspected by key name or presence only.
+
+## 1. State of the host (read-only, 2026-11-05 11:42)
+
+| Item | State |
+|---|---|
+| Owner steps 4.1c-d (unit deploy, disable native docker) | **Not done.** `/etc/systemd/system/suburban-soc-stack.service` does not exist (`enabled=not-found`). The installed `zeek-capture-liveness.service` differs from the repo (still the `CAP_DAC_READ_SEARCH` version; the repo has the group-based one). Native `docker.service` and `docker.socket` are `active` and `enabled`. |
+| Docker engine in use | `docker-desktop`. `elasticsearch`, `kibana`, `soc_ai_agent` healthy; `logstash`, `hive_mind_broker` up; all 19 h. The five init jobs exited 0 (normal). Not stuck. |
+| Kibana | Published on host port **5700** (`KIBANA_PORT=5700` in `.env`); `https://localhost:5700` returned 302. 5601 failed at `compose up` (`/forwards/expose returned unexpected status: 500`); cause **not proven**. |
+| Zeek | `zeek-host-capture` active on `eth0` (manual pin, breaks after a WSL restart). Liveness timer ran at 09:30 and 11:40; the 09:30 line read `OK ... conn.log age 57s`. Log path is `/storage/PCAP/zeek_logs/conn.log`. |
+| `NTFY_TOPIC` | Empty. Claim C2 still unproven. |
+| Routers / Suricata | Unchanged from the 2026-11-04 handoff (`10.18.81.1` unreachable, no `eve.json` to ES, #587/#593). |
+
+## 2. Done this session (branch `plan/claims-to-evidence-remediation`, PR #608, pushed at `4658f99`)
+
+| Commit | What | Verified |
+|---|---|---|
+| `e3aa280` | Dispatcher and liveness tests run an isolated copy of the script (`isolated_script()`) because the scripts source `$HERE/.env` after the test builds its environment | 5 failures reproduced in a clean worktree with a key-populated `.env`; `tests/pipeline` 542 passed with and without a `.env`. Only those 5 are verified, not the earlier "14". |
+| `dcf7d44` | `soc_pipeline.sh` follows `KIBANA_PORT` (env, else one grepped line from `.env`; `.env` not sourced; non-numeric falls back to 5601) | New `test_soc_pipeline_kibana_port.py`; fails 6/8 on the old script |
+| `3d40194`, `f525631` | `stack_health.sh`, `provision_tenant.sh`, `deploy_soc_presentation.sh` (assignment moved below the `.env` source), `deploy_detections.sh`, `deploy_dashboards.sh`, `erase_tenant.sh` default to `${KIBANA_PORT:-5601}` | 9 tests fail on the old versions; `tests/pipeline` 553 passed, 1 skipped; shellcheck, ruff clean. **No script was run against live Kibana.** |
+| `4658f99` | `planned_execution.md` LAST SESSION entries | Docs |
+
+`main` had nothing new (0 behind). CI has not run on the push: full `pytest`, `mypy`, `yamllint` are **UNVERIFIED**.
+
+## 3. Open work, in order
+1. **Owner steps (sudo).** (a) read-only look at the native engine: `sudo sh -c 'ls /var/lib/docker/containers | wc -l'`; (b) Docker Desktop "start at sign-in"; (c) copy **both** units: `sudo cp configs/systemd/{zeek-capture-liveness,suburban-soc-stack}.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable suburban-soc-stack.service`, then read `journalctl -u zeek-capture-liveness -n 6` (the 2026-11-04 screenshot shows only the liveness unit was copied, and the installed one still differs from the repo; find out why the `cp` did not land); (d) disable native `docker.service` and `docker.socket` only after (a); then `wsl.exe --shutdown` and confirm the stack returns without a manual `compose up`. If the group-based liveness unit fails, revert to the `CAP_DAC_READ_SEARCH` copy and say so.
+2. **`NTFY_TOPIC`**: the owner writes it into `.env`; then induce a failure and show one push (P0 exit gate).
+3. **Verify the Kibana change live:** run `stack_health.sh` / read the next `stack-health` run to confirm Kibana reports UP on 5700 (UNVERIFIED). Optionally find the cause of the 5601 `/forwards/expose` 500 (a stale proxy from the native engine is a guess, not evidence).
+4. **Durable Zeek interface** (the `eth0` pin dies on WSL restart), **sensor placement #593**, `zeek-host-capture` ordering against the engine, tenant-trust gap P0.6, `slo_metrics` repeat pushes P0.7: unchanged from the 2026-11-04 handoff, section 4.
+5. **Smaller:** `.env` is mode 644 holding secrets (use 640); compose warns that volumes `suburban_soc_data` and `suburban_soc_snapshots` "were not created by Docker Compose" (no compose labels; do not touch, ES data is on them; `external: true` is an owner call); README has no row for this session's work; PR #607 and the CVE exception dates (2026-11-25, 2026-11-30) as before.
+
+## 4. Decisions only the owner can make
+Sensor placement (#593) and router reachability; Option A (native dockerd) vs B (Docker Desktop, chosen for now); whether the git hooks should do anything (below); target hardware and LLM size.
+
+## 5. Notes
+- **Git hooks:** `.git/hooks/pre-commit` is a no-op; `post-commit` starts `wiki-sync-worker.sh`, which runs `agy` and can add a `docs(wiki)` follow-up commit. Both are mode 644, so git skips them (the "ignored" hint on every commit). Making them executable would start background `agy` runs and unrequested commits on this branch: left as is.
+- **Uncommitted, not mine:** `CLAUDE.md` (a condensed rewrite) and `docs/deploy-changelog.md` (three 2026-10-24 deploy rows) are the owner's edits; leave them unless asked.
+- **Lessons added:** a one-line dummy `.env` did not reproduce the failures; a `.env` with every real key name set to `x` did. When a test depends on host state, reproduce with key names, not a guess. The screenshot's `compose up` output was earlier scrollback, not current state; check the clock and `docker compose ps` before reacting to a pasted error.
+- Branch + PR always; only the owner merges; never write a closing keyword before an issue number; `git fetch` and merge `main` before any push.
+
+## 6. Paste this to start the next session
+> Read `plans/20261105-session-handoff.md`, then `plans/20261104-session-handoff.md` sections 1, 6 and 7, then the top LAST SESSION of `planned_execution.md`. Re-check host state read-only (`systemctl is-enabled suburban-soc-stack`, `docker compose ps -a`, `systemctl is-active docker`) before trusting section 1. Ask me whether the owner steps in section 3.1 are done, ask before any sudo or live change, and do not open further PRs unless I ask.
