@@ -8,11 +8,12 @@
 # ==============================================================================
 
 # Variables
-# #177: Kibana is TLS-only now (same stack CA as ES).
-KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
 # Credentials come from scripts/setup/.env (audit P2-11) — never hardcoded.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [ -f "$SCRIPT_DIR/.env" ] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
+# #177: Kibana is TLS-only now (same stack CA as ES). Set AFTER .env is sourced so
+# KIBANA_PORT from .env is honoured (compose publishes ${KIBANA_PORT:-5601}).
+KIBANA_URL="${KIBANA_URL:-https://localhost:${KIBANA_PORT:-5601}}"
 # Shared ES creds + TLS + helpers (issue #156). Kibana uses the same basic-auth creds
 # and CA as ES.
 source "$SCRIPT_DIR/lib/es_common.sh"
