@@ -126,8 +126,8 @@ Handoff: [`plans/20261104-session-handoff.md`](plans/20261104-session-handoff.md
   (`soc_pipeline.sh`, `stack_health.sh`, `provision_tenant.sh`, `deploy_soc_presentation.sh`, `deploy_detections.sh`, `deploy_dashboards.sh`, `erase_tenant.sh`) and now default to `${KIBANA_PORT:-5601}`; `soc_pipeline.sh` reads that one line from `.env` without sourcing it. Tests:
   `tests/pipeline/test_soc_pipeline_kibana_port.py`. **The scripts were not run against live Kibana: UNVERIFIED**, including whether `stack-health.timer` now reports Kibana UP.
 - [ ] **Host state 2026-11-05 09:35 (read-only):** the five long-running containers were healthy for 17 h; `suburban-soc-stack.service` was **not installed** and native
-  `docker.service`/`docker.socket` were still active, so owner steps 4.1c-d were not complete. Installed `zeek-capture-liveness.service` was still the `CAP_DAC_READ_SEARCH`
-  version, not the repo's group-based one; its timer reported `OK` (conn.log age 57 s). `.git/hooks/post-commit` (wiki sync via `agy`) is non-executable and left that way.
+  `docker.service`/`docker.socket` were still active, so owner steps 4.1c-d were not complete. Installed `zeek-capture-liveness.service` was the 2026-11-04 17:06 `CAP_DAC_READ_SEARCH`
+  copy, older than the repo's group-based one (not yet copied); its timer reported `OK` (conn.log age 57 s). `.git/hooks/post-commit` (wiki sync via `agy`) is non-executable and left that way.
 - [ ] **Not done:** deploy of the two units (needs the owner's sudo); `NTFY_TOPIC` still empty (claim C2 unproven); `zeek-host-capture` has no ordering against the engine; durable
   `CAPTURE_IFACE` selection; `.env` is mode 644 (use 640); 14 `tests/pipeline` tests fail only when a real `scripts/setup/.env` exists (13 in `test_soc_alert_on_failure.py`, 1 in
   `test_zeek_capture_liveness.py`; clean checkout 530 passed; cause inside the scripts' `.env` handling not isolated); `intel.dat` (mode 600) cannot be refreshed by the Zeek unit.
