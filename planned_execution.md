@@ -118,6 +118,16 @@ Handoff: [`plans/20261104-session-handoff.md`](plans/20261104-session-handoff.md
 - [x] **Option B built (repo only): `suburban-soc-stack.service` + `scripts/setup/start_stack.sh` + `tests/pipeline/test_stack_start.py` + SOP-005 section.** The script waits for
   `docker info` to report `docker-desktop`, refuses any other engine, then runs `docker compose up -d --no-recreate`. Engine guard mutation-tested. **Not run under real systemd or
   Docker Desktop: UNVERIFIED.** Option A (native dockerd, headless) is kept as the long-term target.
+- [x] **Test isolation from the host `.env` (2026-11-05).** The dispatcher and liveness scripts source `$HERE/.env` after the test builds its environment, so a real `.env`
+  overrode `NTFY_TOPIC` (5 failures reproduced in a clean worktree with a key-populated `.env`). Tests now run a copy of each script from a temp dir with no `.env`
+  (`isolated_script()`); `tests/pipeline` 542 passed with and without a `.env`. Only the 5 reproduced failures are verified; the earlier count of 14 is not.
+- [x] **Kibana published on 5700, scripts follow `KIBANA_PORT` (2026-11-05).** `compose up` failed at Kibana with `exposing port TCP 0.0.0.0:5601 ... /forwards/expose returned
+  unexpected status: 500` (Docker Desktop; cause not proven); the owner set `KIBANA_PORT=5700` and Kibana answers 302 on `https://localhost:5700`. Seven scripts hardcoded 5601
+  (`soc_pipeline.sh`, `stack_health.sh`, `provision_tenant.sh`, `deploy_soc_presentation.sh`, `deploy_detections.sh`, `deploy_dashboards.sh`, `erase_tenant.sh`) and now default to `${KIBANA_PORT:-5601}`; `soc_pipeline.sh` reads that one line from `.env` without sourcing it. Tests:
+  `tests/pipeline/test_soc_pipeline_kibana_port.py`. **The scripts were not run against live Kibana: UNVERIFIED**, including whether `stack-health.timer` now reports Kibana UP.
+- [ ] **Host state 2026-11-05 09:35 (read-only):** the five long-running containers were healthy for 17 h; `suburban-soc-stack.service` was **not installed** and native
+  `docker.service`/`docker.socket` were still active, so owner steps 4.1c-d were not complete. Installed `zeek-capture-liveness.service` was still the `CAP_DAC_READ_SEARCH`
+  version, not the repo's group-based one; its timer reported `OK` (conn.log age 57 s). `.git/hooks/post-commit` (wiki sync via `agy`) is non-executable and left that way.
 - [ ] **Not done:** deploy of the two units (needs the owner's sudo); `NTFY_TOPIC` still empty (claim C2 unproven); `zeek-host-capture` has no ordering against the engine; durable
   `CAPTURE_IFACE` selection; `.env` is mode 644 (use 640); 14 `tests/pipeline` tests fail only when a real `scripts/setup/.env` exists (13 in `test_soc_alert_on_failure.py`, 1 in
   `test_zeek_capture_liveness.py`; clean checkout 530 passed; cause inside the scripts' `.env` handling not isolated); `intel.dat` (mode 600) cannot be refreshed by the Zeek unit.
