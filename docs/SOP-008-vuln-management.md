@@ -62,7 +62,8 @@ To remediate dependencies:
 | Advisory | Package | Reason | Review |
 |---|---|---|---|
 | PYSEC-2026-161 | starlette | Fix is 1.0.1; FastAPI caps starlette `< 0.50`. Medium severity. | Re-check weekly; remove `--ignore-vuln` once FastAPI supports starlette ≥ 1.0. |
-| CVE-2026-48930 | libnode115 / nodejs (inside the pinned `zeek/zeek:9.0.0` image) | CRITICAL; fix `20.19.2+dfsg-1+deb13u3` isn't in any published zeek/zeek image as of 2026-09-28. Not reachable as deployed: the vulnerable Node.js TLS/resolver bindings run only from ZeekJS scripts, and every capture path loads `.zeek` scripts only. Ignored via `.github/trivy/zeek-image.trivyignore` (`zeek-image` job only). #577. | Expires 2026-11-25 (Trivy fails again automatically); extended from 2026-10-28 on 2026-10-24 after confirming on Docker Hub that no newer `zeek/zeek` tag exists (9.0.0 pushed 2026-09-14 is still newest). Bump the pin once upstream ships a patched image; re-justify rather than extend. |
+| CVE-2026-110858, CVE-2026-42284, CVE-2026-78676 | python3-git (GitPython, inside the pinned `zeek/zeek:9.0.1` image) | CRITICAL; fix `3.1.44-1+deb13u1` isn't in any published zeek/zeek image as of 2026-11-03 (9.0.1, pushed 2026-10-26, is newest and ships `3.1.44-1`). Not reachable as deployed: python3-git is a zkg dependency, and every capture path runs the `zeek` binary only, never zkg or Python. Ignored via `.github/trivy/zeek-image.trivyignore` (`zeek-image` job only). #577. | Expires 2026-11-30 (Trivy fails again automatically). Bump the pin once upstream ships a patched image; re-justify rather than extend. |
+| ~~CVE-2026-48930~~ | libnode115 / nodejs | **Retired 2026-11-03:** `zeek/zeek:9.0.1` ships the fixed `20.19.2+dfsg-1+deb13u3`; exception removed. #577. | — |
 
 # References and Resources
 - `.github/workflows/security-scan.yml`

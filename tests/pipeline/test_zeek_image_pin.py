@@ -74,8 +74,15 @@ REAL_CAPTURE_PATHS = [
 # and rule-field values; enum spot-check and the live field-cap test match.
 # CVE-2026-48930 (nodejs) remains in both — see
 # .github/trivy/zeek-image.trivyignore.
-EXPECTED_TAG = "9.0.0"
-EXPECTED_DIGEST = "sha256:70733f4e540ba1608e37e00c6a93d009f79734262c9ec2ba09d90aa9abc16de5"
+# #577: bumped 9.0.0 -> 9.0.1 (2026-11-03) after Trivy's DB flagged 4 new
+# fixed-upstream CRITICAL CVEs on 9.0.0. 9.0.1's dpkg status (amd64) shows
+# libbrotli1 1.1.0-2+deb13u1 and libnode115 20.19.2+dfsg-1+deb13u3, which
+# clears CVE-2026-111497 and retires the CVE-2026-48930 exception. python3-git
+# is still 3.1.44-1 (3 GitPython CVEs, time-boxed in the trivyignore file).
+# Same Zeek minor series. The 164-pcap golden-output diff was NOT run for
+# this bump (cloud session, no Docker): run it from a local session.
+EXPECTED_TAG = "9.0.1"
+EXPECTED_DIGEST = "sha256:524cb0ce29f26a6a954fb9c357a8f92b95812476d8240f0ece26617ace249dd0"
 
 # Anchored on both sides against [\w./-] so a registry/namespace prefix
 # ("evil.example.com/zeek/zeek", "notzeek/zeek") or a suffix
