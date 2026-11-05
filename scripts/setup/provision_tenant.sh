@@ -18,7 +18,7 @@
 #   ./provision_tenant.sh <tenant-slug>          # e.g. home-smith
 #
 # Env (auto-loaded from ./.env):
-#   ES_URL (default https://localhost:9200), KIBANA_URL (default https://localhost:5601
+#   ES_URL (default https://localhost:9200), KIBANA_URL (default https://localhost:$KIBANA_PORT, else 5601
 #   — #177: Kibana is TLS-only now, same stack CA as ES)
 #   ES_USER/ES_PASS (default elastic / $ELASTIC_PASSWORD), ES_CA (optional)
 # =============================================================================
@@ -39,7 +39,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
 
-KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:${KIBANA_PORT:-5601}}"
 # Shared ES creds + TLS + helpers (issue #156).
 source "$SCRIPT_DIR/lib/es_common.sh"
 AUTH=("${ES_AUTH[@]}"); TLS=("${ES_TLS[@]}")
