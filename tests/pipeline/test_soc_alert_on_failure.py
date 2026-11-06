@@ -18,6 +18,7 @@ Run:  python tests/pipeline/test_soc_alert_on_failure.py
 """
 
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -40,6 +41,20 @@ def _lines(text):
 
 def _directives(text, key):
     return [ln for ln in _lines(text) if ln.startswith(key + "=")]
+
+
+def isolated_script(script, tmp):
+    """Copy `script` into a temp dir that has no `.env` beside it.
+
+    The scripts source `$HERE/.env` after the process environment is built, so a
+    real host `scripts/setup/.env` (NTFY_TOPIC and friends) silently overrides the
+    values a test sets or pops. Running the copy keeps these tests independent of
+    whatever the host's `.env` holds."""
+    dest = Path(tmp) / "isolated"
+    dest.mkdir(exist_ok=True)
+    copy = dest / script.name
+    shutil.copy2(script, copy)
+    return copy
 
 
 class DispatcherUnitExistsTests(unittest.TestCase):
@@ -135,18 +150,19 @@ class DispatcherFunctionalTests(unittest.TestCase):
         curl = self.bin / "curl"
         curl.write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" >> {self.log}\nexit 0\n')
         curl.chmod(curl.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-        # scripts/setup/.env is deliberately NOT written here — each test sets
-        # NTFY_TOPIC directly via the process environment instead, since the
-        # script only reads it FROM .env as a convenience and falls back to
-        # whatever is already set (same `${NTFY_TOPIC:-}` pattern as
-        # stack_health.sh).
+        # scripts/setup/.env is deliberately NOT written here. Each test sets
+        # NTFY_TOPIC through the process environment, and _run() executes a
+        # copy of the script from a temp dir with no .env beside it
+        # (isolated_script). The script sources $HERE/.env AFTER the process
+        # environment is built, so a real host .env would otherwise override
+        # (or fill in) NTFY_TOPIC and break these tests.
 
     def _run(self, unit_name="slo-metrics.service", extra_env=None):
         env = dict(os.environ)
         env["PATH"] = f"{self.bin}:{env.get('PATH', '')}"
         env.pop("NTFY_TOPIC", None)
         env.update(extra_env or {})
-        return subprocess.run(["bash", str(DISPATCHER_SCRIPT), unit_name],
+        return subprocess.run(["bash", str(isolated_script(DISPATCHER_SCRIPT, self.tmp)), unit_name],
                               capture_output=True, text=True, timeout=30, env=env)
 
     def test_requires_a_unit_name_argument(self):
@@ -214,7 +230,7 @@ class DispatcherRateLimitTests(unittest.TestCase):
         if state:
             env["STATE_DIRECTORY"] = str(self.state)
         return subprocess.run(
-            ["bash", str(DISPATCHER_SCRIPT), unit],
+            ["bash", str(isolated_script(DISPATCHER_SCRIPT, self.tmp)), unit],
             capture_output=True,
             text=True,
             timeout=30,
@@ -281,7 +297,7 @@ class DispatcherRateLimitTests(unittest.TestCase):
         )
         env.pop("NTFY_TOPIC", None)
         r = subprocess.run(
-            ["bash", str(DISPATCHER_SCRIPT), "slo-metrics.service"],
+            ["bash", str(isolated_script(DISPATCHER_SCRIPT, self.tmp)), "slo-metrics.service"],
             capture_output=True,
             text=True,
             timeout=30,

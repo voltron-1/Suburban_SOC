@@ -18,7 +18,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$HERE/.env" ]] && { set -a; . "$HERE/.env"; set +a; }
-KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:${KIBANA_PORT:-5601}}"
 NTFY_TOPIC="${NTFY_TOPIC:-}"
 # Shared ES creds + TLS + es helpers (issue #156). Soft mode: a health monitor must
 # keep checking other components even when ES creds are absent, so don't fail-fast.

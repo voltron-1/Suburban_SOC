@@ -23,6 +23,7 @@ Run:  python tests/pipeline/test_zeek_capture_liveness.py
 """
 
 import os
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -105,6 +106,20 @@ class RunsAsRootTests(unittest.TestCase):
         self.assertIn("User=root", SERVICE)
 
 
+def isolated_script(script, tmp):
+    """Copy `script` into a temp dir that has no `.env` beside it.
+
+    The scripts source `$HERE/.env` after the process environment is built, so a
+    real host `scripts/setup/.env` (NTFY_TOPIC and friends) silently overrides the
+    values a test sets or pops. Running the copy keeps these tests independent of
+    whatever the host's `.env` holds."""
+    dest = Path(tmp) / "isolated"
+    dest.mkdir(exist_ok=True)
+    copy = dest / script.name
+    shutil.copy2(script, copy)
+    return copy
+
+
 class ZeekCaptureLivenessFunctionalTests(unittest.TestCase):
     """Runs the real script behind fake `systemctl`/`curl` on PATH."""
 
@@ -138,8 +153,8 @@ exit 0
         env["ZEEK_CONN_LOG"] = str(self.conn_log)
         env.pop("NTFY_TOPIC", None)
         env.update(extra_env or {})
-        return subprocess.run(["bash", str(SCRIPT_PATH)], capture_output=True,
-                              text=True, timeout=30, env=env)
+        return subprocess.run(["bash", str(isolated_script(SCRIPT_PATH, self.tmp))],
+                              capture_output=True, text=True, timeout=30, env=env)
 
     def test_fresh_log_is_healthy_no_restart(self):
         self._stub_systemctl()

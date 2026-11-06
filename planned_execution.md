@@ -9,6 +9,8 @@ Status: `[ ]` todo · `[~]` in-progress · `[x]` done · `[!]` blocked
 
 ## NEXT UP
 
+> **2026-11-04 handoff (newest):** [`plans/20261104-session-handoff.md`](plans/20261104-session-handoff.md). It corrects parts of the 2026-10-24 handoff below; read it first.
+>
 > **2026-10-24 handoff:** a newer cloud-session summary, open items in priority order, owner decisions and lessons are in
 > [`plans/20261024-session-handoff.md`](plans/20261024-session-handoff.md). The capture-host status below (dated 2026-09-28) is superseded by `LAST SESSION — 2026-10-24`.
 
@@ -94,6 +96,42 @@ Filebeat/Logstash for #556's syslog input and run
 enable `stack-health.timer` and `zeek-capture-liveness.timer`. `NTFY_TOPIC`
 provisioning (#554) stays last and stays gated on item 1.
 
+## LAST SESSION — 2026-11-04
+
+Local session on the capture host (times CST). Re-verified the 2026-10-24 state read-only first; several "DONE" items had regressed.
+Handoff: [`plans/20261104-session-handoff.md`](plans/20261104-session-handoff.md). Evidence: `findings/20261104-plan-claim-verification.md`,
+`findings/20261104-root-unit-capability-audit.md`, `findings/20261104-docker-engine-split.md`.
+
+- [x] **Re-verified (read-only):** `zeek-host-capture` was `failed` (pinned `CAPTURE_IFACE=eth1` does not exist after a WSL restart), `conn.log` last written 2026-10-30,
+  `NTFY_TOPIC` empty, `zeek-capture-liveness` failing, stack not up after a restart. See the claim-verification findings.
+- [x] **`zeek-capture-liveness.service` fixed in the repo and live-verified in its first form.** Root cause: empty `CapabilityBoundingSet=` removes `CAP_DAC_OVERRIDE`, so root
+  could not traverse `/home/tjlam` (mode 750): 336 `Permission denied` (status 126). A first fix with `CAP_DAC_READ_SEARCH` ran live (no more `Permission denied`; the script then
+  reported `STALE` and restarted capture). It was replaced by `SupplementaryGroups=tjlam` (the repo's own policy, `test_capture_unit_repo_access.py`) plus a test that discovers every
+  root unit reading the home checkout (fails on the old unit, passes on the new). **The group-based unit is not deployed or run on the host: UNVERIFIED.**
+- [x] **Audit of all 9 service units:** only the liveness unit had the bug; `zeek-host-capture` and `suricata-host-capture` already use the group; the six `User=tjlam` units are
+  unaffected. `checkpoints-compact` and `threat-intel-compact` are not installed on this host. `findings/20261104-root-unit-capability-audit.md`.
+- [x] **Zeek capture running again (stopgap).** Owner set `CAPTURE_IFACE=eth0` (WSL NAT, this PC's traffic only) and restarted; `ssl.log`/`weird.log` written 17:07:13 and `conn.log`
+  has fresh records. The pin is still a manual edit and will break again after a WSL restart. Sensor placement (#593) is open: the router `10.18.81.1` is not reachable from this host
+  (`No route to host`; WSL NAT via `172.21.112.1`).
+- [x] **Docker engine split diagnosed.** Native `dockerd` and Docker Desktop both claim `/var/run/docker.sock`; Desktop replaced it at 11:08:44 on 2026-11-03 (identical mtime to its pid
+  file). The stack lives in Desktop's engine; Desktop `AutoStart = False`; nothing started the stack after a restart.
+- [x] **Option B built (repo only): `suburban-soc-stack.service` + `scripts/setup/start_stack.sh` + `tests/pipeline/test_stack_start.py` + SOP-005 section.** The script waits for
+  `docker info` to report `docker-desktop`, refuses any other engine, then runs `docker compose up -d --no-recreate`. Engine guard mutation-tested. **Not run under real systemd or
+  Docker Desktop: UNVERIFIED.** Option A (native dockerd, headless) is kept as the long-term target.
+- [x] **Test isolation from the host `.env` (2026-11-05).** The dispatcher and liveness scripts source `$HERE/.env` after the test builds its environment, so a real `.env`
+  overrode `NTFY_TOPIC` (5 failures reproduced in a clean worktree with a key-populated `.env`). Tests now run a copy of each script from a temp dir with no `.env`
+  (`isolated_script()`); `tests/pipeline` 542 passed with and without a `.env`. Only the 5 reproduced failures are verified; the earlier count of 14 is not.
+- [x] **Kibana published on 5700, scripts follow `KIBANA_PORT` (2026-11-05).** `compose up` failed at Kibana with `exposing port TCP 0.0.0.0:5601 ... /forwards/expose returned
+  unexpected status: 500` (Docker Desktop; cause not proven); the owner set `KIBANA_PORT=5700` and Kibana answers 302 on `https://localhost:5700`. Seven scripts hardcoded 5601
+  (`soc_pipeline.sh`, `stack_health.sh`, `provision_tenant.sh`, `deploy_soc_presentation.sh`, `deploy_detections.sh`, `deploy_dashboards.sh`, `erase_tenant.sh`) and now default to `${KIBANA_PORT:-5601}`; `soc_pipeline.sh` reads that one line from `.env` without sourcing it. Tests:
+  `tests/pipeline/test_soc_pipeline_kibana_port.py`. **The scripts were not run against live Kibana: UNVERIFIED**, including whether `stack-health.timer` now reports Kibana UP.
+- [ ] **Host state 2026-11-05 09:35 (read-only):** the five long-running containers were healthy for 17 h; `suburban-soc-stack.service` was **not installed** and native
+  `docker.service`/`docker.socket` were still active, so owner steps 4.1c-d were not complete. Installed `zeek-capture-liveness.service` was the 2026-11-04 17:06 `CAP_DAC_READ_SEARCH`
+  copy, older than the repo's group-based one (not yet copied); its timer reported `OK` (conn.log age 57 s). `.git/hooks/post-commit` (wiki sync via `agy`) is non-executable and left that way.
+- [ ] **Not done:** deploy of the two units (needs the owner's sudo); `NTFY_TOPIC` still empty (claim C2 unproven); `zeek-host-capture` has no ordering against the engine; durable
+  `CAPTURE_IFACE` selection; `.env` is mode 644 (use 640); 14 `tests/pipeline` tests fail only when a real `scripts/setup/.env` exists (13 in `test_soc_alert_on_failure.py`, 1 in
+  `test_zeek_capture_liveness.py`; clean checkout 530 passed; cause inside the scripts' `.env` handling not isolated); `intel.dat` (mode 600) cannot be refreshed by the Zeek unit.
+
 ## LAST SESSION — 2026-11-03
 
 Cloud session: `zeek/zeek` pin bump for #577.
@@ -106,6 +144,22 @@ Cloud session: `zeek/zeek` pin bump for #577.
 - [ ] **UNVERIFIED:** the step-2 golden-output diff (164 pcaps through both images) was not run: no Docker in a cloud session.
   Run it from the capture host before or right after merge. CI's `live-fire` job runs the two live Zeek tests on the new pin.
 - [ ] **Capture host:** after merge, `git pull` the checkout, pre-pull with the `docker pull` line in the `zeek-host-capture.service` header, then restart the unit (and `redeploy_systemd_units.sh` so the installed unit's header matches the repo).
+
+## LAST SESSION — 2026-11-01
+
+Cloud session, read-only repository audit (no code, config or tests changed).
+
+- [x] **Audit written:** [`findings/2026-11-01-repo-audit.md`](findings/2026-11-01-repo-audit.md). 43 findings mapped to
+  NIST CSF 2.0 and SP 800-53 Rev. 5; roadmap items C1–C2 (critical) and H1–H6 (high) each get one issue, one branch
+  (`remediation/issue-<n>-nist`) and one PR.
+- [x] **Baseline tests run (Python 3.11.18):** `tests/ai_agent` 585 passed / 1 skipped; broker `test_app`, `test_inventory`,
+  `test_dispatcher` 92 passed. About 207 existing tests are not invoked by any workflow (AUD-27).
+- [x] **Issues opened 2026-11-02:** C1 #599, C2 #600, H1 #601, H2 #602, H3 #603, H4 #604, H5 #605, H6 #606 (audit PR #598).
+- [ ] **Recommended order:** H1 #601 (run all tests in CI) before C1 #599, so C1's new tests actually run in CI; then C2 #600, H2–H6 (#602–#606).
+- **Disclosure:** the repo is public, so AUD-01/AUD-02 are written at control level; reproduction details are held privately
+  by the owner until the fixes merge.
+- **UNVERIFIED:** live Elasticsearch role semantics (AUD-05), container file access (AUD-11), the Logstash end-to-end path
+  (AUD-02), live branch protection, weekly-report MTTD field shape (AUD-14).
 
 ## LAST SESSION — 2026-10-24
 

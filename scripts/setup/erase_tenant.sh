@@ -22,7 +22,7 @@
 #   ./erase_tenant.sh <tenant-slug> --yes      # non-interactive (runbook/automation)
 #   ./erase_tenant.sh <tenant-slug> --dry-run  # show what WOULD be deleted
 #
-# Env (auto-loaded from ./.env): ES_URL, KIBANA_URL (default https://localhost:5601
+# Env (auto-loaded from ./.env): ES_URL, KIBANA_URL (default https://localhost:$KIBANA_PORT, else 5601
 # — #177: Kibana is TLS-only now, same stack CA as ES), ES_USER/ES_PASS, ES_CA.
 # =============================================================================
 set -euo pipefail
@@ -44,7 +44,7 @@ DRY=0; ASSUME_YES=0
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 [[ -f "$SCRIPT_DIR/.env" ]] && { set -a; . "$SCRIPT_DIR/.env"; set +a; }
-KIBANA_URL="${KIBANA_URL:-https://localhost:5601}"
+KIBANA_URL="${KIBANA_URL:-https://localhost:${KIBANA_PORT:-5601}}"
 # Shared ES creds + TLS + es()/es_code() (issue #156).
 source "$SCRIPT_DIR/lib/es_common.sh"
 

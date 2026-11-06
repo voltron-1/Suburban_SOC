@@ -141,6 +141,46 @@ journalctl -u zeek-capture-liveness -n 20 --no-pager
   `active`, the log stops advancing. `rules/sigma/system_lnx_self_health_unit_failed.yml`
   (#556) covers the *other* half — the unit actually reaching `failed`.
 
+### Starting the stack at boot: one Docker engine (Option B)
+
+*Added 2026-11-04. Evidence and options: `findings/20261104-docker-engine-split.md`. Not yet run on a live host: every step below is UNVERIFIED until you record the output.*
+
+**Problem.** On the WSL capture host two engines can own `/var/run/docker.sock`: native `dockerd` (systemd `docker.service`) and Docker Desktop's WSL proxy, which replaces the socket once Desktop is launched. The compose project and its volumes live in Docker Desktop's engine, and WSL does not start Desktop. After a reboot nothing started the stack, so `stack-health` reported every component DOWN.
+
+**Chosen design (Option B).** Docker Desktop is the only engine. `suburban-soc-stack.service` runs `scripts/setup/start_stack.sh`, which waits until `docker info` reports `docker-desktop` and then runs `docker compose up -d --no-recreate`. It will not start the stack on any other engine, because that would create an empty second copy with new volumes and a new CA. Limit: Desktop needs a Windows sign-in, so a reboot with nobody signing in still has no stack. Option A (native `dockerd` only, headless) is the long-term target and needs a data migration; see the findings file.
+
+**Install (owner, needs sudo).**
+1. Check what the native engine holds before disabling it (read-only). If anything you need is listed, stop here and migrate it first:
+   ```bash
+   sudo sh -c 'ls /var/lib/docker/containers | wc -l'
+   sudo grep -ho '"Name":"[^"]*"' /var/lib/docker/containers/*/config.v2.json
+   ```
+2. Docker Desktop > Settings > General > enable "Start Docker Desktop when you sign in". (Desktop currently has `AutoStart = False` in `%APPDATA%\Docker\settings-store.json`.)
+3. Install and enable the unit from the repo checkout:
+   ```bash
+   sudo cp configs/systemd/suburban-soc-stack.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable suburban-soc-stack.service
+   ```
+4. Disable the native engine so the socket path can only mean Desktop. This stops anything running in the native engine:
+   ```bash
+   sudo systemctl disable --now docker.service docker.socket
+   ```
+
+**Verify.**
+```bash
+docker info --format '{{.Name}}'                      # expect: docker-desktop
+systemctl status suburban-soc-stack.service --no-pager
+journalctl -u suburban-soc-stack -n 20 --no-pager     # expect: "engine 'docker-desktop' is up"
+docker compose -f scripts/setup/docker-compose.yml ps
+```
+Done when, after a WSL restart (`wsl.exe --shutdown`) and starting Docker Desktop, `elasticsearch`, `kibana`, `logstash`, `ai-agent` and `hive-mind-broker` are running **without** a manual `docker compose up`, and `stack-health` reports them UP. Record the timestamps.
+
+**Reading the unit state.** `activating` means it is waiting for Docker Desktop (default 4 h): not a failure. Exit 75 means Desktop never answered; start it. Exit 78 means `scripts/setup/.env` is missing. Anything else is compose's own error: read the journal.
+
+**Rollback.** `sudo systemctl disable --now suburban-soc-stack.service`, then `sudo systemctl enable --now docker.service docker.socket`. Docker Desktop will replace the socket again when it next starts, which restores the original split. Stop and remove nothing in the Desktop engine.
+
+**Known gap.** `zeek-host-capture.service` also calls `docker` and has no ordering against the engine, so at boot it can try before Desktop is up. Not changed here (its header records a sandbox change that once broke production).
+
 ### Mutual cross-monitoring: who watches the watchers
 
 The two self-monitoring lanes watch **each other's output index**, never their own:
@@ -365,6 +405,7 @@ metric rather than trusting the case-closed state.
 - `scripts/setup/restore_test.sh`
 - `scripts/setup/stack_health.sh`
 - `configs/systemd/stack-health.service` / `configs/systemd/stack-health.timer` (#555)
+- `configs/systemd/suburban-soc-stack.service` / `scripts/setup/start_stack.sh` (boot-time stack start; `findings/20261104-docker-engine-split.md`)
 - `configs/monitoring/reliability.cron` (fallback for hosts without systemd)
 - `configs/elasticsearch/roles/slo_metrics_reader.json` (the `soc-health` read grant)
 - `configs/elasticsearch/roles/soc_health.json` (the self-health lane's own identity, #555)

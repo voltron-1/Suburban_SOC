@@ -85,6 +85,14 @@ LockPersonality=true
 # added speculatively.
 UMask=0077
 CapabilityBoundingSet=
+# SupplementaryGroups: with the empty set above, root has no CAP_DAC_OVERRIDE
+# and cannot traverse /home/tjlam (mode 750, tjlam:tjlam) to reach the script
+# and scripts/setup/.env -> `Permission denied`, status 126, 336 times in the
+# journal by 2026-11-04. Group membership, not CAP_DAC_READ_SEARCH (which is
+# filesystem-wide read): same fix and rationale as zeek-host-capture.service's
+# SupplementaryGroups comment and tests/pipeline/test_capture_unit_repo_access.py.
+# Hardcoded because systemd does not expand ${VAR} in this directive.
+SupplementaryGroups=tjlam
 SystemCallArchitectures=native
 # AF_UNIX is load-bearing here, not just precautionary like the sibling
 # units' note on AF_NETLINK: systemctl talks to PID 1 over the D-Bus system

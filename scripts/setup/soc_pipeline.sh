@@ -24,6 +24,14 @@ LOG_DIR="/storage/PCAP/zeek_logs"
 ROUTER_USER="${ROUTER_USER:-root}"
 # ROUTER_IP is dynamically configured later in the script
 # ES_USER and ES_PASS are dynamically configured later in the script
+# Kibana's published host port. docker-compose.yml publishes ${KIBANA_PORT:-5601}, and
+# this host runs 5700 (5601 failed with a Docker Desktop /forwards/expose 500, 2026-11-05).
+# Resolve it from the environment, else from the single KIBANA_PORT line in .env. The .env
+# is deliberately NOT sourced here: that would export every secret in it. Anything that is
+# not all digits falls back to 5601.
+KIBANA_PORT="${KIBANA_PORT:-$(sed -n 's/^KIBANA_PORT=//p' "$SCRIPT_DIR/.env" 2>/dev/null | tail -n 1)}"
+[[ "$KIBANA_PORT" =~ ^[0-9]+$ ]] || KIBANA_PORT=5601
+KIBANA_URL="${KIBANA_URL:-https://localhost:${KIBANA_PORT}}"
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -346,13 +354,13 @@ run_prereq_checks() {
     # Test Kibana frontend availability. #189: Kibana is TLS-only now (self-signed
     # stack CA); use the CA to securely verify reachability, mirroring es_common.sh.
     local kb_code
-    kb_code=$(http_code https://localhost:5601)
+    kb_code=$(http_code "$KIBANA_URL")
     case "$kb_code" in
         200|302)
             # 302 is the normal unauthenticated redirect to /login.
-            pass "Kibana is reachable (port 5601, HTTP $kb_code)" ;;
+            pass "Kibana is reachable (port ${KIBANA_PORT}, HTTP $kb_code)" ;;
         000)
-            warn "Kibana gave no HTTP response - open https://localhost:5601 after starting the ELK stack" ;;
+            warn "Kibana gave no HTTP response - open ${KIBANA_URL} after starting the ELK stack" ;;
         503)
             warn "Kibana answered HTTP 503 - the container is up but Kibana is still initialising or degraded" ;;
         *)
@@ -642,9 +650,9 @@ run_sop_005() {
 
     echo -e "\n${BOLD}Step 4: Verify Kibana${NC}"
     # #189: Kibana is TLS-only now (self-signed stack CA); verify using CA.
-    KB_CODE=$(http_code https://localhost:5601)
+    KB_CODE=$(http_code "$KIBANA_URL")
     case "$KB_CODE" in
-        200|302) pass "Kibana reachable at https://localhost:5601 (HTTP $KB_CODE)" ;;
+        200|302) pass "Kibana reachable at ${KIBANA_URL} (HTTP $KB_CODE)" ;;
         000)     warn "Kibana gave no HTTP response - check Docker containers" ;;
         *)       warn "Kibana answered HTTP $KB_CODE (expected 200/302) - check the kibana container logs" ;;
     esac
@@ -692,7 +700,7 @@ run_sop_005() {
 
     echo -e "\n${BOLD}Step 8: Confirm data in Kibana${NC}"
     info "Open Kibana -> Discover -> Index pattern: logstash-*"
-    info "URL: https://localhost:5601"
+    info "URL: ${KIBANA_URL}"
     pass "Pipeline startup sequence complete"
 }
 
